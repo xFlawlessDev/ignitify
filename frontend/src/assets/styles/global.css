@@ -1,0 +1,245 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme {
+  /* Ignitify static palette for charts, terminals, and explicit status visuals. */
+  --color-obsidian-canvas: #101010;
+  --color-carbon-lift: #1d1a18;
+  --color-ash-stroke: #3d3a39;
+  --color-graphite-mid: #4d4947;
+  --color-warm-granite: #8a8380;
+  --color-pale-stone: #b8b3b0;
+  --color-bone: #eeeeee;
+  --color-chalk: #fafafa;
+  --color-signal-orange: #ee6018;
+  --color-metric-green: #a0ca92;
+  --font-geist:
+    Geist, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-geist-mono: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --spacing-control-8: 8px;
+  --spacing-control-16: 16px;
+  --spacing-control-24: 24px;
+  --spacing-control-32: 32px;
+  --spacing-control-40: 40px;
+  --spacing-control-56: 56px;
+  --spacing-control-80: 80px;
+  --spacing-control-96: 96px;
+  --spacing-control-120: 120px;
+  --radius-control-sm: 3px;
+  --radius-control-lg: 10px;
+  --radius-control-2xl: 20px;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --radius-sm: 0.1875rem;
+  --radius-md: 0.1875rem;
+  --radius-lg: 0.625rem;
+  --radius-xl: 1.25rem;
+  --font-sans: var(--font-geist);
+  --font-mono: var(--font-geist-mono);
+}
+
+:root {
+  --background: #f6f5f4;
+  --foreground: #1d1a18;
+  --card: #ffffff;
+  --card-foreground: #1d1a18;
+  --popover: #ffffff;
+  --popover-foreground: #1d1a18;
+  --primary: #1d1a18;
+  --primary-foreground: #fafafa;
+  --secondary: #ebe8e6;
+  --secondary-foreground: #1d1a18;
+  --muted: #f0edeb;
+  --muted-foreground: #706965;
+  --accent: #e5e1de;
+  --accent-foreground: #1d1a18;
+  --destructive: #b42318;
+  --destructive-foreground: #ffffff;
+  --border: #d3cfca;
+  --input: #c7c2bd;
+  --ring: #d9500c;
+  --chart-1: #d9500c;
+  --chart-2: #47823e;
+  --chart-3: #706965;
+  --chart-4: #8a8380;
+  --chart-5: #b8b3b0;
+  --selection-foreground: #ffffff;
+  --selection-background: #d9500c;
+  --scrollbar-thumb: #c7c2bd;
+  --scrollbar-thumb-hover: #a9a39e;
+  --status-inactive: #706965;
+  --status-live: #d9500c;
+  --status-healthy: #47823e;
+  --sidebar-background: #171615;
+  --sidebar-foreground: #d8d3cf;
+  --sidebar-strong: #f4f2f0;
+  --sidebar-muted: #918a85;
+  --sidebar-label: #746e6a;
+  --sidebar-surface: #211f1d;
+  --sidebar-border: #2d2a28;
+  --sidebar-hover-border: #4b4541;
+  --sidebar-active: #2a2724;
+  --sidebar-avatar: #4a4541;
+  --sidebar-accent: #d7a158;
+  --page-max-width: 1200px;
+  --section-gap: 96px;
+  --card-padding: 24px;
+  --element-gap: 24px;
+}
+
+.dark {
+  --background: #101010;
+  --foreground: #eeeeee;
+  --card: #1d1a18;
+  --card-foreground: #eeeeee;
+  --popover: #1d1a18;
+  --popover-foreground: #eeeeee;
+  --primary: #eeeeee;
+  --primary-foreground: #101010;
+  --secondary: #24211f;
+  --secondary-foreground: #eeeeee;
+  --muted: #1d1a18;
+  --muted-foreground: #8a8380;
+  --accent: #2a2725;
+  --accent-foreground: #eeeeee;
+  --destructive: #d85a5a;
+  --destructive-foreground: #101010;
+  --border: #3d3a39;
+  --input: #3d3a39;
+  --ring: #ee6018;
+  --chart-1: #ee6018;
+  --chart-2: #a0ca92;
+  --chart-3: #b8b3b0;
+  --chart-4: #8a8380;
+  --chart-5: #4d4947;
+  --selection-foreground: #101010;
+  --selection-background: #ee6018;
+  --scrollbar-thumb: #3d3a39;
+  --scrollbar-thumb-hover: #4d4947;
+  --status-inactive: #8a8380;
+  --status-live: #ee6018;
+  --status-healthy: #a0ca92;
+  --sidebar-background: #101010;
+  --sidebar-foreground: #d8d3cf;
+  --sidebar-strong: #f4f2f0;
+  --sidebar-muted: #918a85;
+  --sidebar-label: #746e6a;
+  --sidebar-surface: #1d1a18;
+  --sidebar-border: #3d3a39;
+  --sidebar-hover-border: #4d4947;
+  --sidebar-active: #2a2725;
+  --sidebar-avatar: #4a4541;
+  --sidebar-accent: #d7a158;
+}
+
+html.dark {
+  color-scheme: dark;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    font-size: 16px;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    min-width: 320px;
+    min-height: 100dvh;
+    font-family: var(--font-sans);
+    font-weight: 400;
+    font-feature-settings:
+      "rlig" 1,
+      "calt" 1;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  button,
+  input,
+  textarea,
+  select {
+    font: inherit;
+  }
+
+  ::selection {
+    color: var(--selection-foreground);
+    background: var(--selection-background);
+  }
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
+@utility ui-label {
+  color: var(--muted-foreground);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 400;
+  letter-spacing: 0;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+@utility status-dot {
+  display: inline-block;
+  width: 0.375rem;
+  height: 0.375rem;
+  flex: none;
+  border-radius: 50%;
+  background: var(--status-inactive);
+
+  &[data-status="live"] {
+    background: var(--status-live);
+  }
+
+  &[data-status="healthy"] {
+    background: var(--status-healthy);
+  }
+}

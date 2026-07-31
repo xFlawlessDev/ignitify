@@ -1,0 +1,14 @@
+[package]
+name = "ignitify-core"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+axum.workspace = true
+ignitify-auth = { path = "../ignitify-auth" }
+ignitify-db = { path = "../ignitify-db" }
+serde.workspace = true
+serde_json = "1"
+tokio.workspace = true
+
