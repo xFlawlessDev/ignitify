@@ -2,14 +2,15 @@
 
 ## Project Overview
 
-Ignitify is a self-hosted deployment control plane built with Rust and Vue 3. Current product slice delivers local SQLite-backed password auth; project and deployment views are UI fixtures until control-plane work lands.
+Ignitify is a self-hosted deployment control plane built with Rust and Vue 3. Current product slice delivers local SQLite-backed password auth and projects; deployment control-plane behavior has not landed.
 
 ## Architecture & Data Flow
 
 - Rust workspace uses Rust 2024 and shared dependencies from `Cargo.toml`.
-- `ignitify-core` is composition root and Axum HTTP adapter. Keep handlers small: extract, authenticate, validate, call service/repository, map error.
-- `ignitify-auth` owns Argon2 credentials, JWT access tokens, rotating hashed refresh tokens, and auth DTOs. It receives `Database` through `AuthService::new(database, config)`.
-- `ignitify-db` owns SQLite connection setup, embedded migrations, repositories, and database records. Add numbered SQL migrations, for example `crates/ignitify-db/migrations/0002_projects.sql`.
+- `ignitify-core` is runtime composition root only: read runtime config, build dependencies, bind listener, call `axum::serve`. It owns no routes, handlers, request/response DTOs, or HTTP error mapping.
+- `ignitify-api` owns Axum route registration, HTTP handlers, request/response DTOs, cookie/origin helpers, authentication extraction, and safe HTTP error mapping. Handlers extract, authenticate, validate, call a service/repository, then map errors.
+- `ignitify-auth` owns Argon2 credentials, JWT access tokens, rotating hashed refresh tokens, auth DTOs, and `AuthError`. It receives `Database` through `AuthService::new(database, config)`.
+- `ignitify-db` owns SQLite connection setup, embedded migrations, `models/`, and `repositories/`. Add numbered SQL migrations, for example `crates/ignitify-db/migrations/0002_projects.sql`.
 - Frontend flow: `src/main.ts` installs Pinia and Router; router guard initializes `useAuthStore`; API client adds in-memory Bearer token; refresh uses HttpOnly cookie; Vite proxies `/api` to backend.
 - Backend runs `127.0.0.1:5656`; frontend runs `6565`.
 
@@ -17,9 +18,10 @@ Keep future deployment handlers separate from Docker or ingress execution. HTTP 
 
 ## Key Directories
 
-- `crates/ignitify-core/` - Axum startup, routes, cookies, HTTP error mapping.
+- `crates/ignitify-core/` - runtime config, dependency composition, listener, process error.
+- `crates/ignitify-api/` - Axum routes, handlers, HTTP DTOs, cookies, origin/auth extraction, API error mapping.
 - `crates/ignitify-auth/` - auth service and session/JWT behavior.
-- `crates/ignitify-db/` - SQLx SQLite access, migrations, repository records.
+- `crates/ignitify-db/` - SQLx SQLite access, migrations, models, and repositories.
 - `frontend/src/lib/api/` - typed API functions and token/refresh transport.
 - `frontend/src/stores/` - Pinia domain state; `auth.ts` is setup-store pattern.
 - `frontend/src/views/` - routed page surfaces, for example `ProjectsView.vue`.
@@ -64,13 +66,38 @@ pnpm test:e2e
 
 ### Rust
 
-- Format with `cargo fmt`; keep Clippy clean with warnings denied.
-- Use `snake_case` functions/modules, `PascalCase` types, singular error enums such as `AuthError` and `DatabaseError`.
-- Prefer explicit local aliases: `pub type Result<T> = std::result::Result<T, AuthError>`.
-- Use `thiserror` enums and map internal database/crypto/JWT errors at HTTP boundary. Do not expose server internals in JSON errors.
-- Keep async I/O methods `async`; use SQLx `.bind(...)`, never concatenate user input into SQL.
-- Keep dependencies directional: `core -> auth/db`; auth can use db; db never imports HTTP/auth crates. Pass dependencies through constructors, for example `AuthService::new(database, config)`.
-- Store refresh tokens as hashes only. Keep access tokens memory-only client side. State-changing cookie routes must retain `X-Ignitify-Request` protection.
+#### Crate Structure
+
+- Keep dependency direction one-way: `ignitify-core -> ignitify-api -> ignitify-auth -> ignitify-db -> ignitify-domain`. `ignitify-api` may also depend on `ignitify-db` and `ignitify-domain` for adapter contracts. No lower crate imports `ignitify-api` or `ignitify-core`.
+- `ignitify-core/src/main.rs` stays runtime-only. Do not add handlers, DTOs, routes, request extractors, cookie helpers, or `IntoResponse` implementations there.
+- In `ignitify-api`, keep `routes.rs` for route registration, `handlers/<resource>.rs` for resource handlers, `extract.rs` for shared HTTP extraction/response helpers, `state.rs` private, and `error.rs` for `ApiError`.
+- In `ignitify-db`, keep pool/migration composition in `database.rs`; public persistence records in `models/`; SQL and repository methods in `repositories/<resource>.rs`; private SQL row structs beside their repository. Re-export deliberate public API from `lib.rs` only.
+- Keep domain validation and domain types in `ignitify-domain`; never put SQLx, Axum, auth, or runtime types there. Split by bounded domain ownership, not arbitrary file length.
+- Keep modules private by default. Use `pub(crate)` for same-crate routing; expose only contracts used across crates.
+
+#### Errors And Safety
+
+- Every crate defines one typed error enum in `error.rs` or crate root: `CoreError`, `ApiError`, `AuthError`, `DatabaseError`, or domain `InputError`. Define `pub type Result<T> = std::result::Result<T, ErrorType>` for fallible crate APIs.
+- Use `thiserror` for library/crate errors. Use `#[from]` only at an ownership boundary. Preserve sources internally; map to stable, non-sensitive messages at API boundary.
+- Only `ignitify-api` implements `IntoResponse`. Never return `sqlx::Error`, JWT errors, password errors, database URLs, SQL, or internal details to clients.
+- Use `Result` and `?` for recoverable failures. No `unwrap()` or `expect()` in production paths. Tests may use `unwrap()`.
+- Map input validation to `400`, unauthenticated to `401`, forbidden to `403`, inaccessible/nonexistent to `404`, conflicts to `409`, and unexpected failures to `500`.
+- Keep async I/O methods `async`; use SQLx `.bind(...)`, never concatenate user input into SQL. Transactions must cover all writes needing atomicity.
+- Store refresh tokens as hashes only. Keep access tokens memory-only client side. State-changing cookie routes must retain `X-Ignitify-Request` protection and trusted-origin validation.
+
+#### Quality Gate
+
+- Format with `cargo fmt`; keep Clippy clean with warnings denied. Run `cargo check --workspace`, `cargo test --workspace`, `cargo fmt --all -- --check`, and `cargo clippy --workspace --all-targets -- -D warnings` for Rust changes.
+- Add focused regression coverage for non-trivial auth, persistence, authorization, state, or policy changes. Name tests after behavior.
+
+#### References
+
+- Cargo workspaces: https://doc.rust-lang.org/cargo/reference/workspaces.html
+- Rust modules and visibility: https://doc.rust-lang.org/book/ch07-03-paths-for-referring-to-an-item-in-the-module-tree.html
+- Rust recoverable errors and `?`: https://doc.rust-lang.org/book/ch09-02-recoverable-errors-with-result.html
+- Axum error handling: https://docs.rs/axum/latest/axum/error_handling/
+- `thiserror`: https://docs.rs/thiserror/latest/thiserror/
+- Rust API Guidelines, failure docs: https://rust-lang.github.io/api-guidelines/documentation.html#function-docs-include-error-panic-and-safety-considerations-c-failure
 
 ### Vue and TypeScript
 
@@ -86,9 +113,10 @@ pnpm test:e2e
 
 - `Cargo.toml` - workspace members and shared Rust dependencies.
 - `.env.example` - backend runtime variables; never commit real secrets.
-- `crates/ignitify-core/src/main.rs` - API entrypoint, route registration, auth/cookie adapter.
+- `crates/ignitify-core/src/main.rs` - runtime entrypoint: config, dependency composition, listener, server.
+- `crates/ignitify-api/src/lib.rs` and `routes.rs` - public API router and route registration; `handlers/` owns HTTP adapters.
 - `crates/ignitify-auth/src/lib.rs` - public auth contract and session lifecycle.
-- `crates/ignitify-db/src/lib.rs` - database configuration, migration bootstrapping, repositories.
+- `crates/ignitify-db/src/lib.rs` - persistence public facade; `database.rs`, `models/`, and `repositories/` own implementation.
 - `crates/ignitify-db/migrations/0001_auth.sql` - current durable auth schema.
 - `frontend/vite.config.ts` - Vite+, Tailwind plugin, aliases, ports, API proxy, test inclusion.
 - `frontend/src/router/index.ts` - lazy routes and auth guard.

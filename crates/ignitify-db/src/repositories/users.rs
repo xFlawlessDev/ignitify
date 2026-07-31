@@ -1,0 +1,130 @@
+use chrono::Utc;
+use sqlx::{FromRow, SqlitePool};
+use uuid::Uuid;
+
+use crate::{Result, UserRecord, UserRole};
+
+#[derive(Debug, Clone)]
+pub struct UsersRepository {
+    pool: SqlitePool,
+}
+
+impl UsersRepository {
+    pub(crate) fn new(pool: SqlitePool) -> Self {
+        Self { pool }
+    }
+
+    pub async fn count(&self) -> Result<i64> {
+        Ok(sqlx::query_scalar("SELECT COUNT(*) FROM users")
+            .fetch_one(&self.pool)
+            .await?)
+    }
+
+    pub async fn bootstrap_admin(
+        &self,
+        username: &str,
+        password_hash: &str,
+    ) -> Result<Option<UserRecord>> {
+        let id = Uuid::new_v4().to_string();
+        let created_at = Utc::now().to_rfc3339();
+        let created = sqlx::query(
+            "INSERT INTO users (id, username, password_hash, role, is_active, created_at) SELECT ?, ?, ?, 'admin', 1, ? WHERE NOT EXISTS (SELECT 1 FROM users)",
+        )
+        .bind(&id)
+        .bind(username)
+        .bind(password_hash)
+        .bind(created_at)
+        .execute(&self.pool)
+        .await?
+        .rows_affected();
+        if created == 0 {
+            return Ok(None);
+        }
+        self.get_by_id(&id).await
+    }
+
+    pub async fn create(
+        &self,
+        username: &str,
+        password_hash: &str,
+        role: UserRole,
+    ) -> Result<UserRecord> {
+        let id = Uuid::new_v4().to_string();
+        sqlx::query(
+            "INSERT INTO users (id, username, password_hash, role, is_active, created_at) VALUES (?, ?, ?, ?, 1, ?)",
+        )
+        .bind(&id)
+        .bind(username)
+        .bind(password_hash)
+        .bind(role.as_str())
+        .bind(Utc::now().to_rfc3339())
+        .execute(&self.pool)
+        .await?;
+        self.get_by_id(&id)
+            .await?
+            .ok_or(sqlx::Error::RowNotFound.into())
+    }
+
+    pub async fn get_by_username(&self, username: &str) -> Result<Option<UserRecord>> {
+        let row = sqlx::query_as::<_, UserRow>(
+            "SELECT id, username, password_hash, role, is_active, auth_version FROM users WHERE username = ?",
+        )
+        .bind(username)
+        .fetch_optional(&self.pool)
+        .await?;
+        row.map(UserRow::into_record).transpose()
+    }
+
+    pub async fn get_by_id(&self, id: &str) -> Result<Option<UserRecord>> {
+        let row = sqlx::query_as::<_, UserRow>(
+            "SELECT id, username, password_hash, role, is_active, auth_version FROM users WHERE id = ?",
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await?;
+        row.map(UserRow::into_record).transpose()
+    }
+
+    pub async fn set_last_login(&self, id: &str) -> Result<()> {
+        sqlx::query("UPDATE users SET last_login = ? WHERE id = ?")
+            .bind(Utc::now().to_rfc3339())
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn audit(&self, user_id: &str, action: &str) -> Result<()> {
+        sqlx::query("INSERT INTO audit_logs (id, user_id, action, created_at) VALUES (?, ?, ?, ?)")
+            .bind(Uuid::new_v4().to_string())
+            .bind(user_id)
+            .bind(action)
+            .bind(Utc::now().to_rfc3339())
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+}
+
+#[derive(FromRow)]
+struct UserRow {
+    id: String,
+    username: String,
+    password_hash: String,
+    role: String,
+    is_active: bool,
+    auth_version: i64,
+}
+
+impl UserRow {
+    fn into_record(self) -> Result<UserRecord> {
+        Ok(UserRecord {
+            id: self.id,
+            username: self.username,
+            password_hash: self.password_hash,
+            role: self.role.try_into()?,
+            is_active: self.is_active,
+            auth_version: self.auth_version,
+        })
+    }
+}

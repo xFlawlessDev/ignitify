@@ -1,13 +1,20 @@
 [package]
-name = "ignitify-core"
+name = "ignitify-api"
 version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
 axum.workspace = true
-ignitify-api = { path = "../ignitify-api" }
 ignitify-auth = { path = "../ignitify-auth" }
 ignitify-db = { path = "../ignitify-db" }
+ignitify-domain = { path = "../ignitify-domain" }
+serde.workspace = true
+serde_json.workspace = true
 thiserror.workspace = true
+
+[dev-dependencies]
+argon2.workspace = true
+http-body-util = "0.1"
 tokio.workspace = true
+tower = "0.5"

@@ -74,31 +74,6 @@ const operations = [
       </button>
     </div>
 
-    <button
-      class="mt-[30px] flex w-full items-center gap-2.5 rounded-[5px] border border-[var(--sidebar-border)] bg-[var(--sidebar-surface)] p-2.5 text-left text-[var(--sidebar-strong)] hover:border-[var(--sidebar-hover-border)]"
-      :class="collapsed ? 'md:justify-center md:p-2' : ''"
-      type="button"
-      aria-label="Current workspace"
-      :title="collapsed ? 'Nova Flow workspace' : undefined"
-    >
-      <span
-        class="grid size-[27px] shrink-0 place-items-center rounded-[4px] bg-[#d7a158] font-mono text-[10px] font-semibold text-[#30251c]"
-        >NF</span
-      >
-      <span class="grid min-w-0 flex-1 gap-0.5" :class="collapsed ? 'md:hidden' : ''">
-        <span class="font-mono text-[9px] tracking-[0.08em] text-[var(--sidebar-muted)] uppercase"
-          >Workspace</span
-        >
-        <strong class="truncate text-xs font-medium">Nova Flow</strong>
-      </span>
-      <ChevronDown
-        class="shrink-0"
-        :class="collapsed ? 'md:hidden' : ''"
-        :size="15"
-        :stroke-width="1.5"
-      />
-    </button>
-
     <nav class="mt-[30px] grid gap-[3px]" aria-label="Workspace">
       <p
         class="mx-2.5 mb-2 font-mono text-[9px] tracking-[0.12em] text-[var(--sidebar-label)] uppercase"

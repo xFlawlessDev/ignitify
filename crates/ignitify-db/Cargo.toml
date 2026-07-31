@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 chrono.workspace = true
+ignitify-domain = { path = "../ignitify-domain" }
 serde.workspace = true
 sqlx.workspace = true
 thiserror.workspace = true

@@ -1,37 +1,24 @@
 <script setup lang="ts">
-import { ArrowUpRight, Box, GitBranch, MoreHorizontal, Plus } from "@lucide/vue";
-import { RouterLink } from "vue-router";
+import { Plus, RefreshCw } from "@lucide/vue";
+import { onMounted, shallowRef } from "vue";
+import { useRouter } from "vue-router";
+import ProjectCreateDialog from "@/components/project/ProjectCreateDialog.vue";
+import ProjectList from "@/components/project/ProjectList.vue";
 import { Button } from "@/components/ui/button";
+import { useProjects } from "@/composables/useProjects";
 
-const projects = [
-  {
-    id: "nova-api",
-    name: "Nova API",
-    description: "Core API and background jobs",
-    repository: "novaflow/api",
-    services: 3,
-    status: "Live",
-    updatedAt: "12 min ago",
-  },
-  {
-    id: "docs",
-    name: "Docs",
-    description: "Public documentation site",
-    repository: "novaflow/docs",
-    services: 1,
-    status: "Live",
-    updatedAt: "2 hours ago",
-  },
-  {
-    id: "staging",
-    name: "Staging",
-    description: "Pre-production verification environment",
-    repository: "novaflow/api",
-    services: 3,
-    status: "Building",
-    updatedAt: "Building now",
-  },
-];
+const router = useRouter();
+const { create, data, error, load, loading } = useProjects();
+const createOpen = shallowRef(false);
+
+async function createProject(name: string) {
+  const project = await create({ name });
+  if (!project) return;
+  createOpen.value = false;
+  await router.push({ name: "ProjectDetail", params: { projectId: project.id } });
+}
+
+onMounted(load);
 </script>
 
 <template>
@@ -46,61 +33,38 @@ const projects = [
           Deployments grouped by product and environment.
         </p>
       </div>
-      <Button
-        class="max-[560px]:w-full"
-        disabled
-        title="Project creation arrives with deployment domain slice"
-      >
-        <Plus class="size-4" stroke-width="1.5" />
+      <Button class="max-[560px]:w-full" @click="createOpen = true">
+        <Plus class="size-4" :stroke-width="1.5" />
         New project
       </Button>
     </header>
 
-    <section class="mt-[22px] border border-border bg-card" aria-label="Projects">
-      <RouterLink
-        v-for="project in projects"
-        :key="project.id"
-        class="grid min-h-[78px] grid-cols-[32px_minmax(180px,1.4fr)_minmax(150px,1fr)_80px_80px_100px_28px] items-center gap-3.5 border-b border-border px-[18px] py-3 text-foreground last:border-b-0 hover:bg-muted max-[900px]:grid-cols-[32px_minmax(160px,1fr)_80px_80px_28px] max-[560px]:grid-cols-[32px_minmax(0,1fr)_28px] max-[560px]:gap-2.5"
-        :to="`/projects/${project.id}`"
-      >
-        <span
-          class="grid size-[30px] place-items-center rounded-[4px] border border-border bg-muted text-muted-foreground"
-          ><Box :size="17" :stroke-width="1.5"
-        /></span>
-        <span class="grid min-w-0 gap-1">
-          <strong class="text-[13px] font-medium">{{ project.name }}</strong>
-          <span class="truncate text-[11px] text-muted-foreground">{{ project.description }}</span>
-        </span>
-        <span
-          class="flex items-center gap-1.5 truncate text-[11px] text-muted-foreground max-[900px]:hidden"
-          ><GitBranch :size="14" :stroke-width="1.5" /> {{ project.repository }}</span
-        >
-        <span class="truncate text-[11px] text-muted-foreground max-[560px]:hidden"
-          >{{ project.services }} {{ project.services === 1 ? "service" : "services" }}</span
-        >
-        <span
-          class="flex items-center gap-1.5 font-mono text-[10px] uppercase"
-          :class="
-            project.status === 'Live' ? 'text-[var(--status-healthy)]' : 'text-[var(--status-live)]'
-          "
-        >
-          <span class="status-dot" :data-status="project.status === 'Live' ? 'healthy' : 'live'" />
-          {{ project.status }}
-        </span>
-        <span class="truncate text-[11px] text-muted-foreground max-[900px]:hidden">{{
-          project.updatedAt
-        }}</span>
-        <MoreHorizontal
-          class="text-muted-foreground max-[560px]:hidden"
-          :size="17"
-          :stroke-width="1.5"
-        />
-        <ArrowUpRight
-          class="hidden text-muted-foreground max-[560px]:block"
-          :size="16"
-          :stroke-width="1.5"
-        />
-      </RouterLink>
+    <p
+      v-if="loading"
+      class="mt-[22px] border border-border bg-card px-5 py-8 text-sm text-muted-foreground"
+      role="status"
+    >
+      Loading projects...
+    </p>
+    <section
+      v-else-if="error"
+      class="mt-[22px] border border-destructive/40 bg-card px-5 py-8"
+      role="alert"
+    >
+      <p class="text-sm text-destructive">{{ error }}</p>
+      <Button class="mt-4" variant="outline" size="sm" @click="load">
+        <RefreshCw class="size-4" :stroke-width="1.5" />
+        Retry
+      </Button>
     </section>
+    <section v-else-if="data.length === 0" class="mt-[22px] border border-border bg-card px-5 py-8">
+      <p class="text-sm font-medium">No projects yet</p>
+      <p class="mt-1 text-xs text-muted-foreground">
+        Create project to get production environment.
+      </p>
+    </section>
+    <ProjectList v-else class="mt-[22px]" :projects="data" />
+
+    <ProjectCreateDialog v-model:open="createOpen" :error="error" @create="createProject" />
   </div>
 </template>

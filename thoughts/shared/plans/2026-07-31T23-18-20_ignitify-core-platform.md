@@ -111,14 +111,14 @@ Create workspace ownership boundary and replace project/dashboard fixtures with 
 
 #### Automated Verification
 
-- [ ] Add in-memory database test: project bootstrap creates exactly one owner and one `production` environment.
-- [ ] Add repository authorization test: non-member lookup returns inaccessible, owner rename succeeds, duplicate name returns conflict.
-- [ ] Add core handler tests: no bearer returns `401`; non-member returns `404`; viewer mutation returns `403`; project create response includes default environment.
-- [ ] Add frontend composable/view test covering loading, error, empty, and successful New Project redirect.
-- [ ] `cargo fmt --all -- --check` passes.
-- [ ] `cargo test --workspace` passes.
-- [ ] `cargo clippy --workspace --all-targets -- -D warnings` passes.
-- [ ] `cd frontend && pnpm check && pnpm build` passes.
+- [x] Add in-memory database test: project bootstrap creates exactly one owner and one `production` environment.
+- [x] Add repository authorization test: non-member lookup returns inaccessible, owner rename succeeds, duplicate name returns conflict.
+- [x] Add core handler tests: no bearer returns `401`; non-member returns `404`; viewer mutation returns `403`; project create response includes default environment.
+- [x] Add frontend composable/view test covering loading, error, empty, and successful New Project redirect.
+- [x] `cargo fmt --all -- --check` passes.
+- [x] `cargo test --workspace` passes.
+- [x] `cargo clippy --workspace --all-targets -- -D warnings` passes.
+- [x] `cd frontend && pnpm check && pnpm build` passes.
 
 #### Manual Verification
 

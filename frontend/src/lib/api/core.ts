@@ -157,7 +157,7 @@ async function fetchWithAuth(
   options: RequestInit,
   canRetry = true,
 ): Promise<Response> {
-  const response = await fetch(url, withAuthorization(options));
+  const response = await fetch(url, withAuthorization(url, options));
   if (response.status !== 401 || !canRetry || !shouldRefreshFor(url)) {
     return response;
   }
@@ -167,11 +167,14 @@ async function fetchWithAuth(
     return response;
   }
 
-  return fetch(url, withAuthorization(options));
+  return fetch(url, withAuthorization(url, options));
 }
 
-function withAuthorization(options: RequestInit): RequestInit {
+function withAuthorization(url: string, options: RequestInit): RequestInit {
   const headers = new Headers(options.headers);
+  if ((options.method ?? "GET").toUpperCase() !== "GET" && isSameOrigin(url)) {
+    headers.set("X-Ignitify-Request", "1");
+  }
   const token = getToken();
   if (token) {
     headers.set("Authorization", `Bearer ${token}`);
@@ -202,6 +205,15 @@ function shouldRefreshFor(url: string): boolean {
     endpoint === "/auth/logout" ||
     endpoint.startsWith("/auth/password/")
   );
+}
+
+function isSameOrigin(url: string): boolean {
+  const base = typeof window === "undefined" ? "http://localhost" : window.location.origin;
+  try {
+    return new URL(url, base).origin === new URL(base).origin;
+  } catch {
+    return false;
+  }
 }
 
 function extractPath(url: string): string {

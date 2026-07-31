@@ -742,6 +742,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "ignitify-api"
+version = "0.1.0"
+dependencies = [
+ "argon2",
+ "axum",
+ "http-body-util",
+ "ignitify-auth",
+ "ignitify-db",
+ "ignitify-domain",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
+ "tower",
+]
+
+[[package]]
 name = "ignitify-auth"
 version = "0.1.0"
 dependencies = [
@@ -762,10 +779,10 @@ name = "ignitify-core"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "ignitify-api",
  "ignitify-auth",
  "ignitify-db",
- "serde",
- "serde_json",
+ "thiserror",
  "tokio",
 ]
 
@@ -774,11 +791,19 @@ name = "ignitify-db"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "ignitify-domain",
  "serde",
  "sqlx",
  "thiserror",
  "tokio",
  "uuid",
+]
+
+[[package]]
+name = "ignitify-domain"
+version = "0.1.0"
+dependencies = [
+ "thiserror",
 ]
 
 [[package]]
