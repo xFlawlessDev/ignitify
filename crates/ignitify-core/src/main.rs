@@ -194,14 +194,23 @@ fn bearer_token(headers: &HeaderMap) -> Option<&str> {
         .filter(|token| !token.is_empty())
 }
 
+fn env_value(name: &str) -> Option<String> {
+    env::var(name).ok().or_else(|| match name {
+        "IGNITIFY_DATABASE_URL" => option_env!("IGNITIFY_DATABASE_URL").map(str::to_owned),
+        "IGNITIFY_JWT_SECRET" => option_env!("IGNITIFY_JWT_SECRET").map(str::to_owned),
+        "IGNITIFY_SECURE_COOKIES" => option_env!("IGNITIFY_SECURE_COOKIES").map(str::to_owned),
+        _ => None,
+    })
+}
+
 fn required_env(name: &str) -> Result<String, Box<dyn std::error::Error>> {
-    env::var(name).map_err(|_| format!("{name} must be set").into())
+    env_value(name).ok_or_else(|| format!("{name} must be set").into())
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let database = Database::connect(&DatabaseConfig {
-        url: env::var("IGNITIFY_DATABASE_URL").unwrap_or_else(|_| DatabaseConfig::default().url),
+        url: env_value("IGNITIFY_DATABASE_URL").unwrap_or_else(|| DatabaseConfig::default().url),
     })
     .await?;
     database.ping().await?;
@@ -216,7 +225,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .shared();
     let state = AppState {
         auth,
-        secure_cookies: env::var("IGNITIFY_SECURE_COOKIES").is_ok_and(|value| value == "true"),
+        secure_cookies: env_value("IGNITIFY_SECURE_COOKIES").is_some_and(|value| value == "true"),
     };
     let app = Router::new()
         .route("/health", get(health))
