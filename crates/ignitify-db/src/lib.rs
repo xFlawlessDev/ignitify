@@ -9,8 +9,13 @@ pub use database::{Database, DatabaseConfig};
 pub use error::{DatabaseError, Result};
 pub use models::{RefreshTokenRecord, RotateRefreshTokenOutcome, UserRecord, UserRole};
 pub use repositories::{
-    EnvironmentsRepository, ProjectActor, ProjectUpdateOutcome, ProjectsRepository,
-    RefreshTokensRepository, UsersRepository,
+    AuthorizedDeploymentService, AuthorizedService, CreateDeploymentOutcome, DeploymentActor,
+    DeploymentEventRecord, DeploymentLogRecord, DeploymentRecord, DeploymentVariableRecord,
+    DeploymentsRepository, DomainActor, DomainMutationOutcome, DomainRecord, DomainsRepository,
+    EnvironmentsRepository, NewDeployment, NewDeploymentLog, NewServiceVariable, ProjectActor,
+    ProjectUpdateOutcome, ProjectsRepository, RefreshTokensRepository, SequenceCursor,
+    ServiceActor, ServiceMutationOutcome, ServiceVariableRecord, ServicesRepository,
+    UsersRepository,
 };
 
 #[cfg(test)]

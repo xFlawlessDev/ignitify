@@ -118,6 +118,16 @@ export async function apiFetch<T>(
   return { success: true, data: body };
 }
 
+export async function apiOpenEventStream(
+  endpoint: string,
+  signal: AbortSignal,
+  lastEventId?: number,
+): Promise<Response> {
+  const headers = new Headers({ Accept: "text/event-stream" });
+  if (lastEventId !== undefined) headers.set("Last-Event-ID", String(lastEventId));
+  return apiFetchRaw(endpoint, { headers, signal });
+}
+
 export async function apiFetchRaw(
   endpointOrUrl: string,
   options: RequestInit = {},

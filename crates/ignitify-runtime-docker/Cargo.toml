@@ -1,0 +1,17 @@
+[package]
+name = "ignitify-runtime-docker"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+bollard.workspace = true
+futures-util.workspace = true
+ignitify-control-plane = { path = "../ignitify-control-plane" }
+ignitify-db = { path = "../ignitify-db" }
+ignitify-domain = { path = "../ignitify-domain" }
+thiserror.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true
+uuid.workspace = true

@@ -6,7 +6,8 @@ use sqlx::{
 };
 
 use crate::{
-    EnvironmentsRepository, ProjectsRepository, RefreshTokensRepository, Result, UsersRepository,
+    DeploymentsRepository, DomainsRepository, EnvironmentsRepository, ProjectsRepository,
+    RefreshTokensRepository, Result, ServicesRepository, UsersRepository,
 };
 
 static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!();
@@ -75,6 +76,18 @@ impl Database {
 
     pub fn environments(&self) -> EnvironmentsRepository {
         EnvironmentsRepository::new(self.pool.clone())
+    }
+
+    pub fn services(&self) -> ServicesRepository {
+        ServicesRepository::new(self.pool.clone())
+    }
+
+    pub fn deployments(&self) -> DeploymentsRepository {
+        DeploymentsRepository::new(self.pool.clone())
+    }
+
+    pub fn domains(&self) -> DomainsRepository {
+        DomainsRepository::new(self.pool.clone())
     }
 
     pub async fn ping(&self) -> Result<()> {

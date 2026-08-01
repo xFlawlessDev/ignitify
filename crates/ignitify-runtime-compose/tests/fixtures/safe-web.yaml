@@ -1,0 +1,4 @@
+services:
+  web:
+    image: nginx@sha256:deadbeef
+    command: ["nginx", "-g", "daemon off;"]

@@ -6,11 +6,14 @@ export function useProject() {
   const data = shallowRef<ProjectSummary | null>(null);
   const loading = shallowRef(false);
   const error = shallowRef<string | null>(null);
+  let loadGeneration = 0;
 
   async function load(projectId: string) {
+    const generation = ++loadGeneration;
     loading.value = true;
     error.value = null;
     const result = await apiGetProject(projectId);
+    if (generation !== loadGeneration) return;
     loading.value = false;
     if (!result.success) {
       error.value = result.error ?? "Could not load project";

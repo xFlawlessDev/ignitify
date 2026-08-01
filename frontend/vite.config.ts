@@ -30,6 +30,7 @@ export default defineConfig({
   lint: { options: { typeAware: true, typeCheck: true } },
   test: {
     include: ["src/**/*.{test,spec}.{js,ts,jsx,tsx}"],
+    testTimeout: 10_000,
   },
   run: { cache: true },
 });

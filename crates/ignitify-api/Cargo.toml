@@ -6,14 +6,19 @@ license.workspace = true
 
 [dependencies]
 axum.workspace = true
+futures-util.workspace = true
 ignitify-auth = { path = "../ignitify-auth" }
+ignitify-control-plane = { path = "../ignitify-control-plane" }
 ignitify-db = { path = "../ignitify-db" }
 ignitify-domain = { path = "../ignitify-domain" }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+tokio.workspace = true
+zeroize.workspace = true
 
 [dev-dependencies]
+age.workspace = true
 argon2.workspace = true
 http-body-util = "0.1"
 tokio.workspace = true

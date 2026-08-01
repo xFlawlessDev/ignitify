@@ -53,14 +53,14 @@ Run frontend commands from `frontend/`:
 
 ```sh
 pnpm install
-pnpm dev
-pnpm check
-pnpm build
-pnpm test
-pnpm test:e2e
+pnpm run dev
+pnpm run check
+pnpm run build
+pnpm run test
+pnpm run test:e2e
 ```
 
-`pnpm dev` serves `http://127.0.0.1:6565` and proxies `/api` to port `5656`.
+`pnpm run dev` serves `http://127.0.0.1:6565` and proxies `/api` to port `5656`.
 
 ## Code Conventions & Common Patterns
 

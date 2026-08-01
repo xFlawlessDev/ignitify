@@ -1,0 +1,67 @@
+# Operator artifact. Replace image digests only after verified release review.
+services:
+  docker-read-proxy:
+    image: tecnativa/docker-socket-proxy:0.1.2@sha256:dc8ec925b1360c54e6bf350602d6faac4e33c5d8d809118e4c000c0b14a4529a
+    environment:
+      CONTAINERS: 1
+      EVENTS: 1
+      NETWORKS: 1
+      POST: 0
+      DELETE: 0
+      BUILD: 0
+      COMMIT: 0
+      EXEC: 0
+      IMAGES: 0
+      PING: 1
+      SERVICES: 0
+      SWARM: 0
+      TASKS: 0
+      VERSION: 1
+      VOLUMES: 0
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - internal
+
+  traefik:
+    image: traefik:v3.6.21@sha256:850b1b3484519b12353d9679ec3246e63a42df2cc640bf8e6fa50267d589f5a0
+    command:
+      - --configFile=/etc/traefik/traefik.yaml
+      - --certificatesresolvers.le.acme.email=${IGNITIFY_ACME_EMAIL:?set IGNITIFY_ACME_EMAIL}
+      - --certificatesresolvers.le.acme.storage=/letsencrypt/acme.json
+      - --certificatesresolvers.le.acme.httpchallenge.entrypoint=web
+      - --certificatesresolvers.le.acme.caserver=${IGNITIFY_ACME_CA_SERVER:-https://acme-staging-v02.api.letsencrypt.org/directory}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./traefik.yaml:/etc/traefik/traefik.yaml:ro
+      - ./entrypoint.sh:/ignitify-entrypoint.sh:ro
+      - acme:/letsencrypt
+    entrypoint:
+      - /ignitify-entrypoint.sh
+    depends_on:
+      - docker-read-proxy
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    networks:
+      - internal
+      - ignitify-proxy
+
+volumes:
+  acme:
+
+networks:
+  internal:
+    internal: true
+  ignitify-proxy:
+    name: ignitify-proxy
+    external: true

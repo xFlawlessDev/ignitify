@@ -7,6 +7,12 @@ pub enum CoreError {
     #[error(transparent)]
     Database(#[from] ignitify_db::DatabaseError),
     #[error(transparent)]
+    Control(#[from] ignitify_control_plane::Error),
+    #[error("Docker runtime unavailable")]
+    DockerRuntime,
+    #[error("Compose runtime unavailable")]
+    ComposeRuntime,
+    #[error(transparent)]
     Io(#[from] std::io::Error),
 }
 

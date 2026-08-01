@@ -1,0 +1,7 @@
+services:
+  web:
+    image: nginx@sha256:deadbeef
+    volumes:
+      - data:/data
+volumes:
+  data: {}

@@ -1,0 +1,18 @@
+entryPoints:
+  web:
+    address: ":80"
+  websecure:
+    address: ":443"
+
+providers:
+  docker:
+    endpoint: "tcp://docker-read-proxy:2375"
+    exposedByDefault: false
+    constraints: "Label(`com.ignitify.managed`,`true`)"
+    network: "ignitify-proxy"
+
+api:
+  dashboard: false
+
+log:
+  level: "WARN"

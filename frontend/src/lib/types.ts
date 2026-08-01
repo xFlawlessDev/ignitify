@@ -41,3 +41,93 @@ export interface ProjectSummary {
 export interface ProjectInput {
   name: string;
 }
+
+export interface ServiceVariable {
+  key: string;
+  value: string;
+  is_secret: boolean;
+}
+
+export interface ServiceVariableSummary {
+  key: string;
+  is_secret: boolean;
+  is_set: boolean;
+  value?: string;
+}
+
+export interface ServiceInput {
+  name: string;
+  kind: "image" | "compose";
+  image_reference?: string;
+  compose_yaml?: string;
+  exposed_service?: string;
+  internal_port: number | null;
+  healthcheck: string[] | null;
+  variables: ServiceVariable[];
+}
+
+export type DeploymentState =
+  | "queued"
+  | "preparing"
+  | "running"
+  | "healthy"
+  | "failed"
+  | "stopping"
+  | "stopped"
+  | "superseded";
+
+export interface DomainSummary {
+  id: string;
+  service_id: string;
+  hostname: string;
+  status: "pending" | "active" | "failed";
+  last_error: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DeploymentEvent {
+  sequence: number;
+  deployment_id: string;
+  kind: string;
+  created_at: string;
+  payload: Record<string, unknown>;
+}
+
+export interface DeploymentLog {
+  sequence: number;
+  deployment_id: string;
+  stream: "stdout" | "stderr" | "system";
+  line: string;
+  created_at: string;
+}
+
+export interface DeploymentSummary {
+  id: string;
+  service_id: string;
+  generation: number;
+  status: DeploymentState;
+  failure_reason: string | null;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
+export interface ServiceSummary {
+  id: string;
+  project_id: string;
+  environment_id: string;
+  role: ProjectMemberRole;
+  name: string;
+  kind: "image" | "compose";
+  image_reference?: string;
+  compose_yaml?: string;
+  exposed_service?: string;
+  internal_port: number | null;
+  healthcheck: string[] | null;
+  desired_generation: number;
+  desired_state: "running" | "stopped";
+  created_at: string;
+  updated_at: string;
+  variables: ServiceVariableSummary[];
+}

@@ -1,0 +1,6 @@
+x-default: &default
+  image: nginx@sha256:deadbeef
+services:
+  web:
+    <<: *default
+    image: nginx@sha256:deadbeef

@@ -6,11 +6,14 @@ export function useProjects() {
   const data = shallowRef<ProjectSummary[]>([]);
   const loading = shallowRef(false);
   const error = shallowRef<string | null>(null);
+  let loadGeneration = 0;
 
   async function load() {
+    const generation = ++loadGeneration;
     loading.value = true;
     error.value = null;
     const result = await apiListProjects();
+    if (generation !== loadGeneration) return;
     loading.value = false;
     if (!result.success) {
       error.value = result.error ?? "Could not load projects";
@@ -20,6 +23,7 @@ export function useProjects() {
   }
 
   async function create(input: ProjectInput): Promise<ProjectSummary | null> {
+    loadGeneration += 1;
     error.value = null;
     const result = await apiCreateProject(input);
     if (!result.success) {

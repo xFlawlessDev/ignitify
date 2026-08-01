@@ -2,7 +2,6 @@
 import {
   Activity,
   Box,
-  ChevronDown,
   CircleHelp,
   GitBranch,
   LayoutDashboard,

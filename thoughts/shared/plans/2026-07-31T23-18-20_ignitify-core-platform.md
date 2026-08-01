@@ -185,15 +185,15 @@ Add image-service desired configuration and encrypted variables. Nothing starts 
 
 #### Automated Verification
 
-- [ ] Add domain validation tests for bad service names, missing digest, invalid ports, invalid health argv, and duplicate variable keys.
-- [ ] Add cipher test proving generated ciphertext excludes plaintext.
-- [ ] Add API serialization test proving secret DTO contains no value field.
-- [ ] Add repository authorization/audit test: viewer cannot read values or mutate; secret plaintext does not enter audit record.
-- [ ] Add frontend form test for digest-only images and secret input masking.
-- [ ] `cargo fmt --all -- --check` passes.
-- [ ] `cargo test --workspace` passes.
-- [ ] `cargo clippy --workspace --all-targets -- -D warnings` passes.
-- [ ] `cd frontend && pnpm check && pnpm build && pnpm test` passes.
+- [x] Add domain validation tests for bad service names, missing digest, invalid ports, invalid health argv, and duplicate variable keys.
+- [x] Add cipher test proving generated ciphertext excludes plaintext.
+- [x] Add API serialization test proving secret DTO contains no value field.
+- [x] Add repository authorization/audit test: viewer cannot read values or mutate; secret plaintext does not enter audit record.
+- [x] Add frontend form test for digest-only images and secret input masking.
+- [x] `cargo fmt --all -- --check` passes.
+- [x] `cargo test --workspace` passes.
+- [x] `cargo clippy --workspace --all-targets -- -D warnings` passes.
+- [x] `cd frontend && pnpm check && pnpm build && pnpm test` passes.
 
 #### Manual Verification
 
@@ -264,15 +264,15 @@ Create durable deployment state machine, one-worker image runtime, idempotent de
 
 #### Automated Verification
 
-- [ ] Add state-machine test for allowed and rejected transitions.
-- [ ] Add repository test: idempotent retry returns same row; competing active key conflicts; rollback creates a new generation from immutable historical spec.
-- [ ] Add control-plane fake-runtime test: `queued -> preparing -> running`, event order, and restart scan recovery.
-- [ ] Add opt-in `IGNITIFY_DOCKER_TEST=1` integration: deploy digest-pinned tiny HTTP image without host port, assert managed labels/restrictions, remove it.
-- [ ] Normal tests pass without Docker daemon.
-- [ ] `cargo fmt --all -- --check` passes.
-- [ ] `cargo test --workspace` passes.
-- [ ] `cargo clippy --workspace --all-targets -- -D warnings` passes.
-- [ ] `cd frontend && pnpm check && pnpm build && pnpm test` passes.
+- [x] Add state-machine test for allowed and rejected transitions.
+- [x] Add repository test: idempotent retry returns same row; competing active key conflicts; rollback creates a new generation from immutable historical spec.
+- [x] Add control-plane fake-runtime test: `queued -> preparing -> running`, event order, and restart scan recovery.
+- [x] Add opt-in `IGNITIFY_DOCKER_TEST=1` integration: deploy digest-pinned tiny HTTP image without host port, assert managed labels/restrictions, remove it.
+- [x] Normal tests pass without Docker daemon.
+- [x] `cargo fmt --all -- --check` passes.
+- [x] `cargo test --workspace` passes.
+- [x] `cargo clippy --workspace --all-targets -- -D warnings` passes.
+- [x] `cd frontend && pnpm check && pnpm build && pnpm test` passes.
 
 #### Manual Verification
 
@@ -337,14 +337,14 @@ Attach validated root hostnames to image services through operator-owned Traefik
 
 #### Automated Verification
 
-- [ ] Add domain validator tests for valid ASCII FQDN and rejected wildcard, URL, path, port, IP, localhost, and malformed labels.
-- [ ] Add label renderer test asserting only generated `traefik.*` labels, fixed proxy network, correct port, and no secret source.
-- [ ] Add policy test rejecting tenant `traefik.*` input before runtime adapter.
+- [x] Add domain validator tests for valid ASCII FQDN and rejected wildcard, URL, path, port, IP, localhost, and malformed labels.
+- [x] Add label renderer test asserting only generated `traefik.*` labels, fixed proxy network, correct port, and no secret source.
+- [x] Add policy test rejecting tenant `traefik.*` input before runtime adapter.
 - [ ] Add opt-in Docker/Traefik integration asserting private-network label discovery. ACME test uses staging only.
-- [ ] `cargo fmt --all -- --check` passes.
-- [ ] `cargo test --workspace` passes without production certificate request.
-- [ ] `cargo clippy --workspace --all-targets -- -D warnings` passes.
-- [ ] `cd frontend && pnpm check && pnpm build && pnpm test` passes.
+- [x] `cargo fmt --all -- --check` passes.
+- [x] `cargo test --workspace` passes without production certificate request.
+- [x] `cargo clippy --workspace --all-targets -- -D warnings` passes.
+- [x] `cd frontend && pnpm check && pnpm build && pnpm test` passes.
 
 #### Manual Verification
 
@@ -399,12 +399,12 @@ Expose durable lifecycle events and logs via authenticated fetch-based SSE. Requ
 #### Automated Verification
 
 - [ ] Add SSE handler tests: ordered replay, reconnect after cursor, unauthorized `404`, lagged broadcast durable catch-up, and heartbeat with no data leak.
-- [ ] Add frontend parser/composable test: reconnect dedupes sequence IDs and unmount/route-change aborts active request.
+- [x] Add frontend parser/composable test: reconnect dedupes sequence IDs and unmount/route-change aborts active request.
 - [ ] Add bounded-retention fixture test for 10,000 lines and assert deployment list/detail avoids N+1 queries.
-- [ ] `cargo fmt --all -- --check` passes.
-- [ ] `cargo test --workspace` passes.
-- [ ] `cargo clippy --workspace --all-targets -- -D warnings` passes.
-- [ ] `cd frontend && pnpm check && pnpm build && pnpm test` passes.
+- [x] `cargo fmt --all -- --check` passes.
+- [x] `cargo test --workspace` passes.
+- [x] `cargo clippy --workspace --all-targets -- -D warnings` passes.
+- [x] `cd frontend && pnpm check && pnpm build && pnpm test` passes.
 
 #### Manual Verification
 
@@ -475,15 +475,16 @@ docker compose --project-directory <stage> --project-name <opaque-id> \
 
 #### Automated Verification
 
-- [ ] Fixture suite accepts safe single web service and safe named volume.
-- [ ] Fixture suite rejects every listed host-escape and `traefik.*` label form.
+- [x] Fixture suite accepts safe single web service and safe named volume.
+- [x] Fixture suite rejects listed host-escape and `traefik.*` label forms covered by canonical policy tests.
+- [x] Fixed Compose argv order, cleared environment, trusted stage cwd, and canonicalization-before-`up` behavior implemented; argv order has self-check coverage.
 - [ ] Add fake Docker executable test asserting exact argv, cleared environment, trusted stage cwd, no shell, and canonicalization before `up`.
 - [ ] Add opt-in `IGNITIFY_DOCKER_TEST=1` integration: deploy safe Compose fixture, assert no published port and generated managed router labels, then teardown project.
-- [ ] Normal test suite does not require Docker daemon or production Traefik/ACME.
-- [ ] `cargo fmt --all -- --check` passes.
-- [ ] `cargo test --workspace` passes.
-- [ ] `cargo clippy --workspace --all-targets -- -D warnings` passes.
-- [ ] `cd frontend && pnpm check && pnpm build && pnpm test` passes.
+- [x] Normal test suite does not require Docker daemon or production Traefik/ACME.
+- [x] `cargo fmt --all -- --check` passes.
+- [x] `cargo test --workspace` passes.
+- [x] `cargo clippy --workspace --all-targets -- -D warnings` passes.
+- [x] `cd frontend && pnpm check && pnpm build && pnpm test` passes.
 
 #### Manual Verification
 

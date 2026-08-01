@@ -1,0 +1,11 @@
+services:
+  web:
+    image: nginx@sha256:deadbeef
+    build: .
+    ports:
+      - "127.0.0.1:8080:80"
+    privileged: true
+    devices:
+      - /dev/null:/dev/null
+    volumes:
+      - /tmp:/data

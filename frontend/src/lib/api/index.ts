@@ -4,3 +4,6 @@
 export * from "./core";
 export * from "./auth";
 export * from "./projects";
+export * from "./services";
+export * from "./deployments";
+export * from "./domains";

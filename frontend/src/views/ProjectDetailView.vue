@@ -1,19 +1,98 @@
 <script setup lang="ts">
 import { ArrowLeft, Box, Pencil, RefreshCw } from "@lucide/vue";
-import { shallowRef, watch } from "vue";
+import { onUnmounted, shallowRef, watch } from "vue";
 import { RouterLink, useRoute } from "vue-router";
+import DeploymentLogsPanel from "@/components/project/DeploymentLogsPanel.vue";
+import ProjectServiceList from "@/components/project/ProjectServiceList.vue";
+import ServiceDomainsPanel from "@/components/project/ServiceDomainsPanel.vue";
+import ServiceDialog from "@/components/project/ServiceDialog.vue";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useProject } from "@/composables/useProject";
+import ProjectDeploymentTimeline from "@/components/project/ProjectDeploymentTimeline.vue";
+import { useDeployment } from "@/composables/useDeployment";
+import { useDeploymentStream } from "@/composables/useDeploymentStream";
+import { useDomains } from "@/composables/useDomains";
+import { useService } from "@/composables/useService";
+import type {
+  DeploymentEvent,
+  DeploymentLog,
+  DeploymentSummary,
+  DomainSummary,
+  ServiceInput,
+  ServiceSummary,
+} from "@/lib/types";
 
 const route = useRoute();
 const { data, error, load: fetchProject, loading, update } = useProject();
+const services = useService();
+const deployments = useDeployment();
+const domains = useDomains();
+const selectedDeploymentId = shallowRef<string | null>(null);
+const streamLogs = shallowRef<DeploymentLog[]>([]);
+const logStream = useDeploymentStream("", {
+  channel: "logs",
+  onLog: (log) => {
+    streamLogs.value = [...streamLogs.value, log].slice(-10_000);
+  },
+});
+const stream = useDeploymentStream("", {
+  onEvent: applyDeploymentEvent,
+  onSnapshot: applyDeploymentSnapshot,
+});
+const serviceData = services.data;
+const deploymentData = deployments.data;
+const deploymentError = deployments.error;
+const deploymentLoading = deployments.loading;
+const deploymentSubmitting = deployments.submitting;
 const activeTab = shallowRef("overview");
 const editName = shallowRef("");
+const serviceDialogOpen = shallowRef(false);
+const selectedService = shallowRef<ServiceSummary | null>(null);
+const savingService = shallowRef(false);
+let projectLoadGeneration = 0;
+function applyDeploymentEvent(event: DeploymentEvent) {
+  deployments.data.value = deployments.data.value.map((deployment) =>
+    deployment.id === event.deployment_id && event.kind.startsWith("deployment.")
+      ? {
+          ...deployment,
+          status: event.kind.slice("deployment.".length) as DeploymentSummary["status"],
+          failure_reason:
+            (event.payload.failure_reason as string | null | undefined) ??
+            deployment.failure_reason,
+        }
+      : deployment,
+  );
+}
+
+function applyDeploymentSnapshot(deployment: DeploymentSummary) {
+  deployments.data.value = deployments.data.value.map((item) =>
+    item.id === deployment.id ? deployment : item,
+  );
+}
+
+function selectDeployment(deploymentId: string) {
+  selectedDeploymentId.value = deploymentId;
+  streamLogs.value = [];
+  stream.stop();
+  logStream.stop();
+  if (activeTab.value === "deployments") {
+    void stream.connect(deploymentId);
+    void logStream.connect(deploymentId);
+  }
+}
 
 function load(projectId: string) {
+  const generation = ++projectLoadGeneration;
+  deployments.clear();
+  selectedService.value = null;
+  serviceDialogOpen.value = false;
   void fetchProject(projectId).then(() => {
+    if (generation !== projectLoadGeneration) return;
     editName.value = data.value?.name ?? "";
+    if (data.value) {
+      void loadDeployments(data.value.id, generation);
+    }
   });
 }
 
@@ -22,7 +101,65 @@ async function renameProject() {
   await update({ name: editName.value });
 }
 
+function createService() {
+  selectedService.value = null;
+  serviceDialogOpen.value = true;
+}
+
+function editService(service: ServiceSummary) {
+  selectedService.value = service;
+  serviceDialogOpen.value = true;
+}
+
+async function loadDeployments(projectId: string, generation = projectLoadGeneration) {
+  await services.load(projectId);
+  if (generation !== projectLoadGeneration) return;
+  await Promise.all([
+    deployments.loadProject(projectId),
+    domains.load(services.data.value.map((service) => service.id)),
+  ]);
+}
+
+async function submitDeployment(serviceId: string) {
+  const deployment = await deployments.deploy(serviceId);
+  if (deployment) {
+    activeTab.value = "deployments";
+    selectDeployment(deployment.id);
+  }
+}
+
+async function stopDeployment(serviceId: string) {
+  await deployments.stop(serviceId);
+}
+
+async function rollbackDeployment(deploymentId: string) {
+  await deployments.rollback(deploymentId);
+}
+
+async function saveService(input: ServiceInput) {
+  if (!data.value) return;
+  savingService.value = true;
+  const service = selectedService.value
+    ? await services.update(selectedService.value.id, input)
+    : await services.create(data.value.id, input);
+  savingService.value = false;
+  if (service) serviceDialogOpen.value = false;
+}
+
 watch(() => String(route.params.projectId), load, { immediate: true });
+watch(activeTab, (tab) => {
+  if (tab === "deployments" && selectedDeploymentId.value) {
+    void stream.connect(selectedDeploymentId.value);
+    void logStream.connect(selectedDeploymentId.value);
+  } else {
+    stream.stop();
+    logStream.stop();
+  }
+});
+onUnmounted(() => {
+  stream.stop();
+  logStream.stop();
+});
 </script>
 
 <template>
@@ -84,7 +221,7 @@ watch(() => String(route.params.projectId), load, { immediate: true });
         aria-label="Project sections"
       >
         <button
-          v-for="tab in ['overview', 'services', 'deployments', 'settings']"
+          v-for="tab in ['overview', 'services', 'domains', 'deployments', 'settings']"
           :key="tab"
           class="h-[39px] flex-none border-b-2 border-b-transparent px-2.5 text-xs text-muted-foreground capitalize hover:text-foreground"
           :class="activeTab === tab ? 'border-b-[var(--status-live)] text-foreground' : ''"
@@ -109,29 +246,75 @@ watch(() => String(route.params.projectId), load, { immediate: true });
           <p class="ui-label">Access</p>
           <strong class="text-[15px] font-medium capitalize">{{ data.role }}</strong>
           <span class="text-xs text-muted-foreground"
-            >Project membership controls future resources.</span
+            >Project membership controls service configuration.</span
           >
         </div>
       </section>
 
-      <section
-        v-else-if="activeTab === 'services'"
-        class="mt-[22px] border border-border bg-card px-5 py-8"
-      >
-        <p class="text-sm font-medium">No services configured</p>
-        <p class="mt-1 text-xs text-muted-foreground">
-          Service configuration arrives in next phase.
+      <section v-else-if="activeTab === 'services'" class="mt-[22px] grid gap-4">
+        <p v-if="services.loading" class="text-sm text-muted-foreground" role="status">
+          Loading services...
         </p>
+        <section
+          v-else-if="services.error"
+          class="border border-destructive/40 bg-card px-5 py-4"
+          role="alert"
+        >
+          <p class="text-sm text-destructive">{{ services.error }}</p>
+          <Button class="mt-3" size="sm" variant="outline" @click="services.load(data.id)"
+            >Retry</Button
+          >
+        </section>
+        <ProjectServiceList
+          v-else
+          :can-manage="data.role === 'owner' || data.role === 'editor'"
+          :services="serviceData"
+          @create="createService"
+          @edit="editService"
+        />
       </section>
 
-      <section
-        v-else-if="activeTab === 'deployments'"
-        class="mt-[22px] border border-border bg-card px-5 py-8"
-      >
-        <p class="text-sm font-medium">No deployments yet</p>
-        <p class="mt-1 text-xs text-muted-foreground">
-          Deployment history arrives after service configuration.
-        </p>
+      <ServiceDomainsPanel
+        v-else-if="activeTab === 'domains'"
+        class="mt-[22px]"
+        :can-manage="data.role === 'owner' || data.role === 'editor'"
+        :domains="domains.data.value"
+        :error="domains.error.value"
+        :loading="domains.loading.value"
+        :services="serviceData"
+        @create="(serviceId, hostname) => domains.create(serviceId, hostname)"
+        @remove="(domain: DomainSummary) => domains.remove(domain)"
+        @retry="domains.load(serviceData.map((service) => service.id))"
+      />
+
+      <section v-else-if="activeTab === 'deployments'" class="mt-[22px] grid gap-4">
+        <ProjectDeploymentTimeline
+          :deployments="deploymentData"
+          :error="deploymentError"
+          :loading="deploymentLoading"
+          :services="serviceData"
+          :submitting="deploymentSubmitting"
+          @deploy="submitDeployment"
+          @stop="stopDeployment"
+          @retry="loadDeployments(data.id)"
+          @rollback="rollbackDeployment"
+        />
+        <div v-if="deploymentData.length" class="flex flex-wrap gap-2">
+          <Button
+            v-for="deployment in deploymentData"
+            :key="deployment.id"
+            size="sm"
+            :variant="selectedDeploymentId === deployment.id ? 'default' : 'outline'"
+            @click="selectDeployment(deployment.id)"
+            >g{{ deployment.generation }}</Button
+          >
+        </div>
+        <DeploymentLogsPanel
+          v-if="selectedDeploymentId"
+          :connected="stream.connected.value && logStream.connected.value"
+          :logs="streamLogs"
+          :stream-error="stream.error.value ?? logStream.error.value"
+        />
       </section>
 
       <form
@@ -156,6 +339,14 @@ watch(() => String(route.params.projectId), load, { immediate: true });
           Your membership role cannot change project settings.
         </p>
       </section>
+
+      <ServiceDialog
+        v-model:open="serviceDialogOpen"
+        :error="services.error.value"
+        :saving="savingService"
+        :service="selectedService"
+        @save="saveService"
+      />
     </template>
   </div>
 </template>

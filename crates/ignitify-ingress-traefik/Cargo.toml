@@ -1,0 +1,12 @@
+[package]
+name = "ignitify-ingress-traefik"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+ignitify-control-plane = { path = "../ignitify-control-plane" }
+ignitify-domain = { path = "../ignitify-domain" }
+thiserror.workspace = true
+
+[dev-dependencies]
