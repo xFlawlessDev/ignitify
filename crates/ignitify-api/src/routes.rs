@@ -19,6 +19,18 @@ pub(crate) fn router(state: AppState) -> Router {
         .route("/api/v1/dashboard", get(handlers::dashboard::get))
         .route("/api/v1/runtime/status", get(handlers::runtime::status))
         .route(
+            "/api/v1/services/{service_id}/terminal/capability",
+            get(handlers::terminal::capability),
+        )
+        .route(
+            "/api/v1/registries",
+            get(handlers::registries::list).post(handlers::registries::create),
+        )
+        .route(
+            "/api/v1/registries/{registry_id}",
+            axum::routing::delete(handlers::registries::remove),
+        )
+        .route(
             "/api/v1/projects",
             get(handlers::projects::list).post(handlers::projects::create),
         )
@@ -29,6 +41,14 @@ pub(crate) fn router(state: AppState) -> Router {
         .route(
             "/api/v1/projects/{project_id}/deployments",
             get(handlers::deployments::list_for_project),
+        )
+        .route(
+            "/api/v1/projects/{project_id}/activity",
+            get(handlers::activity::list_for_project),
+        )
+        .route(
+            "/api/v1/projects/{project_id}/webhooks",
+            get(handlers::webhooks::list).post(handlers::webhooks::create),
         )
         .route(
             "/api/v1/projects/{project_id}/services",
@@ -69,6 +89,10 @@ pub(crate) fn router(state: AppState) -> Router {
         .route(
             "/api/v1/domains/{domain_id}",
             axum::routing::delete(handlers::domains::remove),
+        )
+        .route(
+            "/api/v1/webhooks/{webhook_id}",
+            axum::routing::delete(handlers::webhooks::remove),
         )
         .with_state(state)
 }

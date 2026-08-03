@@ -504,8 +504,23 @@ pub struct RuntimeObservation {
     pub health_failing: bool,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct HostRuntimeMetrics {
+    pub containers: i64,
+    pub containers_running: i64,
+    pub images: i64,
+    pub cpus: i64,
+    pub memory_bytes: i64,
+}
+
 pub trait RuntimeHealth: Send + Sync {
     fn ready(&self) -> Pin<Box<dyn Future<Output = bool> + Send + '_>>;
+
+    fn host_metrics(
+        &self,
+    ) -> Pin<Box<dyn Future<Output = Option<HostRuntimeMetrics>> + Send + '_>> {
+        Box::pin(std::future::ready(None))
+    }
 }
 
 pub struct StaticRuntimeHealth(pub bool);
@@ -597,6 +612,12 @@ where
 {
     fn ready(&self) -> Pin<Box<dyn Future<Output = bool> + Send + '_>> {
         Box::pin(async move { self.image.ready().await && self.compose.ready().await })
+    }
+
+    fn host_metrics(
+        &self,
+    ) -> Pin<Box<dyn Future<Output = Option<HostRuntimeMetrics>> + Send + '_>> {
+        self.image.host_metrics()
     }
 }
 
@@ -699,11 +720,10 @@ where
             }
         }
 
-        worker_ready.store(true, Ordering::Release);
-        let _liveness = Liveness(worker_ready);
+        let _liveness = Liveness(worker_ready.clone());
         let mut interval = tokio::time::interval(Duration::from_secs(30));
         loop {
-            if let Err(error) = reconcile_once(
+            match reconcile_once(
                 &deployments,
                 &domains,
                 &cipher,
@@ -713,7 +733,11 @@ where
             )
             .await
             {
-                tracing::error!(error = %error, "deployment worker reconciliation failed");
+                Ok(()) => worker_ready.store(true, Ordering::Release),
+                Err(error) => {
+                    worker_ready.store(false, Ordering::Release);
+                    tracing::error!(error = %error, "deployment worker reconciliation failed");
+                }
             }
             if let Err(error) = deployments.prune_retention().await {
                 tracing::error!(error = %error, "deployment retention pruning failed");

@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ArrowUpRight, Box, CircleAlert, Layers3, RefreshCw, Rocket, Server } from "@lucide/vue";
+import { ArrowUpRight, Box, CircleAlert, Layers3, RefreshCw, Rocket } from "@lucide/vue";
 import { onMounted } from "vue";
 import { RouterLink } from "vue-router";
 import DeploymentList from "@/components/dashboard/DeploymentList.vue";
 import MetricTile from "@/components/dashboard/MetricTile.vue";
+import RuntimeStatusPanel from "@/components/runtime/RuntimeStatusPanel.vue";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useOperationsDashboard } from "@/composables/useOperationsDashboard";
@@ -70,53 +71,7 @@ onMounted(load);
 
     <section class="mt-[22px] grid gap-4 lg:grid-cols-[minmax(0,1fr)_17rem]">
       <DeploymentList :deployments="recentDeployments" :loading="loading" />
-      <aside class="border border-border bg-card">
-        <div class="border-b border-border px-5 py-4">
-          <p class="ui-label">Runtime</p>
-          <h2 class="mt-2 text-base font-medium">Host visibility</h2>
-        </div>
-        <div class="px-5 py-5">
-          <Server class="size-4 text-muted-foreground" :stroke-width="1.5" />
-          <p class="mt-4 text-sm font-medium">
-            {{ runtime?.runtime === "ready" ? "Runtime ready" : "Runtime unavailable" }}
-          </p>
-          <dl v-if="runtime" class="mt-4 space-y-2 text-xs text-muted-foreground">
-            <div class="flex items-center justify-between gap-4">
-              <dt>Database</dt>
-              <dd
-                :class="
-                  runtime.database === 'ready' ? 'text-[var(--status-healthy)]' : 'text-destructive'
-                "
-              >
-                {{ runtime.database }}
-              </dd>
-            </div>
-            <div class="flex items-center justify-between gap-4">
-              <dt>Runtime</dt>
-              <dd
-                :class="
-                  runtime.runtime === 'ready' ? 'text-[var(--status-healthy)]' : 'text-destructive'
-                "
-              >
-                {{ runtime.runtime }}
-              </dd>
-            </div>
-            <div class="flex items-center justify-between gap-4">
-              <dt>Worker</dt>
-              <dd
-                :class="
-                  runtime.worker === 'ready' ? 'text-[var(--status-healthy)]' : 'text-destructive'
-                "
-              >
-                {{ runtime.worker }}
-              </dd>
-            </div>
-          </dl>
-          <p v-else class="mt-2 text-xs leading-5 text-muted-foreground">
-            Runtime readiness could not be loaded.
-          </p>
-        </div>
-      </aside>
+      <RuntimeStatusPanel :runtime="runtime" />
     </section>
 
     <section

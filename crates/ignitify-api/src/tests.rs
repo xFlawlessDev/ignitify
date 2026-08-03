@@ -12,7 +12,9 @@ use axum::{
 use futures_util::StreamExt;
 use http_body_util::BodyExt;
 use ignitify_auth::AuthConfig;
-use ignitify_control_plane::{ControlHandle, ServiceControl, StaticRuntimeHealth};
+use ignitify_control_plane::{
+    ControlHandle, HostRuntimeMetrics, ServiceControl, StaticRuntimeHealth,
+};
 use ignitify_db::{DatabaseConfig, ProjectActor, UserRole as DatabaseUserRole};
 use ignitify_domain::ProjectMemberRole;
 use tower::ServiceExt;
@@ -652,6 +654,142 @@ async fn dashboard_requires_auth_and_returns_safe_aggregate() {
 }
 
 #[tokio::test]
+async fn activity_registry_webhook_and_terminal_contracts_are_safe() {
+    let state = state().await;
+    let token = session_token(&state).await;
+    let app = router(
+        state.auth.clone(),
+        state.database.clone(),
+        state.services.clone(),
+        state.control.clone(),
+        state.runtime_health.clone(),
+        state.worker_health.clone(),
+        state.secure_cookies,
+        state.trusted_origins.clone(),
+    );
+    let project = app
+        .clone()
+        .oneshot(request(
+            "POST",
+            "/api/v1/projects",
+            Some(&token),
+            r#"{"name":"Operations"}"#,
+        ))
+        .await
+        .unwrap()
+        .into_body()
+        .collect()
+        .await
+        .unwrap()
+        .to_bytes();
+    let project: serde_json::Value = serde_json::from_slice(&project).unwrap();
+    let project_id = project["id"].as_str().unwrap();
+
+    let activity = app
+        .clone()
+        .oneshot(request(
+            "GET",
+            &format!("/api/v1/projects/{project_id}/activity"),
+            Some(&token),
+            "",
+        ))
+        .await
+        .unwrap();
+    assert_eq!(activity.status(), StatusCode::OK);
+    let activity = activity.into_body().collect().await.unwrap().to_bytes();
+    assert!(String::from_utf8_lossy(&activity).contains("project.create"));
+
+    let registry = app
+        .clone()
+        .oneshot(request(
+            "POST",
+            "/api/v1/registries",
+            Some(&token),
+            r#"{"name":"private","endpoint":"https://registry.example.com","username":"deploy","credential":"secret"}"#,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(registry.status(), StatusCode::CREATED);
+    let registry = registry.into_body().collect().await.unwrap().to_bytes();
+    assert!(String::from_utf8_lossy(&registry).contains("credential_configured"));
+    assert!(!String::from_utf8_lossy(&registry).contains("secret"));
+    let registry: serde_json::Value = serde_json::from_slice(&registry).unwrap();
+    let wrong_registry_confirmation = app
+        .clone()
+        .oneshot(request(
+            "DELETE",
+            &format!("/api/v1/registries/{}", registry["id"].as_str().unwrap()),
+            Some(&token),
+            r#"{"confirm_name":"wrong"}"#,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(
+        wrong_registry_confirmation.status(),
+        StatusCode::BAD_REQUEST
+    );
+
+    let webhook = app
+        .clone()
+        .oneshot(request(
+            "POST",
+            &format!("/api/v1/projects/{project_id}/webhooks"),
+            Some(&token),
+            r#"{"name":"deploy","url":"https://hooks.example.com/deploy","secret":"secret"}"#,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(webhook.status(), StatusCode::CREATED);
+    let webhook = webhook.into_body().collect().await.unwrap().to_bytes();
+    assert!(String::from_utf8_lossy(&webhook).contains("secret_configured"));
+    assert!(!String::from_utf8_lossy(&webhook).contains("secret\""));
+    let webhook: serde_json::Value = serde_json::from_slice(&webhook).unwrap();
+    let wrong_webhook_confirmation = app
+        .clone()
+        .oneshot(request(
+            "DELETE",
+            &format!("/api/v1/webhooks/{}", webhook["id"].as_str().unwrap()),
+            Some(&token),
+            r#"{"confirm_name":"wrong"}"#,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(wrong_webhook_confirmation.status(), StatusCode::BAD_REQUEST);
+
+    let service = app
+        .clone()
+        .oneshot(request(
+            "POST",
+            &format!("/api/v1/projects/{project_id}/services"),
+            Some(&token),
+            r#"{"name":"web","image_reference":"nginx@sha256:deadbeef","internal_port":8080,"healthcheck":null,"variables":[]}"#,
+        ))
+        .await
+        .unwrap()
+        .into_body()
+        .collect()
+        .await
+        .unwrap()
+        .to_bytes();
+    let service: serde_json::Value = serde_json::from_slice(&service).unwrap();
+    let terminal = app
+        .oneshot(request(
+            "GET",
+            &format!(
+                "/api/v1/services/{}/terminal/capability",
+                service["id"].as_str().unwrap()
+            ),
+            Some(&token),
+            "",
+        ))
+        .await
+        .unwrap();
+    assert_eq!(terminal.status(), StatusCode::OK);
+    let terminal = terminal.into_body().collect().await.unwrap().to_bytes();
+    assert!(String::from_utf8_lossy(&terminal).contains("\"available\":false"));
+}
+
+#[tokio::test]
 async fn runtime_status_requires_auth_and_reports_component_state() {
     let mut state = state().await;
     state.runtime_health = Arc::new(StaticRuntimeHealth(false));
@@ -684,4 +822,52 @@ async fn runtime_status_requires_auth_and_reports_component_state() {
     assert_eq!(status["database"], "ready");
     assert_eq!(status["runtime"], "unavailable");
     assert_eq!(status["worker"], "ready");
+    assert!(status["metrics"].is_null());
+}
+
+#[tokio::test]
+async fn runtime_status_returns_available_host_metrics() {
+    struct MetricsHealth;
+
+    impl ignitify_control_plane::RuntimeHealth for MetricsHealth {
+        fn ready(&self) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + '_>> {
+            Box::pin(std::future::ready(true))
+        }
+
+        fn host_metrics(
+            &self,
+        ) -> std::pin::Pin<
+            Box<dyn std::future::Future<Output = Option<HostRuntimeMetrics>> + Send + '_>,
+        > {
+            Box::pin(std::future::ready(Some(HostRuntimeMetrics {
+                containers: 4,
+                containers_running: 2,
+                images: 7,
+                cpus: 8,
+                memory_bytes: 16,
+            })))
+        }
+    }
+
+    let mut state = state().await;
+    state.runtime_health = Arc::new(MetricsHealth);
+    let token = session_token(&state).await;
+    let app = router(
+        state.auth.clone(),
+        state.database.clone(),
+        state.services.clone(),
+        state.control.clone(),
+        state.runtime_health.clone(),
+        state.worker_health.clone(),
+        state.secure_cookies,
+        state.trusted_origins.clone(),
+    );
+
+    let response = app
+        .oneshot(request("GET", "/api/v1/runtime/status", Some(&token), ""))
+        .await
+        .unwrap();
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let status: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(status["metrics"]["containers_running"], 2);
 }

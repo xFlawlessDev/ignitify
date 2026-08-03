@@ -53,6 +53,14 @@ impl IntoResponse for ApiError {
                 StatusCode::CONFLICT,
                 "service name already exists".to_owned(),
             ),
+            Self::Database(DatabaseError::RegistryNameConflict) => (
+                StatusCode::CONFLICT,
+                "registry name already exists".to_owned(),
+            ),
+            Self::Database(DatabaseError::WebhookNameConflict) => (
+                StatusCode::CONFLICT,
+                "webhook name already exists in project".to_owned(),
+            ),
             Self::Database(DatabaseError::DomainNameConflict) => (
                 StatusCode::CONFLICT,
                 "domain hostname already exists".to_owned(),
@@ -60,6 +68,14 @@ impl IntoResponse for ApiError {
             Self::Database(DatabaseError::DomainConfirmationMismatch) => (
                 StatusCode::BAD_REQUEST,
                 "domain confirmation does not match hostname".to_owned(),
+            ),
+            Self::Database(DatabaseError::RegistryConfirmationMismatch) => (
+                StatusCode::BAD_REQUEST,
+                "registry confirmation does not match name".to_owned(),
+            ),
+            Self::Database(DatabaseError::WebhookConfirmationMismatch) => (
+                StatusCode::BAD_REQUEST,
+                "webhook confirmation does not match name".to_owned(),
             ),
             Self::Control(ControlError::InvalidIdempotencyKey) => (
                 StatusCode::BAD_REQUEST,

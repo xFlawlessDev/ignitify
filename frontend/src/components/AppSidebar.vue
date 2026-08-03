@@ -9,7 +9,9 @@ import {
   PanelLeftClose,
   Server,
   Settings2,
+  Warehouse,
 } from "@lucide/vue";
+import { computed } from "vue";
 import { RouterLink, useRoute } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
 
@@ -30,9 +32,15 @@ const primaryNavigation = [
 
 const operations = [
   { label: "Deployments", icon: GitBranch },
-  { label: "Servers", icon: Server },
   { label: "Activity", icon: Activity },
 ];
+
+const operationNavigation = computed(() =>
+  [
+    { label: "Servers", to: "/servers", icon: Server },
+    { label: "Registries", to: "/registries", icon: Warehouse, adminOnly: true },
+  ].filter((item) => !item.adminOnly || auth.isAdmin),
+);
 </script>
 
 <template>
@@ -106,6 +114,23 @@ const operations = [
       >
         Operations
       </p>
+      <RouterLink
+        v-for="item in operationNavigation"
+        :key="item.to"
+        :to="item.to"
+        class="flex min-h-[35px] w-full items-center gap-[11px] rounded-[4px] px-2.5 text-xs text-[var(--sidebar-muted)] hover:bg-[var(--sidebar-active)] hover:text-[var(--sidebar-strong)]"
+        :class="[
+          route.path === item.to
+            ? 'bg-[var(--sidebar-active)] text-[var(--sidebar-strong)] shadow-[inset_2px_0_0_var(--sidebar-accent)]'
+            : '',
+          collapsed ? 'md:justify-center md:px-0' : '',
+        ]"
+        :title="collapsed ? item.label : undefined"
+        @click="emit('close')"
+      >
+        <component :is="item.icon" class="shrink-0" :size="17" :stroke-width="1.6" />
+        <span :class="collapsed ? 'md:hidden' : ''">{{ item.label }}</span>
+      </RouterLink>
       <button
         v-for="item in operations"
         :key="item.label"

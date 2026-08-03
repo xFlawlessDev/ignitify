@@ -9,13 +9,17 @@ pub use database::{Database, DatabaseConfig};
 pub use error::{DatabaseError, Result};
 pub use models::{RefreshTokenRecord, RotateRefreshTokenOutcome, UserRecord, UserRole};
 pub use repositories::{
-    AuthorizedDeploymentService, AuthorizedService, CreateDeploymentOutcome, DeploymentActor,
-    DeploymentEventRecord, DeploymentLogRecord, DeploymentRecord, DeploymentVariableRecord,
-    DeploymentsRepository, DomainActor, DomainMutationOutcome, DomainRecord, DomainsRepository,
-    EnvironmentsRepository, NewDeployment, NewDeploymentLog, NewServiceVariable, ProjectActor,
-    ProjectUpdateOutcome, ProjectsRepository, RefreshTokensRepository, SequenceCursor,
-    ServiceActor, ServiceMutationOutcome, ServiceVariableRecord, ServicesRepository,
-    UsersRepository,
+    ActivityActor, ActivityRecord, ActivityRepository, AuthorizedDeploymentService,
+    AuthorizedService, CreateDeploymentOutcome, DashboardActor, DashboardDeploymentRecord,
+    DashboardProjectRecord, DashboardRecords, DashboardRepository, DashboardServiceRecord,
+    DeploymentActor, DeploymentEventRecord, DeploymentLogRecord, DeploymentRecord,
+    DeploymentVariableRecord, DeploymentsRepository, DomainActor, DomainMutationOutcome,
+    DomainRecord, DomainsRepository, EnvironmentsRepository, NewDeployment, NewDeploymentLog,
+    NewRegistry, NewServiceVariable, NewWebhook, ProjectActor, ProjectUpdateOutcome,
+    ProjectsRepository, RefreshTokensRepository, RegistriesRepository, RegistryActor,
+    RegistryRecord, SequenceCursor, ServiceActor, ServiceMutationOutcome, ServiceVariableRecord,
+    ServicesRepository, UsersRepository, WebhookActor, WebhookMutationOutcome, WebhookRecord,
+    WebhooksRepository,
 };
 
 #[cfg(test)]

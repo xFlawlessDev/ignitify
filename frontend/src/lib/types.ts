@@ -135,10 +135,67 @@ export interface DashboardSummary {
 
 export type RuntimeComponentStatus = "ready" | "unavailable";
 
+export interface RuntimeMetrics {
+  containers: number;
+  containers_running: number;
+  images: number;
+  cpus: number;
+  memory_bytes: number;
+}
+
 export interface RuntimeStatus {
   database: RuntimeComponentStatus;
   runtime: RuntimeComponentStatus;
   worker: RuntimeComponentStatus;
+  metrics: RuntimeMetrics | null;
+}
+
+export interface ActivitySummary {
+  id: string;
+  action: string;
+  resource_type: string | null;
+  resource_id: string | null;
+  created_at: string;
+}
+
+export interface RegistrySummary {
+  id: string;
+  name: string;
+  endpoint: string;
+  username: string | null;
+  credential_configured: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RegistryInput {
+  name: string;
+  endpoint: string;
+  username?: string;
+  credential?: string;
+}
+
+export interface WebhookSummary {
+  id: string;
+  project_id: string;
+  name: string;
+  url: string;
+  secret_configured: boolean;
+  is_enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WebhookInput {
+  name: string;
+  url: string;
+  secret?: string;
+  is_enabled?: boolean;
+}
+
+export interface TerminalCapability {
+  available: boolean;
+  reason: string;
 }
 
 export interface ServiceSummary {

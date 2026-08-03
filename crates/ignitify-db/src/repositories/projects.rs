@@ -85,12 +85,16 @@ impl ProjectsRepository {
         .bind(&now)
         .execute(&mut *tx)
         .await?;
-        sqlx::query("INSERT INTO audit_logs (id, user_id, action, created_at) VALUES (?, ?, 'project.create', ?)")
-            .bind(Uuid::new_v4().to_string())
-            .bind(actor_id)
-            .bind(&now)
-            .execute(&mut *tx)
-            .await?;
+        sqlx::query(
+            "INSERT INTO audit_logs (id, user_id, action, resource_type, resource_id, created_at)
+             VALUES (?, ?, 'project.create', 'project', ?, ?)",
+        )
+        .bind(Uuid::new_v4().to_string())
+        .bind(actor_id)
+        .bind(&project_id)
+        .bind(&now)
+        .execute(&mut *tx)
+        .await?;
         tx.commit().await?;
 
         Ok(ProjectSummary {
@@ -165,11 +169,12 @@ impl ProjectsRepository {
         }
 
         let now = Utc::now().to_rfc3339();
+        let mut tx = self.pool.begin().await?;
         let update = sqlx::query("UPDATE projects SET name = ?, updated_at = ? WHERE id = ?")
             .bind(&input.name)
             .bind(&now)
             .bind(project_id)
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await;
         if let Err(error) = update {
             return match error {
@@ -179,6 +184,17 @@ impl ProjectsRepository {
                 error => Err(error.into()),
             };
         }
+        sqlx::query(
+            "INSERT INTO audit_logs (id, user_id, action, resource_type, resource_id, created_at)
+             VALUES (?, ?, 'project.update', 'project', ?, ?)",
+        )
+        .bind(Uuid::new_v4().to_string())
+        .bind(actor.id)
+        .bind(project_id)
+        .bind(&now)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
 
         self.get(actor, project_id)
             .await?

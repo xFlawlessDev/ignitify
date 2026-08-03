@@ -14,7 +14,8 @@ use bollard::{
     models::{HealthConfig, HealthStatusEnum, HostConfig},
 };
 use ignitify_control_plane::{
-    Error as ControlError, ImageRuntime, IngressRoute, RuntimeHealth, RuntimeObservation,
+    Error as ControlError, HostRuntimeMetrics, ImageRuntime, IngressRoute, RuntimeHealth,
+    RuntimeObservation,
 };
 use ignitify_db::{DeploymentRecord, NewDeploymentLog};
 use thiserror::Error;
@@ -25,6 +26,15 @@ const GENERATION_LABEL: &str = "com.ignitify.generation";
 const MEMORY_LIMIT_BYTES: i64 = 512 * 1024 * 1024;
 const NANO_CPUS: i64 = 1_000_000_000;
 const PID_LIMIT: i64 = 256;
+
+#[derive(Debug, Clone, Copy)]
+pub struct RuntimeMetrics {
+    pub containers: i64,
+    pub containers_running: i64,
+    pub images: i64,
+    pub cpus: i64,
+    pub memory_bytes: i64,
+}
 
 #[derive(Clone)]
 pub struct DockerRuntime {
@@ -53,6 +63,17 @@ impl DockerRuntime {
         Ok(())
     }
 
+    pub async fn metrics(&self) -> Result<RuntimeMetrics> {
+        let info = self.docker.info().await?;
+        Ok(RuntimeMetrics {
+            containers: info.containers.unwrap_or_default(),
+            containers_running: info.containers_running.unwrap_or_default(),
+            images: info.images.unwrap_or_default(),
+            cpus: info.ncpu.unwrap_or_default(),
+            memory_bytes: info.mem_total.unwrap_or_default(),
+        })
+    }
+
     #[cfg(test)]
     fn docker(&self) -> &Docker {
         &self.docker
@@ -69,6 +90,21 @@ impl DockerRuntime {
 impl RuntimeHealth for DockerRuntime {
     fn ready(&self) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + '_>> {
         Box::pin(async move { self.ping().await.is_ok() })
+    }
+
+    fn host_metrics(
+        &self,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<HostRuntimeMetrics>> + Send + '_>>
+    {
+        Box::pin(async move {
+            self.metrics().await.ok().map(|metrics| HostRuntimeMetrics {
+                containers: metrics.containers,
+                containers_running: metrics.containers_running,
+                images: metrics.images,
+                cpus: metrics.cpus,
+                memory_bytes: metrics.memory_bytes,
+            })
+        })
     }
 }
 

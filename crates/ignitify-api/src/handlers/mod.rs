@@ -1,9 +1,13 @@
+pub(crate) mod activity;
 pub(crate) mod auth;
 pub(crate) mod dashboard;
 pub(crate) mod deployments;
 pub(crate) mod domains;
 pub(crate) mod health;
 pub(crate) mod projects;
+pub(crate) mod registries;
 pub(crate) mod runtime;
 pub(crate) mod services;
 pub(crate) mod streams;
+pub(crate) mod terminal;
+pub(crate) mod webhooks;
