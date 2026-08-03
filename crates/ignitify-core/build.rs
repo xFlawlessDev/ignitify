@@ -1,12 +1,14 @@
 use std::fs;
 use std::path::Path;
 
-const ENV_KEYS: [&str; 5] = [
+const ENV_KEYS: [&str; 7] = [
     "IGNITIFY_DATABASE_URL",
     "IGNITIFY_JWT_SECRET",
     "IGNITIFY_SECURE_COOKIES",
     "IGNITIFY_TRUSTED_ORIGINS",
     "IGNITIFY_SECRETS_AGE_IDENTITY",
+    "IGNITIFY_DOCKER_BIN",
+    "IGNITIFY_COMPOSE_ROOT",
 ];
 
 fn main() {

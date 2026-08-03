@@ -34,13 +34,17 @@ pub struct ComposeRuntime {
 
 impl ComposeRuntime {
     pub fn from_environment() -> Result<Self> {
-        let docker = env::var_os("IGNITIFY_DOCKER_BIN")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("/usr/bin/docker"));
-        let root = env::var_os("IGNITIFY_COMPOSE_ROOT")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("/var/lib/ignitify/compose"));
-        Self::new(docker, root)
+        Self::from_paths(
+            env::var_os("IGNITIFY_DOCKER_BIN").map(PathBuf::from),
+            env::var_os("IGNITIFY_COMPOSE_ROOT").map(PathBuf::from),
+        )
+    }
+
+    pub fn from_paths(docker: Option<PathBuf>, root: Option<PathBuf>) -> Result<Self> {
+        Self::new(
+            docker.unwrap_or_else(|| PathBuf::from("/usr/bin/docker")),
+            root.unwrap_or_else(|| PathBuf::from("/var/lib/ignitify/compose")),
+        )
     }
 
     pub fn new(docker: impl Into<PathBuf>, root: impl Into<PathBuf>) -> Result<Self> {

@@ -16,6 +16,8 @@ pub(crate) fn router(state: AppState) -> Router {
         .route("/api/v1/auth/refresh", post(handlers::auth::refresh))
         .route("/api/v1/auth/logout", post(handlers::auth::logout))
         .route("/api/v1/auth/me", get(handlers::auth::me))
+        .route("/api/v1/dashboard", get(handlers::dashboard::get))
+        .route("/api/v1/runtime/status", get(handlers::runtime::status))
         .route(
             "/api/v1/projects",
             get(handlers::projects::list).post(handlers::projects::create),

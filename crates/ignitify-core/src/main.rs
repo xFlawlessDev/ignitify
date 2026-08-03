@@ -37,6 +37,8 @@ fn env_value(name: &str) -> Option<String> {
         "IGNITIFY_SECRETS_AGE_IDENTITY" => {
             option_env!("IGNITIFY_SECRETS_AGE_IDENTITY").map(str::to_owned)
         }
+        "IGNITIFY_DOCKER_BIN" => option_env!("IGNITIFY_DOCKER_BIN").map(str::to_owned),
+        "IGNITIFY_COMPOSE_ROOT" => option_env!("IGNITIFY_COMPOSE_ROOT").map(str::to_owned),
         _ => None,
     })
 }
@@ -69,8 +71,10 @@ async fn main() -> Result<()> {
         .ping()
         .await
         .map_err(|_| CoreError::DockerRuntime)?;
-    let compose_runtime =
-        ComposeRuntime::from_environment().map_err(|_| CoreError::ComposeRuntime)?;
+    let compose_runtime = ComposeRuntime::from_paths(
+        env_value("IGNITIFY_DOCKER_BIN").map(Into::into),
+        env_value("IGNITIFY_COMPOSE_ROOT").map(Into::into),
+    )?;
     let runtime = RuntimeSelector::new(image_runtime, compose_runtime);
     let runtime_health = Arc::new(runtime.clone());
     let (_worker, worker_ready) = spawn_worker(

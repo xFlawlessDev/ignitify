@@ -113,6 +113,34 @@ export interface DeploymentSummary {
   finished_at: string | null;
 }
 
+export interface DashboardProjectSummary {
+  id: string;
+  name: string;
+}
+
+export interface DashboardServiceSummary {
+  id: string;
+  project_id: string;
+  name: string;
+  kind: "image" | "compose";
+  desired_generation: number;
+  desired_state: "running" | "stopped";
+}
+
+export interface DashboardSummary {
+  projects: DashboardProjectSummary[];
+  services: DashboardServiceSummary[];
+  deployments: DeploymentSummary[];
+}
+
+export type RuntimeComponentStatus = "ready" | "unavailable";
+
+export interface RuntimeStatus {
+  database: RuntimeComponentStatus;
+  runtime: RuntimeComponentStatus;
+  worker: RuntimeComponentStatus;
+}
+
 export interface ServiceSummary {
   id: string;
   project_id: string;

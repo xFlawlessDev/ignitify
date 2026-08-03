@@ -10,8 +10,8 @@ pub enum CoreError {
     Control(#[from] ignitify_control_plane::Error),
     #[error("Docker runtime unavailable")]
     DockerRuntime,
-    #[error("Compose runtime unavailable")]
-    ComposeRuntime,
+    #[error(transparent)]
+    ComposeRuntime(#[from] ignitify_runtime_compose::Error),
     #[error(transparent)]
     Io(#[from] std::io::Error),
 }

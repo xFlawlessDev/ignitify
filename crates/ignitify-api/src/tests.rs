@@ -588,3 +588,100 @@ async fn service_routes_encrypt_variables_and_enforce_access() {
         .unwrap();
     assert_eq!(viewer_update.status(), StatusCode::FORBIDDEN);
 }
+
+#[tokio::test]
+async fn dashboard_requires_auth_and_returns_safe_aggregate() {
+    let state = state().await;
+    let token = session_token(&state).await;
+    let app = router(
+        state.auth.clone(),
+        state.database.clone(),
+        state.services.clone(),
+        state.control.clone(),
+        state.runtime_health.clone(),
+        state.worker_health.clone(),
+        state.secure_cookies,
+        state.trusted_origins.clone(),
+    );
+
+    let unauthenticated = app
+        .clone()
+        .oneshot(request("GET", "/api/v1/dashboard", None, ""))
+        .await
+        .unwrap();
+    assert_eq!(unauthenticated.status(), StatusCode::UNAUTHORIZED);
+
+    let project = app
+        .clone()
+        .oneshot(request(
+            "POST",
+            "/api/v1/projects",
+            Some(&token),
+            r#"{"name":"Platform"}"#,
+        ))
+        .await
+        .unwrap()
+        .into_body()
+        .collect()
+        .await
+        .unwrap()
+        .to_bytes();
+    let project: serde_json::Value = serde_json::from_slice(&project).unwrap();
+    let project_id = project["id"].as_str().unwrap();
+    app.clone()
+        .oneshot(request(
+            "POST",
+            &format!("/api/v1/projects/{project_id}/services"),
+            Some(&token),
+            r#"{"name":"web","image_reference":"nginx@sha256:deadbeef","internal_port":8080,"healthcheck":null,"variables":[{"key":"TOKEN","value":"plain-secret","is_secret":true}]}"#,
+        ))
+        .await
+        .unwrap();
+
+    let response = app
+        .oneshot(request("GET", "/api/v1/dashboard", Some(&token), ""))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let dashboard: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(dashboard["projects"].as_array().unwrap().len(), 1);
+    assert_eq!(dashboard["services"].as_array().unwrap().len(), 1);
+    assert!(dashboard["services"][0].get("variables").is_none());
+    assert!(!String::from_utf8_lossy(&body).contains("plain-secret"));
+}
+
+#[tokio::test]
+async fn runtime_status_requires_auth_and_reports_component_state() {
+    let mut state = state().await;
+    state.runtime_health = Arc::new(StaticRuntimeHealth(false));
+    let token = session_token(&state).await;
+    let app = router(
+        state.auth.clone(),
+        state.database.clone(),
+        state.services.clone(),
+        state.control.clone(),
+        state.runtime_health.clone(),
+        state.worker_health.clone(),
+        state.secure_cookies,
+        state.trusted_origins.clone(),
+    );
+
+    let unauthenticated = app
+        .clone()
+        .oneshot(request("GET", "/api/v1/runtime/status", None, ""))
+        .await
+        .unwrap();
+    assert_eq!(unauthenticated.status(), StatusCode::UNAUTHORIZED);
+
+    let response = app
+        .oneshot(request("GET", "/api/v1/runtime/status", Some(&token), ""))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let status: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(status["database"], "ready");
+    assert_eq!(status["runtime"], "unavailable");
+    assert_eq!(status["worker"], "ready");
+}
