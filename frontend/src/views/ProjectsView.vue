@@ -22,9 +22,9 @@ onMounted(load);
 </script>
 
 <template>
-  <div class="max-w-[1160px]">
+  <div class="w-full max-w-[1200px]">
     <header
-      class="flex items-end justify-between gap-5 border-b border-border pb-[25px] max-[560px]:items-start max-[560px]:flex-col"
+      class="flex items-end justify-between gap-5 border-b border-border pb-[25px] max-[640px]:items-start max-[640px]:flex-col"
     >
       <div>
         <p class="ui-label">Workspace</p>
@@ -33,7 +33,7 @@ onMounted(load);
           Deployments grouped by product and environment.
         </p>
       </div>
-      <Button class="max-[560px]:w-full" @click="createOpen = true">
+      <Button class="w-full sm:w-auto" @click="createOpen = true">
         <Plus class="size-4" :stroke-width="1.5" />
         New project
       </Button>

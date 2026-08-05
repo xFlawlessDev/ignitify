@@ -31,7 +31,11 @@ function formatTime(value: string) {
     <div v-if="loading" class="px-5 py-8 text-sm text-muted-foreground" role="status">
       Loading activity...
     </div>
-    <div v-else-if="error" class="flex items-center justify-between gap-4 px-5 py-8" role="alert">
+    <div
+      v-else-if="error"
+      class="flex items-start justify-between gap-4 px-5 py-8 max-[520px]:flex-col"
+      role="alert"
+    >
       <p class="flex items-center gap-2 text-sm text-destructive">
         <CircleAlert class="size-4" :stroke-width="1.5" />{{ error }}
       </p>
@@ -46,7 +50,7 @@ function formatTime(value: string) {
       <div
         v-for="item in activity"
         :key="item.id"
-        class="grid gap-1 px-5 py-4 sm:grid-cols-[1fr_auto]"
+        class="grid gap-1 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_auto]"
       >
         <div>
           <p class="text-sm font-medium">{{ item.action }}</p>

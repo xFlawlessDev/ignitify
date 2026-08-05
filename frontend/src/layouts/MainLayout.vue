@@ -11,7 +11,7 @@ const { isSidebarCollapsed, toggleSidebar } = useControlPlanePreferences();
 
 <template>
   <TooltipProvider>
-    <div class="min-h-dvh bg-background">
+    <div class="min-h-dvh overflow-x-clip bg-background">
       <AppSidebar
         :collapsed="isSidebarCollapsed"
         :open="isSidebarOpen"
@@ -27,11 +27,11 @@ const { isSidebarCollapsed, toggleSidebar } = useControlPlanePreferences();
       />
 
       <div
-        class="min-h-dvh transition-[margin] duration-200 md:ml-[244px]"
-        :class="isSidebarCollapsed ? 'md:ml-[68px]' : ''"
+        class="min-h-dvh min-w-0 transition-[margin-left] duration-200"
+        :class="isSidebarCollapsed ? 'md:ml-[68px]' : 'md:ml-[244px]'"
       >
         <AppTopbar @open-navigation="isSidebarOpen = true" />
-        <main class="w-full max-w-[1480px] p-4 sm:p-5 md:p-8">
+        <main class="mx-auto w-full max-w-[1200px] min-w-0 p-4 sm:p-5 md:p-8">
           <slot />
         </main>
       </div>

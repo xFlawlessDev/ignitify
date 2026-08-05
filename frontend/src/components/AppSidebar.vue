@@ -45,11 +45,8 @@ const operationNavigation = computed(() =>
 
 <template>
   <aside
-    class="fixed inset-y-0 left-0 z-30 flex w-[244px] -translate-x-full flex-col border-r border-[var(--sidebar-border)] bg-[var(--sidebar-background)] px-3.5 pt-[22px] pb-4 text-[var(--sidebar-foreground)] transition-[width,padding,transform] duration-200 md:translate-x-0"
-    :class="[
-      collapsed ? 'md:w-[68px] md:px-2.5' : '',
-      open ? 'translate-x-0 shadow-[20px_0_40px_rgb(0_0_0_/_18%)]' : '',
-    ]"
+    class="fixed inset-y-0 left-0 z-30 flex w-[244px] max-w-[calc(100vw-1rem)] -translate-x-full flex-col overflow-x-hidden overflow-y-auto border-r border-[var(--sidebar-border)] bg-[var(--sidebar-background)] px-3.5 pt-[22px] pb-4 text-[var(--sidebar-foreground)] transition-[width,padding,transform] duration-200 md:translate-x-0"
+    :class="[collapsed ? 'md:w-[68px] md:px-2.5' : '', open ? 'translate-x-0' : '']"
     aria-label="Primary navigation"
   >
     <div

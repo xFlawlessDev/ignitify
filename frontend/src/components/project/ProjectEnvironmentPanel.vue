@@ -23,7 +23,9 @@ function copyValue(variable: EnvironmentVariable) {
 
 <template>
   <section class="border border-border bg-card">
-    <div class="flex items-end justify-between gap-4 border-b border-border px-5 pt-5 pb-4">
+    <div
+      class="flex items-start justify-between gap-4 border-b border-border px-5 pt-5 pb-4 max-[480px]:flex-col"
+    >
       <div>
         <p class="ui-label">Configuration</p>
         <h2 class="mt-2 text-xl leading-none font-normal">Environment</h2>
@@ -43,12 +45,13 @@ function copyValue(variable: EnvironmentVariable) {
       <div
         v-for="variable in variables"
         :key="variable.key"
-        class="grid min-h-[43px] grid-cols-[minmax(110px,0.8fr)_minmax(0,1fr)_28px] items-center gap-3 border-b border-border last:border-b-0"
+        class="grid min-h-[43px] grid-cols-[minmax(0,0.8fr)_minmax(0,1fr)_28px] items-center gap-3 border-b border-border last:border-b-0 max-[480px]:grid-cols-[minmax(0,1fr)_28px]"
       >
         <code class="truncate font-mono text-[11px] text-foreground">{{ variable.key }}</code>
-        <span class="truncate font-mono text-[11px] text-muted-foreground">{{
-          variable.secret && !showSecrets ? "••••••••••••" : variable.value
-        }}</span>
+        <span
+          class="truncate font-mono text-[11px] text-muted-foreground max-[480px]:col-start-1 max-[480px]:col-end-3 max-[480px]:row-start-2 max-[480px]:pb-2"
+          >{{ variable.secret && !showSecrets ? "••••••••••••" : variable.value }}</span
+        >
         <button
           class="grid size-7 place-items-center rounded-[3px] border border-transparent text-muted-foreground hover:border-border hover:bg-muted hover:text-foreground"
           type="button"

@@ -13,7 +13,7 @@ defineProps<{
     <RouterLink
       v-for="project in projects"
       :key="project.id"
-      class="grid min-h-[78px] grid-cols-[32px_minmax(0,1fr)_auto] items-center gap-3.5 border-b border-border px-[18px] py-3 text-foreground last:border-b-0 hover:bg-muted"
+      class="grid min-h-[78px] grid-cols-[32px_minmax(0,1fr)_auto] items-center gap-3.5 border-b border-border px-4 py-3 text-foreground last:border-b-0 hover:bg-muted sm:px-[18px]"
       :to="`/projects/${project.id}`"
     >
       <span

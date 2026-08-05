@@ -11,9 +11,9 @@ onMounted(load);
 </script>
 
 <template>
-  <div class="max-w-[1160px]">
+  <div class="w-full max-w-[1200px]">
     <header
-      class="flex items-end justify-between gap-6 border-b border-border pb-[25px] max-[620px]:items-start max-[620px]:flex-col"
+      class="flex items-end justify-between gap-6 border-b border-border pb-[25px] max-[640px]:items-start max-[640px]:flex-col"
     >
       <div>
         <p class="ui-label">Operations</p>
@@ -22,7 +22,12 @@ onMounted(load);
           Current control-plane host readiness and Docker capacity.
         </p>
       </div>
-      <Button size="sm" variant="outline" :disabled="loading" @click="load"
+      <Button
+        class="w-full shrink-0 sm:w-auto"
+        size="sm"
+        variant="outline"
+        :disabled="loading"
+        @click="load"
         ><RefreshCw class="size-4" :class="loading ? 'animate-spin' : ''" :stroke-width="1.5" />
         Refresh</Button
       >

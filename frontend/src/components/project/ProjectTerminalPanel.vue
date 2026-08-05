@@ -25,8 +25,8 @@ defineEmits<{ retry: [] }>();
       Checking terminal capability...
     </div>
     <div v-else-if="error" class="px-5 py-8 text-sm text-destructive" role="alert">
-      {{ error
-      }}<Button class="ml-3" size="sm" variant="outline" @click="$emit('retry')">Retry</Button>
+      <p>{{ error }}</p>
+      <Button class="mt-3" size="sm" variant="outline" @click="$emit('retry')">Retry</Button>
     </div>
     <div v-else class="px-5 py-8">
       <p class="flex items-center gap-2 text-sm font-medium">

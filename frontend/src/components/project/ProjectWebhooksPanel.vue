@@ -69,7 +69,7 @@ function confirmRemove(webhook: WebhookSummary) {
     <template v-else>
       <div
         v-if="canManage"
-        class="grid gap-3 border-b border-border p-5 md:grid-cols-[1fr_1.5fr_1fr_auto]"
+        class="grid gap-3 border-b border-border p-5 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)_minmax(0,1fr)_auto]"
       >
         <Input v-model="name" placeholder="Name" aria-label="Webhook name" />
         <Input
@@ -95,7 +95,7 @@ function confirmRemove(webhook: WebhookSummary) {
         <div
           v-for="webhook in webhooks"
           :key="webhook.id"
-          class="flex items-center justify-between gap-4 px-5 py-4"
+          class="grid gap-3 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
         >
           <div class="min-w-0">
             <p class="text-sm font-medium">{{ webhook.name }}</p>
@@ -119,7 +119,7 @@ function confirmRemove(webhook: WebhookSummary) {
           </Button>
           <div
             v-if="confirmName === webhook.name"
-            class="mt-3 flex w-full items-center gap-2 border-t border-border pt-3"
+            class="mt-3 grid w-full gap-2 border-t border-border pt-3 sm:col-span-2 sm:grid-cols-[minmax(0,1fr)_auto]"
           >
             <Input
               v-model="confirmValue"

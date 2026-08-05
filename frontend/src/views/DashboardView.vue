@@ -16,9 +16,9 @@ onMounted(load);
 </script>
 
 <template>
-  <div class="max-w-[1160px]">
+  <div class="w-full max-w-[1200px]">
     <header
-      class="flex items-end justify-between gap-6 border-b border-border pb-[25px] max-[620px]:items-start max-[620px]:flex-col"
+      class="flex items-end justify-between gap-6 border-b border-border pb-[25px] max-[640px]:items-start max-[640px]:flex-col"
     >
       <div>
         <p class="ui-label">Control plane</p>
@@ -27,7 +27,7 @@ onMounted(load);
           Workspace rollout state. Deployment status from persisted control-plane records.
         </p>
       </div>
-      <Button as-child size="sm">
+      <Button as-child class="w-full sm:w-auto" size="sm">
         <RouterLink to="/projects">
           <Box class="size-4" :stroke-width="1.5" />
           Open projects
@@ -35,13 +35,11 @@ onMounted(load);
       </Button>
     </header>
 
-    <section class="mt-[22px] grid border border-border bg-card sm:grid-cols-2 lg:grid-cols-4">
+    <section
+      class="mt-[22px] grid overflow-hidden divide-y divide-border border border-border bg-card sm:grid-cols-2 sm:divide-x sm:divide-y-0 lg:grid-cols-4"
+    >
       <template v-if="loading && !data.projects.length">
-        <div
-          v-for="index in 4"
-          :key="index"
-          class="min-h-36 border-b border-border p-5 sm:nth-[2n]:border-l lg:border-b-0 lg:border-l"
-        >
+        <div v-for="index in 4" :key="index" class="min-h-36 bg-background p-5">
           <Skeleton class="h-3 w-20" />
           <Skeleton class="mt-12 h-9 w-12" />
         </div>
@@ -56,20 +54,26 @@ onMounted(load);
 
     <section
       v-if="error"
-      class="mt-4 flex items-start justify-between gap-4 border border-destructive/40 bg-card px-5 py-4 max-[620px]:flex-col"
+      class="mt-4 flex items-start justify-between gap-4 border border-destructive/40 bg-card px-5 py-4 max-[640px]:flex-col"
       role="alert"
     >
       <div class="flex items-start gap-2 text-sm text-destructive">
         <CircleAlert class="mt-0.5 size-4 shrink-0" :stroke-width="1.5" />
         <p>{{ error }}</p>
       </div>
-      <Button size="sm" variant="outline" :disabled="loading" @click="load">
+      <Button
+        class="shrink-0 max-[640px]:w-full"
+        size="sm"
+        variant="outline"
+        :disabled="loading"
+        @click="load"
+      >
         <RefreshCw class="size-4" :class="loading ? 'animate-spin' : ''" :stroke-width="1.5" />
         Retry
       </Button>
     </section>
 
-    <section class="mt-[22px] grid gap-4 lg:grid-cols-[minmax(0,1fr)_17rem]">
+    <section class="mt-[22px] grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_17rem]">
       <DeploymentList :deployments="recentDeployments" :loading="loading" />
       <RuntimeStatusPanel :runtime="runtime" />
     </section>

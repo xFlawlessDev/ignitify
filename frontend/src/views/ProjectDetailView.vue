@@ -177,7 +177,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="max-w-[1160px]">
+  <div class="w-full max-w-[1200px]">
     <RouterLink
       class="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
       to="/projects"
@@ -211,7 +211,7 @@ onUnmounted(() => {
     </section>
     <template v-else-if="data">
       <header
-        class="mt-[22px] flex items-center justify-between gap-6 border-b border-border pb-[25px] max-[620px]:items-start max-[620px]:flex-col"
+        class="mt-[22px] flex items-center justify-between gap-6 border-b border-border pb-[25px] max-[640px]:items-start max-[640px]:flex-col"
       >
         <div class="flex min-w-0 items-center gap-[13px]">
           <div
@@ -219,11 +219,11 @@ onUnmounted(() => {
           >
             <Box :size="20" :stroke-width="1.5" />
           </div>
-          <div>
+          <div class="min-w-0">
             <h1 class="m-0 truncate text-[29px] leading-none font-normal">
               {{ data.name }}
             </h1>
-            <p class="mt-2 text-xs text-muted-foreground">
+            <p class="mt-2 truncate text-xs text-muted-foreground">
               {{ data.default_environment.name }} environment
             </p>
           </div>
@@ -231,7 +231,7 @@ onUnmounted(() => {
       </header>
 
       <nav
-        class="mt-[25px] flex h-[39px] gap-1 overflow-x-auto border-b border-border"
+        class="mt-6 flex h-[39px] min-w-0 gap-1 overflow-x-auto border-b border-border"
         aria-label="Project sections"
       >
         <button
@@ -258,7 +258,7 @@ onUnmounted(() => {
 
       <section
         v-if="activeTab === 'overview'"
-        class="mt-[22px] grid border border-border bg-card sm:grid-cols-2"
+        class="mt-[22px] grid min-w-0 overflow-hidden border border-border bg-card sm:grid-cols-2"
       >
         <div class="grid gap-2 border-b border-border p-5 sm:border-r sm:border-b-0">
           <p class="ui-label">Default environment</p>
@@ -376,7 +376,7 @@ onUnmounted(() => {
 
       <form
         v-else-if="data.role === 'owner'"
-        class="mt-[22px] grid max-w-lg gap-3 border border-border bg-card p-5"
+        class="mt-[22px] grid w-full max-w-lg gap-3 border border-border bg-card p-5"
         @submit.prevent="renameProject"
       >
         <div class="flex items-center gap-2">

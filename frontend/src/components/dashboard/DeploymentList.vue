@@ -45,8 +45,10 @@ function formatTime(value: string) {
 </script>
 
 <template>
-  <section class="border border-border bg-card">
-    <div class="flex items-end justify-between gap-4 border-b border-border px-5 py-4">
+  <section class="min-w-0 border border-border bg-card">
+    <div
+      class="flex items-end justify-between gap-4 border-b border-border px-5 py-4 max-[480px]:items-start max-[480px]:flex-col"
+    >
       <div>
         <p class="ui-label">Deployments</p>
         <h2 class="mt-2 text-base font-medium">Recent operations</h2>
@@ -68,7 +70,7 @@ function formatTime(value: string) {
         v-for="item in props.deployments"
         :key="item.deployment.id"
         :to="`/projects/${item.project.id}`"
-        class="grid gap-3 px-5 py-4 hover:bg-muted/60 sm:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_auto] sm:items-center"
+        class="grid min-w-0 gap-3 px-5 py-4 hover:bg-muted/60 sm:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_auto] sm:items-center"
       >
         <div class="flex min-w-0 items-center gap-3">
           <span

@@ -115,7 +115,7 @@ watch(open, (isOpen) => {
 <template>
   <Dialog v-model:open="open">
     <DialogContent
-      class="max-h-[calc(100vh-2rem)] overflow-y-auto rounded-md shadow-none sm:max-w-xl"
+      class="max-h-[calc(100vh-2rem)] w-[calc(100%-1rem)] overflow-y-auto rounded-md shadow-none sm:max-w-xl"
     >
       <DialogHeader>
         <DialogTitle>{{ service ? "Edit image service" : "New image service" }}</DialogTitle>
@@ -195,7 +195,7 @@ watch(open, (isOpen) => {
           <div
             v-for="(variable, index) in variables"
             :key="index"
-            class="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto_auto] items-end gap-2"
+            class="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto_auto] items-end gap-2 max-[480px]:grid-cols-1 max-[480px]:items-stretch"
           >
             <label class="grid gap-2 text-xs text-muted-foreground">
               Key
@@ -210,7 +210,9 @@ watch(open, (isOpen) => {
                 required
               />
             </label>
-            <label class="grid gap-2 text-xs text-muted-foreground">
+            <label
+              class="grid gap-2 text-xs text-muted-foreground max-[480px]:grid-cols-[1fr_auto] max-[480px]:items-center"
+            >
               Secret
               <Switch
                 v-model="variable.is_secret"
@@ -235,8 +237,8 @@ watch(open, (isOpen) => {
         <p v-if="validationError || error" class="text-xs text-destructive" role="alert">
           {{ validationError ?? error }}
         </p>
-        <DialogFooter>
-          <Button type="submit" :disabled="saving">
+        <DialogFooter class="flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <Button class="w-full sm:w-auto" type="submit" :disabled="saving">
             {{ saving ? "Saving..." : service ? "Save configuration" : "Create service" }}
           </Button>
         </DialogFooter>

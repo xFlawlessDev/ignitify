@@ -69,9 +69,9 @@ onMounted(load);
 </script>
 
 <template>
-  <div class="max-w-[1160px]">
+  <div class="w-full max-w-[1200px]">
     <header
-      class="flex items-end justify-between gap-6 border-b border-border pb-[25px] max-[620px]:items-start max-[620px]:flex-col"
+      class="flex items-end justify-between gap-6 border-b border-border pb-[25px] max-[640px]:items-start max-[640px]:flex-col"
     >
       <div>
         <p class="ui-label">Admin</p>
@@ -92,39 +92,55 @@ onMounted(load);
     <template v-else>
       <section
         v-if="error"
-        class="mt-4 flex items-center justify-between gap-4 border border-destructive/40 bg-card px-5 py-4 text-sm text-destructive"
+        class="mt-4 flex items-start justify-between gap-4 border border-destructive/40 bg-card px-5 py-4 text-sm text-destructive max-[640px]:flex-col"
         role="alert"
       >
-        <span class="flex items-center gap-2"
-          ><CircleAlert class="size-4" :stroke-width="1.5" />{{ error }}</span
-        >
-        <Button size="sm" variant="outline" @click="load"
-          ><RefreshCw class="size-4" :stroke-width="1.5" /> Retry</Button
-        >
+        <span class="flex items-start gap-2">
+          <CircleAlert class="mt-0.5 size-4 shrink-0" :stroke-width="1.5" />
+          {{ error }}
+        </span>
+        <Button class="shrink-0 max-[640px]:w-full" size="sm" variant="outline" @click="load">
+          <RefreshCw class="size-4" :stroke-width="1.5" />
+          Retry
+        </Button>
       </section>
       <section class="mt-[22px] border border-border bg-card">
         <div class="border-b border-border px-5 py-4">
           <p class="ui-label">Add source</p>
           <h2 class="mt-2 text-base font-medium">Registry connection</h2>
         </div>
-        <div class="grid gap-3 p-5 md:grid-cols-[1fr_1.5fr_1fr_1fr_auto]">
-          <Input v-model="name" placeholder="Name" aria-label="Registry name" />
+        <div
+          class="grid gap-3 p-5 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1fr)_auto]"
+        >
+          <Input v-model="name" class="min-w-0" placeholder="Name" aria-label="Registry name" />
           <Input
             v-model="endpoint"
+            class="min-w-0"
             type="url"
             placeholder="https://registry.example.com"
             aria-label="Registry endpoint"
           />
-          <Input v-model="username" placeholder="Username" aria-label="Registry username" />
+          <Input
+            v-model="username"
+            class="min-w-0"
+            placeholder="Username"
+            aria-label="Registry username"
+          />
           <Input
             v-model="credential"
+            class="min-w-0"
             type="password"
             placeholder="Credential"
             aria-label="Registry credential"
           />
-          <Button :disabled="submitting || !name.trim() || !endpoint.trim()" @click="create"
-            ><Plus class="size-4" :stroke-width="1.5" /> Add</Button
+          <Button
+            class="w-full sm:w-auto"
+            :disabled="submitting || !name.trim() || !endpoint.trim()"
+            @click="create"
           >
+            <Plus class="size-4" :stroke-width="1.5" />
+            Add
+          </Button>
         </div>
       </section>
       <section class="mt-4 border border-border bg-card">
@@ -155,14 +171,15 @@ onMounted(load);
               :disabled="submitting"
               :aria-label="`Remove ${registry.name}`"
               @click="startRemove(registry)"
-              ><Trash2 class="size-4" :stroke-width="1.5"
-            /></Button>
+            >
+              <Trash2 class="size-4" :stroke-width="1.5" />
+            </Button>
           </div>
         </div>
       </section>
       <section
         v-if="removing"
-        class="mt-4 flex items-center gap-3 border border-destructive/40 bg-card p-5"
+        class="mt-4 grid gap-3 border border-destructive/40 bg-card p-5 sm:grid-cols-[minmax(0,1fr)_auto_auto]"
       >
         <Input
           v-model="confirmName"
@@ -170,12 +187,21 @@ onMounted(load);
           :aria-label="`Confirm removal of ${removing.name}`"
         />
         <Button
+          class="w-full sm:w-auto"
           variant="destructive"
           :disabled="submitting || confirmName !== removing.name"
           @click="remove"
-          >Remove</Button
         >
-        <Button variant="outline" :disabled="submitting" @click="removing = null">Cancel</Button>
+          Remove
+        </Button>
+        <Button
+          class="w-full sm:w-auto"
+          variant="outline"
+          :disabled="submitting"
+          @click="removing = null"
+        >
+          Cancel
+        </Button>
       </section>
     </template>
   </div>

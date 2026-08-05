@@ -89,7 +89,7 @@ function serviceName(id: string) {
       <div
         v-for="domain in domains"
         :key="domain.id"
-        class="flex items-center justify-between gap-4 px-5 py-3"
+        class="grid gap-3 px-5 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
       >
         <div class="grid min-w-0 gap-1">
           <span class="flex items-center gap-2 text-sm font-medium"

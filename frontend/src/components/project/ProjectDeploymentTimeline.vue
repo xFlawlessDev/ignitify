@@ -29,15 +29,18 @@ function isActive(status: DeploymentSummary["status"]) {
 
 <template>
   <section class="border border-border bg-card">
-    <div class="flex items-end justify-between gap-4 border-b border-border px-5 pt-5 pb-4">
+    <div
+      class="flex items-end justify-between gap-4 border-b border-border px-5 pt-5 pb-4 max-[560px]:items-start max-[560px]:flex-col"
+    >
       <div>
         <p class="ui-label">Runtime</p>
         <h2 class="mt-2 text-xl leading-none font-normal">Deployments</h2>
       </div>
-      <div class="flex flex-wrap gap-2">
+      <div class="flex flex-wrap gap-2 max-[560px]:w-full max-[560px]:flex-col">
         <Button
           v-for="service in services"
           :key="service.id"
+          class="w-full sm:w-auto"
           size="sm"
           :disabled="submitting"
           @click="emit('deploy', service.id)"
@@ -69,18 +72,18 @@ function isActive(status: DeploymentSummary["status"]) {
       <div
         v-for="deployment in deployments"
         :key="deployment.id"
-        class="flex items-center justify-between gap-4 px-5 py-3"
+        class="grid gap-3 px-5 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
       >
         <div class="grid min-w-0 gap-1">
-          <span class="text-sm font-medium">{{ serviceName(deployment.service_id) }}</span>
+          <span class="truncate text-sm font-medium">{{ serviceName(deployment.service_id) }}</span>
           <span class="font-mono text-[11px] text-muted-foreground"
             >g{{ deployment.generation }}</span
           >
-          <span v-if="deployment.failure_reason" class="text-xs text-destructive">
+          <span v-if="deployment.failure_reason" class="break-words text-xs text-destructive">
             {{ deployment.failure_reason }}
           </span>
         </div>
-        <div class="flex shrink-0 items-center gap-3">
+        <div class="flex items-center justify-between gap-3 sm:justify-end">
           <span
             class="text-xs capitalize"
             :class="
@@ -94,28 +97,30 @@ function isActive(status: DeploymentSummary["status"]) {
             />
             {{ deployment.status }}
           </span>
-          <button
-            v-if="deployment.status === 'healthy' || deployment.status === 'running'"
-            class="grid size-8 place-items-center rounded-md border border-transparent text-muted-foreground hover:border-border hover:bg-muted hover:text-foreground"
-            type="button"
-            :aria-label="`Stop ${serviceName(deployment.service_id)}`"
-            title="Stop"
-            :disabled="submitting"
-            @click="emit('stop', deployment.service_id)"
-          >
-            <Square class="size-4" :stroke-width="1.5" />
-          </button>
-          <button
-            v-if="deployment.status === 'healthy' || deployment.status === 'stopped'"
-            class="grid size-8 place-items-center rounded-md border border-transparent text-muted-foreground hover:border-border hover:bg-muted hover:text-foreground"
-            type="button"
-            :aria-label="`Rollback deployment ${deployment.generation}`"
-            title="Rollback"
-            :disabled="submitting"
-            @click="emit('rollback', deployment.id)"
-          >
-            <RotateCcw class="size-4" :stroke-width="1.5" />
-          </button>
+          <div class="flex items-center gap-1">
+            <button
+              v-if="deployment.status === 'healthy' || deployment.status === 'running'"
+              class="grid size-8 place-items-center rounded-md border border-transparent text-muted-foreground hover:border-border hover:bg-muted hover:text-foreground"
+              type="button"
+              :aria-label="`Stop ${serviceName(deployment.service_id)}`"
+              title="Stop"
+              :disabled="submitting"
+              @click="emit('stop', deployment.service_id)"
+            >
+              <Square class="size-4" :stroke-width="1.5" />
+            </button>
+            <button
+              v-if="deployment.status === 'healthy' || deployment.status === 'stopped'"
+              class="grid size-8 place-items-center rounded-md border border-transparent text-muted-foreground hover:border-border hover:bg-muted hover:text-foreground"
+              type="button"
+              :aria-label="`Rollback deployment ${deployment.generation}`"
+              title="Rollback"
+              :disabled="submitting"
+              @click="emit('rollback', deployment.id)"
+            >
+              <RotateCcw class="size-4" :stroke-width="1.5" />
+            </button>
+          </div>
         </div>
       </div>
     </div>

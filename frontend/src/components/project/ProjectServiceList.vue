@@ -16,7 +16,9 @@ const emit = defineEmits<{
 
 <template>
   <section class="border border-border bg-card">
-    <div class="flex items-end justify-between gap-4 border-b border-border px-5 pt-5 pb-4">
+    <div
+      class="flex items-start justify-between gap-4 border-b border-border px-5 pt-5 pb-4 max-[520px]:flex-col"
+    >
       <div>
         <p class="ui-label">Configuration</p>
         <h2 class="mt-2 text-xl leading-none font-normal">Services</h2>
@@ -31,7 +33,7 @@ const emit = defineEmits<{
       <div
         v-for="service in services"
         :key="service.id"
-        class="grid min-h-[78px] grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-5 py-3"
+        class="grid min-h-[78px] grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-5 py-3 max-[420px]:gap-2"
       >
         <div class="flex min-w-0 items-center gap-3">
           <span

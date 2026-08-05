@@ -47,7 +47,9 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <header class="flex h-14 items-center gap-3 border-b border-border px-4 md:h-[62px] md:px-8">
+  <header
+    class="flex h-14 min-w-0 items-center gap-3 border-b border-border px-4 md:h-[62px] md:px-8"
+  >
     <button
       class="grid size-8 shrink-0 place-items-center rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground md:hidden"
       type="button"
