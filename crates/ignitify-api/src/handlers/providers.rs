@@ -136,12 +136,13 @@ pub(crate) async fn start_github_manifest(
     let actor = require_admin(&state, &headers).await?;
     require_same_origin_request(&state, &headers)?;
 
-    let name = request.name.trim().to_owned();
-    if name.is_empty() || name.len() > 34 {
+    let requested_name = request.name.trim();
+    if requested_name.is_empty() || requested_name.len() > 100 {
         return Err(ApiError::BadRequest(
-            "GitHub App name must be 1-34 characters",
+            "GitHub App name must be 1-100 characters",
         ));
     }
+    let name = github_manifest_name(requested_name);
     let base_url = request
         .base_url
         .as_deref()
@@ -300,6 +301,27 @@ fn frontend_origin(state: &AppState) -> String {
 
 fn github_result_redirect(origin: &str, result: &str) -> String {
     format!("{}/providers?github={result}", origin.trim_end_matches('/'))
+}
+
+fn github_manifest_name(base_name: &str) -> String {
+    let suffix = Uuid::new_v4()
+        .simple()
+        .to_string()
+        .chars()
+        .take(8)
+        .collect::<String>();
+    let max_base_length = 34usize.saturating_sub(suffix.len() + 1);
+    let base = base_name
+        .chars()
+        .take(max_base_length)
+        .collect::<String>()
+        .trim_end_matches('-')
+        .to_owned();
+    if base.is_empty() {
+        format!("Ignitify-{suffix}")
+    } else {
+        format!("{base}-{suffix}")
+    }
 }
 
 pub(crate) async fn create(

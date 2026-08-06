@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { CircleCheck, GitBranch, KeyRound, Plus, RefreshCw, ShieldCheck } from "@lucide/vue";
 import { computed, onMounted, shallowRef } from "vue";
+import { toast } from "vue-sonner";
 import ProviderConnectDialog from "@/components/provider/ProviderConnectDialog.vue";
 import ProviderList from "@/components/provider/ProviderList.vue";
 import ProviderTypeGrid from "@/components/provider/ProviderTypeGrid.vue";
@@ -16,8 +17,18 @@ import type {
 import { useRoute } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
 
-const { data, error, load, loading, saving, create, startGithubAppManifest, remove } =
-  useProviders();
+const {
+  data,
+  error,
+  load,
+  loading,
+  saving,
+  testingId,
+  create,
+  startGithubAppManifest,
+  testConnection,
+  remove,
+} = useProviders();
 const auth = useAuthStore();
 const route = useRoute();
 const connectOpen = shallowRef(false);
@@ -54,6 +65,48 @@ async function connectGithubApp(input: GithubManifestInput) {
   form.append(manifest);
   document.body.append(form);
   form.submit();
+}
+
+async function testProvider(provider: ProviderSummary) {
+  const result = await testConnection(provider.id);
+  if (!result) {
+    const needsGithubInstallation =
+      provider.kind === "github" &&
+      provider.auth_mode === "github_app" &&
+      error.value?.toLowerCase().includes("not installed");
+    if (needsGithubInstallation) {
+      toast.warning(`${provider.name} is not installed`, {
+        description: "Install the GitHub App, then test the connection again.",
+        action: {
+          label: "Install GitHub App",
+          onClick: () => window.open(githubInstallUrl(provider), "_blank", "noopener,noreferrer"),
+        },
+      });
+      return;
+    }
+    toast.error(`${provider.name} connection failed`, {
+      description: error.value ?? "Could not test provider connection",
+    });
+    return;
+  }
+  if (result.repository_count === null) {
+    toast.success(`${provider.name} connected`, {
+      description: "Connection verified. Repository count is unavailable for Generic Git.",
+    });
+    return;
+  }
+  const repositoryLabel = result.repository_count === 1 ? "repository" : "repositories";
+  toast.success(`${provider.name} connected`, {
+    description: `${result.repository_count} ${repositoryLabel} accessible`,
+  });
+}
+
+function githubInstallUrl(provider: ProviderSummary) {
+  const slug = provider.name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return `https://github.com/apps/${encodeURIComponent(slug)}/installations/new`;
 }
 
 function openProvider(kind: ProviderKind) {
@@ -203,7 +256,9 @@ onMounted(load);
           :providers="data"
           :busy="saving"
           :can-manage="auth.isAdmin"
+          :testing-id="testingId"
           @remove="removeProvider"
+          @test="testProvider"
         />
       </section>
 

@@ -260,6 +260,19 @@ impl ProvidersRepository {
             .await?;
         Ok(result.rows_affected() == 1)
     }
+
+    pub async fn mark_verified(&self, provider_id: &str) -> Result<Option<ProviderRecord>> {
+        let now = Utc::now().to_rfc3339();
+        let result = sqlx::query("UPDATE providers SET last_verified_at = ? WHERE id = ?")
+            .bind(&now)
+            .bind(provider_id)
+            .execute(&self.pool)
+            .await?;
+        if result.rows_affected() != 1 {
+            return Ok(None);
+        }
+        self.get(provider_id).await
+    }
 }
 
 #[derive(Debug, FromRow)]

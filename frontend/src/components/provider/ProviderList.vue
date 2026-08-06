@@ -1,14 +1,18 @@
 <script setup lang="ts">
-import { ArrowUpRight, GitBranch, GitPullRequest, Server, Trash2 } from "@lucide/vue";
+import { ArrowUpRight, GitBranch, GitPullRequest, PlugZap, Server, Trash2 } from "@lucide/vue";
 import type { ProviderSummary } from "@/lib/types";
 
 defineProps<{
   providers: ProviderSummary[];
   busy?: boolean;
   canManage?: boolean;
+  testingId?: string | null;
 }>();
 
-const emit = defineEmits<{ remove: [provider: ProviderSummary] }>();
+const emit = defineEmits<{
+  remove: [provider: ProviderSummary];
+  test: [provider: ProviderSummary];
+}>();
 
 const providerLabels: Record<ProviderSummary["kind"], string> = {
   git: "Generic Git",
@@ -73,20 +77,38 @@ function formatDate(value: string) {
               <Server class="size-3" :stroke-width="1.5" />
               Added {{ formatDate(provider.created_at) }}
             </span>
+            <span v-if="provider.last_verified_at" class="inline-flex items-center gap-1.5">
+              Tested {{ formatDate(provider.last_verified_at) }}
+            </span>
           </p>
         </div>
       </div>
-      <button
-        v-if="canManage"
-        class="grid size-8 place-items-center justify-self-end rounded-[3px] text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:pointer-events-none disabled:opacity-50"
-        type="button"
-        :disabled="busy"
-        aria-label="Remove provider"
-        title="Remove provider"
-        @click="emit('remove', provider)"
-      >
-        <Trash2 class="size-4" :stroke-width="1.5" />
-      </button>
+      <div v-if="canManage" class="flex items-center gap-1 justify-self-end">
+        <button
+          class="grid size-8 place-items-center rounded-[3px] text-muted-foreground transition-colors hover:bg-primary/10 hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+          type="button"
+          :disabled="busy || testingId !== null"
+          aria-label="Test provider connection"
+          title="Test provider connection"
+          @click="emit('test', provider)"
+        >
+          <PlugZap
+            class="size-4"
+            :class="testingId === provider.id ? 'animate-pulse' : ''"
+            :stroke-width="1.5"
+          />
+        </button>
+        <button
+          class="grid size-8 place-items-center rounded-[3px] text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:pointer-events-none disabled:opacity-50"
+          type="button"
+          :disabled="busy || testingId !== null"
+          aria-label="Remove provider"
+          title="Remove provider"
+          @click="emit('remove', provider)"
+        >
+          <Trash2 class="size-4" :stroke-width="1.5" />
+        </button>
+      </div>
     </div>
   </div>
 </template>

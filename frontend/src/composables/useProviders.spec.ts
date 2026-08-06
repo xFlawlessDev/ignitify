@@ -5,6 +5,7 @@ const api = vi.hoisted(() => ({
   create: vi.fn(),
   list: vi.fn(),
   remove: vi.fn(),
+  test: vi.fn(),
   update: vi.fn(),
 }));
 
@@ -12,6 +13,7 @@ vi.mock("@/lib/api/providers", () => ({
   apiCreateProvider: api.create,
   apiDeleteProvider: api.remove,
   apiListProviders: api.list,
+  apiTestProviderConnection: api.test,
   apiUpdateProvider: api.update,
 }));
 
@@ -66,5 +68,22 @@ describe("useProviders", () => {
 
     expect(await providers.remove(provider.id)).toBe(true);
     expect(providers.data.value).toEqual([]);
+  });
+
+  it("records a successful connection test timestamp and repository count", async () => {
+    api.test.mockResolvedValue({
+      success: true,
+      data: { repository_count: 7, checked_at: "2026-08-06T12:00:00Z" },
+    });
+    const { useProviders } = await import("./useProviders");
+    const providers = useProviders();
+    providers.data.value = [provider];
+
+    const result = await providers.testConnection(provider.id);
+    expect(result).toEqual({
+      repository_count: 7,
+      checked_at: "2026-08-06T12:00:00Z",
+    });
+    expect(providers.data.value[0].last_verified_at).toBe("2026-08-06T12:00:00Z");
   });
 });

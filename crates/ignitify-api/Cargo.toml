@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 axum.workspace = true
+chrono.workspace = true
 futures-util.workspace = true
 ignitify-auth = { path = "../ignitify-auth" }
 ignitify-control-plane = { path = "../ignitify-control-plane" }
@@ -14,6 +15,7 @@ ignitify-domain = { path = "../ignitify-domain" }
 ignitify-runtime-docker = { path = "../ignitify-runtime-docker" }
 ignitify-runtime-compose = { path = "../ignitify-runtime-compose" }
 ignitify-terminal = { path = "../ignitify-terminal" }
+jsonwebtoken.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true

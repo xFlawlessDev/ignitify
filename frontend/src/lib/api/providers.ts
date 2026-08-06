@@ -1,6 +1,7 @@
 import type {
   GithubManifestInput,
   GithubManifestStart,
+  ProviderConnectionResult,
   ProviderInput,
   ProviderSummary,
 } from "../types";
@@ -24,6 +25,14 @@ export function apiStartGithubAppManifest(
   return apiFetch<GithubManifestStart>("/providers/github/manifest", {
     method: "POST",
     body: JSON.stringify(input),
+  });
+}
+
+export function apiTestProviderConnection(
+  providerId: string,
+): Promise<ApiResult<ProviderConnectionResult>> {
+  return apiFetch<ProviderConnectionResult>(`/providers/${encodeURIComponent(providerId)}/test`, {
+    method: "POST",
   });
 }
 

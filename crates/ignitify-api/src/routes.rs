@@ -34,6 +34,10 @@ pub(crate) fn router(state: AppState) -> Router {
             "/api/v1/providers/{provider_id}",
             axum::routing::delete(handlers::providers::remove).patch(handlers::providers::update),
         )
+        .route(
+            "/api/v1/providers/{provider_id}/test",
+            axum::routing::post(handlers::provider_test::test),
+        )
         .route("/api/v1/runtime/status", get(handlers::runtime::status))
         .route(
             "/api/v1/runtime/containers",

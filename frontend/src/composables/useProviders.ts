@@ -4,11 +4,13 @@ import {
   apiDeleteProvider,
   apiListProviders,
   apiStartGithubAppManifest,
+  apiTestProviderConnection,
   apiUpdateProvider,
 } from "@/lib/api/providers";
 import type {
   GithubManifestInput,
   GithubManifestStart,
+  ProviderConnectionResult,
   ProviderInput,
   ProviderSummary,
 } from "@/lib/types";
@@ -17,6 +19,7 @@ export function useProviders() {
   const data = shallowRef<ProviderSummary[]>([]);
   const loading = shallowRef(false);
   const saving = shallowRef(false);
+  const testingId = shallowRef<string | null>(null);
   const error = shallowRef<string | null>(null);
   let loadGeneration = 0;
 
@@ -61,6 +64,23 @@ export function useProviders() {
     return result.data;
   }
 
+  async function testConnection(providerId: string): Promise<ProviderConnectionResult | null> {
+    testingId.value = providerId;
+    error.value = null;
+    const result = await apiTestProviderConnection(providerId);
+    testingId.value = null;
+    if (!result.success) {
+      error.value = result.error ?? "Could not test provider connection";
+      return null;
+    }
+    data.value = data.value.map((provider) =>
+      provider.id === providerId
+        ? { ...provider, last_verified_at: result.data.checked_at }
+        : provider,
+    );
+    return result.data;
+  }
+
   async function update(providerId: string, input: ProviderInput): Promise<ProviderSummary | null> {
     saving.value = true;
     error.value = null;
@@ -89,5 +109,17 @@ export function useProviders() {
     return true;
   }
 
-  return { data, loading, saving, error, load, create, startGithubAppManifest, update, remove };
+  return {
+    data,
+    loading,
+    saving,
+    testingId,
+    error,
+    load,
+    create,
+    startGithubAppManifest,
+    testConnection,
+    update,
+    remove,
+  };
 }

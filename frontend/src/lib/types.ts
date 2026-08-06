@@ -91,6 +91,11 @@ export interface GithubManifestStart {
   manifest: Record<string, unknown>;
 }
 
+export interface ProviderConnectionResult {
+  repository_count: number | null;
+  checked_at: string;
+}
+
 export interface ProjectEnvironmentVariable {
   key: string;
   is_secret: boolean;
@@ -115,6 +120,21 @@ export interface ServiceVariable {
   is_secret: boolean;
 }
 
+export type ServiceSource = "template" | "compose" | "application";
+export type ApplicationBuilder = "static" | "spa" | "dockerfile" | "railpack";
+
+export interface ServiceSourceConfig {
+  source: ServiceSource;
+  template?: string;
+  provider_id?: string;
+  repository?: string;
+  branch?: string;
+  builder?: ApplicationBuilder;
+  dockerfile_path?: string;
+  build_command?: string;
+  output_directory?: string;
+}
+
 export interface ServiceVariableSummary {
   key: string;
   is_secret: boolean;
@@ -131,6 +151,7 @@ export interface ServiceInput {
   internal_port: number | null;
   healthcheck: string[] | null;
   variables: ServiceVariable[];
+  source_config?: ServiceSourceConfig;
 }
 
 export type DeploymentState =
@@ -325,4 +346,5 @@ export interface ServiceSummary {
   created_at: string;
   updated_at: string;
   variables: ServiceVariableSummary[];
+  source_config?: ServiceSourceConfig;
 }
