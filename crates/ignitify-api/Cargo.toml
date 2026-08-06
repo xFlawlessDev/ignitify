@@ -12,6 +12,7 @@ ignitify-control-plane = { path = "../ignitify-control-plane" }
 ignitify-db = { path = "../ignitify-db" }
 ignitify-domain = { path = "../ignitify-domain" }
 ignitify-runtime-compose = { path = "../ignitify-runtime-compose" }
+ignitify-terminal = { path = "../ignitify-terminal" }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

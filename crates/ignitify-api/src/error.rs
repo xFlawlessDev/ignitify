@@ -6,6 +6,7 @@ use axum::{
 use ignitify_auth::AuthError;
 use ignitify_control_plane::Error as ControlError;
 use ignitify_db::DatabaseError;
+use ignitify_terminal::TerminalError;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -18,6 +19,8 @@ pub(crate) enum ApiError {
     Database(#[from] DatabaseError),
     #[error(transparent)]
     Control(#[from] ControlError),
+    #[error(transparent)]
+    Terminal(#[from] TerminalError),
     #[error("not found")]
     NotFound,
     #[error("forbidden")]
@@ -81,6 +84,10 @@ impl IntoResponse for ApiError {
             Self::CapabilityUnavailable => (
                 StatusCode::SERVICE_UNAVAILABLE,
                 "deployment capability is unavailable".to_owned(),
+            ),
+            Self::Terminal(_) => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "host terminal is unavailable".to_owned(),
             ),
             Self::Auth(_) | Self::Control(_) | Self::Database(_) => (
                 StatusCode::INTERNAL_SERVER_ERROR,

@@ -14,6 +14,33 @@ pub(crate) async fn require_actor(
     Ok(state.auth.authenticate_bearer(token).await?)
 }
 
+pub(crate) async fn require_websocket_actor(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<AuthenticatedUser, ApiError> {
+    let token = websocket_bearer_token(headers).ok_or(AuthError::InvalidToken)?;
+    Ok(state.auth.authenticate_bearer(token).await?)
+}
+
+pub(crate) fn require_trusted_websocket_origin(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<(), ApiError> {
+    let origin = headers
+        .get(header::ORIGIN)
+        .and_then(|value| value.to_str().ok())
+        .ok_or(ApiError::Forbidden)?;
+    if state
+        .trusted_origins
+        .iter()
+        .any(|trusted| trusted == origin)
+    {
+        Ok(())
+    } else {
+        Err(ApiError::Forbidden)
+    }
+}
+
 pub(crate) fn require_same_origin_request(
     state: &AppState,
     headers: &HeaderMap,
@@ -89,5 +116,16 @@ fn bearer_token(headers: &HeaderMap) -> Option<&str> {
         .to_str()
         .ok()?
         .strip_prefix("Bearer ")
+        .filter(|token| !token.is_empty())
+}
+
+fn websocket_bearer_token(headers: &HeaderMap) -> Option<&str> {
+    headers
+        .get(header::SEC_WEBSOCKET_PROTOCOL)?
+        .to_str()
+        .ok()?
+        .split(',')
+        .map(str::trim)
+        .find_map(|protocol| protocol.strip_prefix("bearer."))
         .filter(|token| !token.is_empty())
 }

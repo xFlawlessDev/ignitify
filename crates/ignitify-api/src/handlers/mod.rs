@@ -8,3 +8,4 @@ pub(crate) mod projects;
 pub(crate) mod runtime;
 pub(crate) mod services;
 pub(crate) mod streams;
+pub(crate) mod terminal;
