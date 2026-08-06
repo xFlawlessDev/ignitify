@@ -41,6 +41,7 @@
     "vee-validate": "^4.15.1",
     "vite-plus": "^0.2.2",
     "vue": "^3.5.32",
+    "vue-i18n": "11.1.0",
     "vue-router": "^4.6.4",
     "vue-sonner": "^2.0.9",
     "zod": "3.25.76"

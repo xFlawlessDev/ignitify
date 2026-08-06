@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { Menu, Moon, Sun } from "@lucide/vue";
+import { Languages, Menu, Moon, Sun } from "@lucide/vue";
 import { computed, onMounted, onUnmounted, shallowRef } from "vue";
+import { useI18n } from "vue-i18n";
 import type { RouteLocationRaw } from "vue-router";
 import { RouterLink, useRoute } from "vue-router";
 import {
@@ -13,10 +14,20 @@ import {
 } from "@/components/ui/breadcrumb";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useControlPlanePreferences } from "@/composables/useControlPlanePreferences";
+import { useLocale } from "@/composables/useLocale";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 const emit = defineEmits<{ openNavigation: [] }>();
 const route = useRoute();
+const { t } = useI18n();
 const { isDark, toggleTheme } = useControlPlanePreferences();
+const { currentLocale, localeOptions, changeLocale } = useLocale();
 const now = shallowRef(new Date());
 let clockId: number | undefined;
 
@@ -43,7 +54,7 @@ const breadcrumbs = computed<BreadcrumbEntry[]>(() => {
       ? route.params[record.meta.breadcrumbParam]
       : undefined;
     const paramValue = Array.isArray(routeParam) ? routeParam.at(-1) : routeParam;
-    const label = paramValue ? formatRouteSegment(paramValue) : rawLabel;
+    const label = paramValue ? formatRouteSegment(paramValue) : t(rawLabel);
 
     return {
       key: `${recordName}-${index}`,
@@ -56,15 +67,16 @@ const breadcrumbs = computed<BreadcrumbEntry[]>(() => {
   });
 
   const parent = matchedRoutes.at(-1)?.meta.breadcrumbParent;
-  if (parent && !entries.some((entry) => entry.label === parent.label)) {
-    entries.unshift({ key: `parent-${parent.label}`, label: parent.label, to: parent.to });
+  const parentLabel = parent ? t(parent.label) : undefined;
+  if (parent && parentLabel && !entries.some((entry) => entry.label === parentLabel)) {
+    entries.unshift({ key: `parent-${parent.label}`, label: parentLabel, to: parent.to });
   }
 
-  return entries.length > 0 ? entries : [{ key: "overview", label: "Overview" }];
+  return entries.length > 0 ? entries : [{ key: "overview", label: t("navigation.overview") }];
 });
 
 const serverTime = computed(() =>
-  new Intl.DateTimeFormat("en-GB", {
+  new Intl.DateTimeFormat(currentLocale.value === "id" ? "id-ID" : "en-GB", {
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
@@ -72,6 +84,11 @@ const serverTime = computed(() =>
     timeZone: "UTC",
   }).format(now.value),
 );
+
+const selectedLocale = computed({
+  get: () => currentLocale.value,
+  set: (value: string | undefined) => changeLocale(value),
+});
 
 onMounted(() => {
   clockId = window.setInterval(() => {
@@ -91,7 +108,7 @@ onUnmounted(() => {
     <button
       class="grid size-8 shrink-0 place-items-center rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground md:hidden"
       type="button"
-      aria-label="Open navigation"
+      :aria-label="t('topbar.openNavigation')"
       @click="emit('openNavigation')"
     >
       <Menu :size="18" :stroke-width="1.5" />
@@ -120,18 +137,33 @@ onUnmounted(() => {
     <time
       class="hidden shrink-0 items-center gap-2 font-mono text-[11px] text-muted-foreground sm:flex"
       :datetime="now.toISOString()"
-      title="Server time in UTC"
+      :title="t('topbar.serverTime')"
     >
-      <span class="text-[9px] uppercase text-muted-foreground">Server</span>
+      <span class="text-[9px] uppercase text-muted-foreground">{{ t("topbar.server") }}</span>
       {{ serverTime }} UTC
     </time>
+
+    <Select v-model="selectedLocale">
+      <SelectTrigger
+        class="h-8 w-[132px] rounded-sm border-0 bg-transparent px-2 text-xs shadow-none hover:bg-muted"
+        :aria-label="t('topbar.language')"
+      >
+        <Languages :size="15" :stroke-width="1.5" class="text-muted-foreground" />
+        <SelectValue :placeholder="t('topbar.language')" />
+      </SelectTrigger>
+      <SelectContent align="end">
+        <SelectItem v-for="option in localeOptions" :key="option.value" :value="option.value">
+          {{ t(option.labelKey) }}
+        </SelectItem>
+      </SelectContent>
+    </Select>
 
     <Tooltip>
       <TooltipTrigger as-child>
         <button
           class="grid size-8 shrink-0 place-items-center rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground"
           type="button"
-          :aria-label="isDark ? 'Use light theme' : 'Use dark theme'"
+          :aria-label="isDark ? t('topbar.useLightTheme') : t('topbar.useDarkTheme')"
           :aria-pressed="isDark"
           @click="toggleTheme"
         >
@@ -140,7 +172,7 @@ onUnmounted(() => {
         </button>
       </TooltipTrigger>
       <TooltipContent side="bottom">
-        {{ isDark ? "Use light theme" : "Use dark theme" }}
+        {{ isDark ? t("topbar.useLightTheme") : t("topbar.useDarkTheme") }}
       </TooltipContent>
     </Tooltip>
   </header>
