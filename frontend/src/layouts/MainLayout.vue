@@ -30,7 +30,10 @@ const { isSidebarCollapsed, toggleSidebar } = useControlPlanePreferences();
         class="min-h-dvh min-w-0 transition-[margin-left] duration-200"
         :class="isSidebarCollapsed ? 'md:ml-[68px]' : 'md:ml-[244px]'"
       >
-        <AppTopbar @open-navigation="isSidebarOpen = true" />
+        <AppTopbar
+          class="sticky top-0 z-10 bg-background"
+          @open-navigation="isSidebarOpen = true"
+        />
         <main class="mx-auto w-full max-w-[1200px] min-w-0 p-4 sm:p-5 md:p-8">
           <slot />
         </main>
