@@ -589,6 +589,34 @@ pub trait RuntimeHealth: Send + Sync {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SystemMetricsSnapshot {
+    pub cpu_usage_percentage: f64,
+    pub cpu_cores: u32,
+    pub memory_used_bytes: u64,
+    pub memory_total_bytes: u64,
+    pub disk_used_bytes: u64,
+    pub disk_total_bytes: u64,
+    pub docker_disk_used_bytes: Option<u64>,
+    pub docker_disk_total_bytes: Option<u64>,
+    pub block_read_bytes_per_second: f64,
+    pub block_write_bytes_per_second: f64,
+    pub network_receive_bytes_per_second: f64,
+    pub network_transmit_bytes_per_second: f64,
+}
+
+pub trait SystemMetricsProvider: Send + Sync {
+    fn metrics(&self) -> Pin<Box<dyn Future<Output = Option<SystemMetricsSnapshot>> + Send + '_>>;
+}
+
+pub struct StaticSystemMetrics(pub Option<SystemMetricsSnapshot>);
+
+impl SystemMetricsProvider for StaticSystemMetrics {
+    fn metrics(&self) -> Pin<Box<dyn Future<Output = Option<SystemMetricsSnapshot>> + Send + '_>> {
+        Box::pin(std::future::ready(self.0))
+    }
+}
+
 pub struct StaticRuntimeHealth(pub bool);
 
 impl RuntimeHealth for StaticRuntimeHealth {

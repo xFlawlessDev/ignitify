@@ -3,11 +3,14 @@ import {
   Box,
   CircleHelp,
   Container,
+  Activity,
   LayoutDashboard,
   LogOut,
   PanelLeftClose,
   Settings2,
+  TerminalSquare,
 } from "@lucide/vue";
+import { computed } from "vue";
 import { RouterLink, useRoute } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
 
@@ -21,11 +24,16 @@ const emit = defineEmits<{ close: []; toggleCollapse: [] }>();
 const route = useRoute();
 const auth = useAuthStore();
 
-const primaryNavigation = [
-  { label: "Overview", to: "/dashboard", icon: LayoutDashboard },
-  { label: "Projects", to: "/projects", icon: Box },
-  { label: "Docker", to: "/containers", icon: Container },
-];
+const primaryNavigation = computed(() => {
+  const items = [
+    { label: "Overview", to: "/dashboard", icon: LayoutDashboard },
+    { label: "Monitoring", to: "/monitoring", icon: Activity },
+    { label: "Projects", to: "/projects", icon: Box },
+    { label: "Docker", to: "/containers", icon: Container },
+  ];
+  if (auth.isAdmin) items.push({ label: "Terminal", to: "/terminal", icon: TerminalSquare });
+  return items;
+});
 </script>
 
 <template>

@@ -1,7 +1,16 @@
 <script setup lang="ts">
-import { ChevronRight, Menu, Moon, Sun } from "@lucide/vue";
+import { Menu, Moon, Sun } from "@lucide/vue";
 import { computed, onMounted, onUnmounted, shallowRef } from "vue";
+import type { RouteLocationRaw } from "vue-router";
 import { RouterLink, useRoute } from "vue-router";
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbPage,
+  BreadcrumbList,
+  BreadcrumbSeparator,
+} from "@/components/ui/breadcrumb";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useControlPlanePreferences } from "@/composables/useControlPlanePreferences";
 
@@ -11,18 +20,47 @@ const { isDark, toggleTheme } = useControlPlanePreferences();
 const now = shallowRef(new Date());
 let clockId: number | undefined;
 
-const breadcrumbs = computed(() => {
-  if (route.name === "ProjectDetail") {
-    const projectId = String(route.params.projectId);
-    const projectName = projectId
-      .split("-")
-      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-      .join(" ");
+interface BreadcrumbEntry {
+  key: string;
+  label: string;
+  to?: RouteLocationRaw;
+}
 
-    return [{ label: "Projects", to: "/projects" }, { label: projectName }];
+function formatRouteSegment(value: string) {
+  return value.replace(/[-_]+/g, " ").replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
+function fallbackRouteLabel(value: string) {
+  return formatRouteSegment(value.replace(/^\//, "").split("/").at(-1) ?? "Overview");
+}
+
+const breadcrumbs = computed<BreadcrumbEntry[]>(() => {
+  const matchedRoutes = route.matched.filter((record) => record.meta.layout !== "blank");
+  const entries: BreadcrumbEntry[] = matchedRoutes.map((record, index) => {
+    const recordName = typeof record.name === "string" ? record.name : record.path;
+    const rawLabel = record.meta.breadcrumb ?? fallbackRouteLabel(recordName);
+    const routeParam = record.meta.breadcrumbParam
+      ? route.params[record.meta.breadcrumbParam]
+      : undefined;
+    const paramValue = Array.isArray(routeParam) ? routeParam.at(-1) : routeParam;
+    const label = paramValue ? formatRouteSegment(paramValue) : rawLabel;
+
+    return {
+      key: `${recordName}-${index}`,
+      label,
+      to:
+        index < matchedRoutes.length - 1 && typeof record.name === "string"
+          ? { name: record.name }
+          : undefined,
+    };
+  });
+
+  const parent = matchedRoutes.at(-1)?.meta.breadcrumbParent;
+  if (parent && !entries.some((entry) => entry.label === parent.label)) {
+    entries.unshift({ key: `parent-${parent.label}`, label: parent.label, to: parent.to });
   }
 
-  return [{ label: route.name === "Projects" ? "Projects" : "Overview" }];
+  return entries.length > 0 ? entries : [{ key: "overview", label: "Overview" }];
 });
 
 const serverTime = computed(() =>
@@ -59,26 +97,25 @@ onUnmounted(() => {
       <Menu :size="18" :stroke-width="1.5" />
     </button>
 
-    <nav class="flex min-w-0 flex-1 items-center gap-1.5" aria-label="Breadcrumb">
-      <template v-for="(breadcrumb, index) in breadcrumbs" :key="breadcrumb.label">
-        <ChevronRight
-          v-if="index"
-          class="size-3.5 shrink-0 text-muted-foreground"
-          :stroke-width="1.5"
-          aria-hidden="true"
-        />
-        <RouterLink
-          v-if="breadcrumb.to"
-          :to="breadcrumb.to"
-          class="truncate text-sm text-muted-foreground hover:text-foreground"
-        >
-          {{ breadcrumb.label }}
-        </RouterLink>
-        <span v-else class="truncate text-sm font-medium text-foreground">{{
-          breadcrumb.label
-        }}</span>
-      </template>
-    </nav>
+    <Breadcrumb class="min-w-0 flex-1">
+      <BreadcrumbList class="flex-nowrap gap-1.5">
+        <template v-for="(breadcrumb, index) in breadcrumbs" :key="breadcrumb.key">
+          <BreadcrumbSeparator v-if="index" />
+          <BreadcrumbItem class="min-w-0">
+            <BreadcrumbLink
+              v-if="breadcrumb.to"
+              as-child
+              class="truncate text-sm text-muted-foreground"
+            >
+              <RouterLink :to="breadcrumb.to">{{ breadcrumb.label }}</RouterLink>
+            </BreadcrumbLink>
+            <BreadcrumbPage v-else class="truncate text-sm font-medium">
+              {{ breadcrumb.label }}
+            </BreadcrumbPage>
+          </BreadcrumbItem>
+        </template>
+      </BreadcrumbList>
+    </Breadcrumb>
 
     <time
       class="hidden shrink-0 items-center gap-2 font-mono text-[11px] text-muted-foreground sm:flex"

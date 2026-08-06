@@ -22,6 +22,8 @@ pub(crate) fn router(state: AppState) -> Router {
             "/api/v1/runtime/containers",
             get(handlers::runtime::containers),
         )
+        .route("/api/v1/runtime/metrics", get(handlers::runtime::metrics))
+        .route("/api/v1/terminal", get(handlers::terminal::open))
         .route(
             "/api/v1/projects",
             get(handlers::projects::list).post(handlers::projects::create),

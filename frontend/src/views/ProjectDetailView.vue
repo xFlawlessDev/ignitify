@@ -9,6 +9,7 @@ import ServiceDomainsPanel from "@/components/project/ServiceDomainsPanel.vue";
 import ServiceDialog from "@/components/project/ServiceDialog.vue";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useProject } from "@/composables/useProject";
 import { useProjectActivity } from "@/composables/useProjectActivity";
 import ProjectDeploymentTimeline from "@/components/project/ProjectDeploymentTimeline.vue";
@@ -176,13 +177,23 @@ onUnmounted(() => {
       Projects
     </RouterLink>
 
-    <p
+    <section
       v-if="loading"
-      class="mt-[22px] border border-border bg-card px-5 py-8 text-sm text-muted-foreground"
+      class="mt-[22px] border border-border bg-card px-5 py-6"
       role="status"
+      aria-label="Loading project"
     >
-      Loading project...
-    </p>
+      <div class="flex items-center gap-3">
+        <Skeleton class="size-11 shrink-0 rounded-[5px]" />
+        <div class="grid flex-1 gap-2">
+          <Skeleton class="h-5 w-48 max-w-full" />
+          <Skeleton class="h-2.5 w-32 max-w-full" />
+        </div>
+      </div>
+      <div class="mt-6 flex gap-4 border-t border-border pt-4">
+        <Skeleton v-for="index in 4" :key="index" class="h-3 w-16" />
+      </div>
+    </section>
     <section
       v-else-if="error"
       class="mt-[22px] border border-destructive/40 bg-card px-5 py-8"
@@ -256,9 +267,25 @@ onUnmounted(() => {
       </section>
 
       <section v-else-if="activeTab === 'services'" class="mt-[22px] grid gap-4">
-        <p v-if="services.loading" class="text-sm text-muted-foreground" role="status">
-          Loading services...
-        </p>
+        <section
+          v-if="services.loading"
+          class="border border-border bg-card"
+          role="status"
+          aria-label="Loading services"
+        >
+          <div
+            v-for="index in 3"
+            :key="index"
+            class="flex min-h-[78px] items-center gap-3 border-b border-border px-5 py-3 last:border-b-0"
+          >
+            <Skeleton class="size-[30px] shrink-0 rounded-[4px]" />
+            <div class="grid flex-1 gap-2">
+              <Skeleton class="h-3 w-36 max-w-full" />
+              <Skeleton class="h-2.5 w-48 max-w-full" />
+            </div>
+            <Skeleton class="h-3 w-8" />
+          </div>
+        </section>
         <section
           v-else-if="services.error"
           class="border border-destructive/40 bg-card px-5 py-4"

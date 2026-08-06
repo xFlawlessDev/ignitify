@@ -14,7 +14,7 @@ use http_body_util::BodyExt;
 use ignitify_auth::AuthConfig;
 use ignitify_control_plane::{
     ControlHandle, HostRuntimeMetrics, RuntimeContainer, RuntimePort, ServiceControl,
-    StaticRuntimeHealth,
+    StaticRuntimeHealth, StaticSystemMetrics, SystemMetricsSnapshot,
 };
 use ignitify_db::{DatabaseConfig, ProjectActor, UserRole as DatabaseUserRole};
 use ignitify_domain::ProjectMemberRole;
@@ -47,6 +47,8 @@ async fn state() -> AppState {
         control: Some(control),
         runtime_health: Arc::new(StaticRuntimeHealth(true)),
         worker_health: Arc::new(StaticRuntimeHealth(true)),
+        system_metrics: Arc::new(StaticSystemMetrics(None)),
+        terminal: ignitify_terminal::TerminalService,
         secure_cookies: false,
         trusted_origins: Arc::from([]),
     }
@@ -73,6 +75,49 @@ async fn health_reports_database_ready_when_runtime_is_unavailable() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn system_metrics_returns_provider_snapshot_for_authenticated_actor() {
+    let state = state().await;
+    let token = session_token(&state).await;
+    let app = crate::router_with_system_metrics(
+        state.auth.clone(),
+        state.database.clone(),
+        state.services.clone(),
+        state.control.clone(),
+        state.runtime_health.clone(),
+        state.worker_health.clone(),
+        Arc::new(StaticSystemMetrics(Some(SystemMetricsSnapshot {
+            cpu_usage_percentage: 42.5,
+            cpu_cores: 8,
+            memory_used_bytes: 4,
+            memory_total_bytes: 8,
+            disk_used_bytes: 10,
+            disk_total_bytes: 20,
+            docker_disk_used_bytes: Some(3),
+            docker_disk_total_bytes: Some(5),
+            block_read_bytes_per_second: 100.0,
+            block_write_bytes_per_second: 50.0,
+            network_receive_bytes_per_second: 200.0,
+            network_transmit_bytes_per_second: 80.0,
+        }))),
+        ignitify_terminal::TerminalService,
+        state.secure_cookies,
+        state.trusted_origins.clone(),
+    );
+
+    let response = app
+        .oneshot(request("GET", "/api/v1/runtime/metrics", Some(&token), ""))
+        .await
+        .unwrap();
+    let status = response.status();
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json["cpu_usage_percentage"], 42.5);
+    assert_eq!(json["docker_disk_total_bytes"], 5);
 }
 
 async fn session_token(state: &AppState) -> String {

@@ -123,4 +123,34 @@ describe("DockerContainersView", () => {
 
     mounted.app.unmount();
   });
+
+  it("opens the container action dialog from the actions popover", async () => {
+    const state = monitoringState();
+    mocks.containers = state.containers;
+    mocks.runtime = state.runtime;
+    const mounted = await mount();
+
+    const trigger = mounted.host.querySelector(
+      'button[aria-label="Actions for web"]',
+    ) as HTMLButtonElement | null;
+    expect(trigger).not.toBeNull();
+    trigger?.click();
+    await nextTick();
+
+    const popover = document.body.querySelector('[data-slot="popover-content"]');
+    expect(popover?.textContent).toContain("View Logs");
+    expect(popover?.textContent).toContain("Remove Container");
+
+    const logsButton = Array.from(popover?.querySelectorAll("button") ?? []).find(
+      (button) => button.textContent?.includes("View Logs"),
+    );
+    expect(logsButton).not.toBeUndefined();
+    logsButton?.click();
+    await nextTick();
+
+    expect(document.body.textContent).toContain("Log stream is not included");
+    expect(document.body.textContent).toContain("web");
+
+    mounted.app.unmount();
+  });
 });

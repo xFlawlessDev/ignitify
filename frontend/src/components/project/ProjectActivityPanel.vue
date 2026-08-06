@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Activity, CircleAlert, RefreshCw } from "@lucide/vue";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import type { ActivitySummary } from "@/lib/types";
 
 defineProps<{
@@ -28,8 +29,18 @@ function formatTime(value: string) {
       </div>
       <Activity class="size-4 text-muted-foreground" :stroke-width="1.5" />
     </div>
-    <div v-if="loading" class="px-5 py-8 text-sm text-muted-foreground" role="status">
-      Loading activity...
+    <div v-if="loading" class="divide-y divide-border" role="status" aria-label="Loading activity">
+      <div
+        v-for="index in 4"
+        :key="index"
+        class="grid gap-2 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_auto]"
+      >
+        <div class="grid gap-2">
+          <Skeleton class="h-3 w-40 max-w-full" />
+          <Skeleton class="h-2.5 w-24 max-w-full" />
+        </div>
+        <Skeleton class="h-2.5 w-24 max-w-full" />
+      </div>
     </div>
     <div
       v-else-if="error"

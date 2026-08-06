@@ -13,6 +13,8 @@ ignitify-control-plane = { path = "../ignitify-control-plane" }
 ignitify-ingress-traefik = { path = "../ignitify-ingress-traefik" }
 ignitify-db = { path = "../ignitify-db" }
 ignitify-runtime-docker = { path = "../ignitify-runtime-docker" }
+ignitify-terminal = { path = "../ignitify-terminal" }
 ignitify-runtime-compose = { path = "../ignitify-runtime-compose" }
+sysinfo.workspace = true
 thiserror.workspace = true
 tokio.workspace = true

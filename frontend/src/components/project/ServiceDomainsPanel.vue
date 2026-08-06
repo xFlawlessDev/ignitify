@@ -3,6 +3,7 @@ import { ExternalLink, Globe2, Trash2 } from "@lucide/vue";
 import { shallowRef } from "vue";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
 import type { DomainSummary, ServiceSummary } from "@/lib/types";
 
 const props = defineProps<{
@@ -77,9 +78,24 @@ function serviceName(id: string) {
       <Button class="self-end" size="sm" type="submit">Add domain</Button>
     </form>
 
-    <p v-if="loading" class="px-5 py-8 text-sm text-muted-foreground" role="status">
-      Loading domains...
-    </p>
+    <div
+      v-if="loading"
+      class="divide-y divide-border px-5"
+      role="status"
+      aria-label="Loading domains"
+    >
+      <div
+        v-for="index in 3"
+        :key="index"
+        class="grid gap-3 py-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
+      >
+        <div class="grid min-w-0 gap-2">
+          <Skeleton class="h-3 w-40 max-w-full" />
+          <Skeleton class="h-2.5 w-28 max-w-full" />
+        </div>
+        <Skeleton class="size-8" />
+      </div>
+    </div>
     <section v-else-if="error && !domains.length" class="px-5 py-5" role="alert">
       <p class="text-sm text-destructive">{{ error }}</p>
       <Button class="mt-3" size="sm" variant="outline" @click="emit('retry')">Retry</Button>

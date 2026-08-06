@@ -1,10 +1,12 @@
 mod error;
+mod system_metrics;
 
 use std::{env, sync::Arc};
 
 use ignitify_auth::{AuthConfig, AuthService};
 use ignitify_control_plane::{
-    ControlHandle, RuntimeSelector, ServiceControl, WorkerHealth, spawn_worker,
+    ControlHandle, RuntimeSelector, ServiceControl, SystemMetricsProvider, WorkerHealth,
+    spawn_worker,
 };
 use ignitify_db::{Database, DatabaseConfig};
 use ignitify_ingress_traefik::TraefikIngress;
@@ -19,6 +21,7 @@ type RuntimeCapabilities = (
     Option<ControlHandle>,
     Arc<dyn ignitify_control_plane::RuntimeHealth>,
     Arc<dyn ignitify_control_plane::RuntimeHealth>,
+    Option<DockerRuntime>,
 );
 
 fn trusted_origins() -> Arc<[String]> {
@@ -60,7 +63,7 @@ async fn main() -> Result<()> {
         },
     )
     .shared();
-    let (services, control, runtime_health, worker_health): RuntimeCapabilities =
+    let (services, control, runtime_health, worker_health, docker_runtime): RuntimeCapabilities =
         if let Some(secrets_identity) = env_value("IGNITIFY_SECRETS_AGE_IDENTITY") {
             let services = ServiceControl::new(database.services(), &secrets_identity)?;
             let (control, wake) = ControlHandle::new(database.deployments(), &secrets_identity)?;
@@ -70,6 +73,7 @@ async fn main() -> Result<()> {
                 env_value("IGNITIFY_DOCKER_BIN").map(Into::into),
                 env_value("IGNITIFY_COMPOSE_ROOT").map(Into::into),
             )?;
+            let metrics_runtime = image_runtime.clone();
             let runtime = RuntimeSelector::new(image_runtime, compose_runtime);
             let runtime_health: Arc<dyn ignitify_control_plane::RuntimeHealth> =
                 Arc::new(runtime.clone());
@@ -84,19 +88,29 @@ async fn main() -> Result<()> {
             );
             let worker_health: Arc<dyn ignitify_control_plane::RuntimeHealth> =
                 Arc::new(WorkerHealth(worker_ready));
-            (Some(services), Some(control), runtime_health, worker_health)
+            (
+                Some(services),
+                Some(control),
+                runtime_health,
+                worker_health,
+                Some(metrics_runtime),
+            )
         } else {
             let unavailable: Arc<dyn ignitify_control_plane::RuntimeHealth> =
                 Arc::new(ignitify_control_plane::StaticRuntimeHealth(false));
-            (None, None, unavailable.clone(), unavailable)
+            (None, None, unavailable.clone(), unavailable, None)
         };
-    let app = ignitify_api::router(
+    let system_metrics: Arc<dyn SystemMetricsProvider> =
+        Arc::new(system_metrics::SystemMetricsCollector::new(docker_runtime));
+    let app = ignitify_api::router_with_system_metrics(
         auth,
         database,
         services,
         control,
         runtime_health,
         worker_health,
+        system_metrics,
+        ignitify_terminal::TerminalService,
         env_value("IGNITIFY_SECURE_COOKIES").is_some_and(|value| value == "true"),
         trusted_origins(),
     );

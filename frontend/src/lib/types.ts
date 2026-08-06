@@ -150,6 +150,21 @@ export interface RuntimeStatus {
   metrics: RuntimeMetrics | null;
 }
 
+export interface SystemMetrics {
+  cpu_usage_percentage: number;
+  cpu_cores: number;
+  memory_used_bytes: number;
+  memory_total_bytes: number;
+  disk_used_bytes: number;
+  disk_total_bytes: number;
+  docker_disk_used_bytes: number | null;
+  docker_disk_total_bytes: number | null;
+  block_read_bytes_per_second: number;
+  block_write_bytes_per_second: number;
+  network_receive_bytes_per_second: number;
+  network_transmit_bytes_per_second: number;
+}
+
 export interface RuntimePort {
   container_port: number;
   host_ip: string | null;

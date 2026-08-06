@@ -1,8 +1,15 @@
 <script setup lang="ts">
 import { CircleAlert, Server } from "@lucide/vue";
+import { Skeleton } from "@/components/ui/skeleton";
 import type { RuntimeStatus } from "@/lib/types";
 
-defineProps<{ runtime: RuntimeStatus | null }>();
+withDefaults(
+  defineProps<{
+    runtime: RuntimeStatus | null;
+    loading?: boolean;
+  }>(),
+  { loading: false },
+);
 
 function formatBytes(value: number) {
   if (!value) return "Unavailable";
@@ -16,7 +23,28 @@ function formatBytes(value: number) {
       <p class="ui-label">Runtime</p>
       <h2 class="mt-2 text-base font-medium">Host visibility</h2>
     </div>
-    <div v-if="runtime" class="px-5 py-5">
+    <div
+      v-if="loading"
+      class="grid gap-4 px-5 py-5"
+      role="status"
+      aria-label="Loading runtime status"
+    >
+      <div class="flex items-center gap-3">
+        <Skeleton class="size-4" />
+        <Skeleton class="h-3 w-28" />
+      </div>
+      <div class="grid gap-3">
+        <div
+          v-for="label in ['Database', 'Runtime', 'Worker']"
+          :key="label"
+          class="flex items-center justify-between gap-4"
+        >
+          <Skeleton class="h-2.5 w-16" />
+          <Skeleton class="h-2.5 w-12" />
+        </div>
+      </div>
+    </div>
+    <div v-else-if="runtime" class="px-5 py-5">
       <Server class="size-4 text-muted-foreground" :stroke-width="1.5" />
       <p class="mt-4 text-sm font-medium">
         {{ runtime.runtime === "ready" ? "Runtime ready" : "Runtime unavailable" }}

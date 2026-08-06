@@ -72,7 +72,7 @@ describe("ProjectsView", () => {
     const projects = state({ loading: true });
     mocks.state = projects;
     const mounted = await mount();
-    expect(mounted.host.textContent).toContain("Loading projects...");
+    expect(mounted.host.querySelectorAll('[data-slot="skeleton"]').length > 0).toBe(true);
 
     projects.loading.value = false;
     projects.error.value = "offline";

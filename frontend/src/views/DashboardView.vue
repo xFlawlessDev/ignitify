@@ -75,7 +75,7 @@ onMounted(load);
 
     <section class="mt-[22px] grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_17rem]">
       <DeploymentList :deployments="recentDeployments" :loading="loading" />
-      <RuntimeStatusPanel :runtime="runtime" />
+      <RuntimeStatusPanel :runtime="runtime" :loading="loading && !runtime" />
     </section>
 
     <section

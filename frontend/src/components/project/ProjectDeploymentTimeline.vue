@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { CircleAlert, LoaderCircle, RotateCcw, Rocket, Square } from "@lucide/vue";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import type { DeploymentSummary, ServiceSummary } from "@/lib/types";
 
 const props = defineProps<{
@@ -51,9 +52,24 @@ function isActive(status: DeploymentSummary["status"]) {
       </div>
     </div>
 
-    <p v-if="loading" class="px-5 py-8 text-sm text-muted-foreground" role="status">
-      Loading deployments...
-    </p>
+    <div
+      v-if="loading"
+      class="divide-y divide-border"
+      role="status"
+      aria-label="Loading deployments"
+    >
+      <div
+        v-for="index in 4"
+        :key="index"
+        class="grid gap-3 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
+      >
+        <div class="grid min-w-0 gap-2">
+          <Skeleton class="h-3 w-40 max-w-full" />
+          <Skeleton class="h-2.5 w-12" />
+        </div>
+        <Skeleton class="h-2.5 w-20" />
+      </div>
+    </div>
     <section v-else-if="error && !deployments.length" class="px-5 py-5" role="alert">
       <p class="flex items-center gap-2 text-sm text-destructive">
         <CircleAlert class="size-4" :stroke-width="1.5" />

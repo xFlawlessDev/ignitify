@@ -1,6 +1,6 @@
 //! Docker Engine adapter for restricted Ignitify image containers.
 
-use std::{collections::HashMap, env};
+use std::{collections::HashMap, env, path::PathBuf};
 
 use futures_util::{StreamExt, TryStreamExt};
 
@@ -35,6 +35,12 @@ pub struct RuntimeMetrics {
     pub images: i64,
     pub cpus: i64,
     pub memory_bytes: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DockerDiskUsage {
+    pub used_bytes: u64,
+    pub root_dir: Option<PathBuf>,
 }
 
 #[derive(Clone)]
@@ -72,6 +78,38 @@ impl DockerRuntime {
             images: info.images.unwrap_or_default(),
             cpus: info.ncpu.unwrap_or_default(),
             memory_bytes: info.mem_total.unwrap_or_default(),
+        })
+    }
+
+    pub async fn disk_usage(&self) -> Result<DockerDiskUsage> {
+        let usage = self.docker.df().await?;
+        let info = self.docker.info().await?;
+        let layers = usage.layers_size.and_then(|size| u64::try_from(size).ok());
+        let containers = usage
+            .containers
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|container| container.size_rw)
+            .filter_map(|size| u64::try_from(size).ok())
+            .sum::<u64>();
+        let volumes = usage
+            .volumes
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|volume| volume.usage_data)
+            .filter_map(|usage| u64::try_from(usage.size).ok())
+            .sum::<u64>();
+        let build_cache = usage
+            .build_cache
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|cache| cache.size)
+            .filter_map(|size| u64::try_from(size).ok())
+            .sum::<u64>();
+
+        Ok(DockerDiskUsage {
+            used_bytes: layers.unwrap_or_default() + containers + volumes + build_cache,
+            root_dir: info.docker_root_dir.map(PathBuf::from),
         })
     }
 

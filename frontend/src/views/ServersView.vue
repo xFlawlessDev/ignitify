@@ -39,7 +39,9 @@ onMounted(load);
     >
       {{ error }}
     </section>
-    <section class="mt-[22px] max-w-md"><RuntimeStatusPanel :runtime="data" /></section>
+    <section class="mt-[22px] max-w-md">
+      <RuntimeStatusPanel :runtime="data" :loading="loading" />
+    </section>
     <p class="mt-4 flex items-center gap-2 text-xs text-muted-foreground">
       <Server class="size-4" :stroke-width="1.5" />Disk, per-container CPU, restart counts, and
       ingress health are not exposed by current runtime contract.

@@ -26,6 +26,41 @@ pub(crate) struct RuntimeContainersResponse {
 }
 
 #[derive(Debug, Serialize)]
+pub(crate) struct SystemMetricsResponse {
+    cpu_usage_percentage: f64,
+    cpu_cores: u32,
+    memory_used_bytes: u64,
+    memory_total_bytes: u64,
+    disk_used_bytes: u64,
+    disk_total_bytes: u64,
+    docker_disk_used_bytes: Option<u64>,
+    docker_disk_total_bytes: Option<u64>,
+    block_read_bytes_per_second: f64,
+    block_write_bytes_per_second: f64,
+    network_receive_bytes_per_second: f64,
+    network_transmit_bytes_per_second: f64,
+}
+
+impl From<ignitify_control_plane::SystemMetricsSnapshot> for SystemMetricsResponse {
+    fn from(metrics: ignitify_control_plane::SystemMetricsSnapshot) -> Self {
+        Self {
+            cpu_usage_percentage: metrics.cpu_usage_percentage,
+            cpu_cores: metrics.cpu_cores,
+            memory_used_bytes: metrics.memory_used_bytes,
+            memory_total_bytes: metrics.memory_total_bytes,
+            disk_used_bytes: metrics.disk_used_bytes,
+            disk_total_bytes: metrics.disk_total_bytes,
+            docker_disk_used_bytes: metrics.docker_disk_used_bytes,
+            docker_disk_total_bytes: metrics.docker_disk_total_bytes,
+            block_read_bytes_per_second: metrics.block_read_bytes_per_second,
+            block_write_bytes_per_second: metrics.block_write_bytes_per_second,
+            network_receive_bytes_per_second: metrics.network_receive_bytes_per_second,
+            network_transmit_bytes_per_second: metrics.network_transmit_bytes_per_second,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
 struct RuntimePortResponse {
     container_port: u16,
     host_ip: Option<String>,
@@ -122,4 +157,19 @@ pub(crate) async fn containers(
             .await
             .map(|containers| containers.into_iter().map(Into::into).collect()),
     }))
+}
+
+pub(crate) async fn metrics(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<SystemMetricsResponse>, ApiError> {
+    require_actor(&state, &headers).await?;
+
+    state
+        .system_metrics
+        .metrics()
+        .await
+        .map(SystemMetricsResponse::from)
+        .map(Json)
+        .ok_or(ApiError::CapabilityUnavailable)
 }

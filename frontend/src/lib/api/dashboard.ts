@@ -1,4 +1,9 @@
-import type { DashboardSummary, RuntimeContainerInventory, RuntimeStatus } from "../types";
+import type {
+  DashboardSummary,
+  RuntimeContainerInventory,
+  RuntimeStatus,
+  SystemMetrics,
+} from "../types";
 import type { ApiResult } from "./core";
 import { apiFetch } from "./core";
 
@@ -12,4 +17,8 @@ export function apiGetRuntimeStatus(): Promise<ApiResult<RuntimeStatus>> {
 
 export function apiGetRuntimeContainers(): Promise<ApiResult<RuntimeContainerInventory>> {
   return apiFetch<RuntimeContainerInventory>("/runtime/containers");
+}
+
+export function apiGetSystemMetrics(): Promise<ApiResult<SystemMetrics>> {
+  return apiFetch<SystemMetrics>("/runtime/metrics");
 }

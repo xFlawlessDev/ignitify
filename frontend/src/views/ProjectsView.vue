@@ -5,6 +5,7 @@ import { useRouter } from "vue-router";
 import ProjectCreateDialog from "@/components/project/ProjectCreateDialog.vue";
 import ProjectList from "@/components/project/ProjectList.vue";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useProjects } from "@/composables/useProjects";
 
 const router = useRouter();
@@ -39,13 +40,25 @@ onMounted(load);
       </Button>
     </header>
 
-    <p
+    <section
       v-if="loading"
-      class="mt-[22px] border border-border bg-card px-5 py-8 text-sm text-muted-foreground"
+      class="mt-[22px] border border-border bg-card"
       role="status"
+      aria-label="Loading projects"
     >
-      Loading projects...
-    </p>
+      <div
+        v-for="index in 4"
+        :key="index"
+        class="flex min-h-[78px] items-center gap-3.5 border-b border-border px-4 py-3 last:border-b-0 sm:px-[18px]"
+      >
+        <Skeleton class="size-[30px] shrink-0 rounded-[4px]" />
+        <div class="grid min-w-0 flex-1 gap-2">
+          <Skeleton class="h-3 w-40 max-w-full" />
+          <Skeleton class="h-2.5 w-28 max-w-full" />
+        </div>
+        <Skeleton class="size-4 shrink-0" />
+      </div>
+    </section>
     <section
       v-else-if="error"
       class="mt-[22px] border border-destructive/40 bg-card px-5 py-8"

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ArrowUpRight, CircleAlert, GitBranch, LoaderCircle } from "@lucide/vue";
 import { RouterLink } from "vue-router";
+import { Skeleton } from "@/components/ui/skeleton";
 import type { DashboardDeployment } from "@/composables/useOperationsDashboard";
 import type { DeploymentState } from "@/lib/types";
 
@@ -62,9 +63,28 @@ function formatTime(value: string) {
       </RouterLink>
     </div>
 
-    <p v-if="loading" class="px-5 py-8 text-sm text-muted-foreground" role="status">
-      Loading recent operations...
-    </p>
+    <div
+      v-if="loading"
+      class="divide-y divide-border"
+      role="status"
+      aria-label="Loading recent operations"
+    >
+      <div
+        v-for="index in 4"
+        :key="index"
+        class="grid min-w-0 gap-3 px-5 py-4 sm:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_auto] sm:items-center"
+      >
+        <div class="flex min-w-0 items-center gap-3">
+          <Skeleton class="size-8 shrink-0 rounded-sm" />
+          <div class="grid min-w-0 flex-1 gap-2">
+            <Skeleton class="h-3 w-32 max-w-full" />
+            <Skeleton class="h-2.5 w-24 max-w-full" />
+          </div>
+        </div>
+        <Skeleton class="h-2.5 w-20 max-w-full" />
+        <Skeleton class="h-2.5 w-16 max-w-full" />
+      </div>
+    </div>
     <div v-else-if="props.deployments.length" class="divide-y divide-border">
       <RouterLink
         v-for="item in props.deployments"
