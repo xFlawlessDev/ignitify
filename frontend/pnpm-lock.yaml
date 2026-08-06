@@ -259,7 +259,7 @@ importers:
         specifier: ^1.5.4
         version: 1.5.4
       reka-ui:
-        specifier: ^2.9.5
+        specifier: ^2.10.1
         version: 2.10.1(vue@3.5.40(typescript@5.6.3))
       tailwind-merge:
         specifier: ^3.5.0
