@@ -7,12 +7,15 @@ import {
   LayoutDashboard,
   LogOut,
   PanelLeftClose,
+  RefreshCw,
   Settings2,
   TerminalSquare,
 } from "@lucide/vue";
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 import { RouterLink, useRoute } from "vue-router";
+import { toast } from "vue-sonner";
+import { useAppUpdate } from "@/composables/useAppUpdate";
 import { useAuthStore } from "@/stores/auth";
 
 interface Props {
@@ -25,6 +28,7 @@ const emit = defineEmits<{ close: []; toggleCollapse: [] }>();
 const route = useRoute();
 const auth = useAuthStore();
 const { t } = useI18n();
+const { appVersion, checkForUpdate, isChecking } = useAppUpdate();
 
 const primaryNavigation = computed(() => {
   const items = [
@@ -38,6 +42,35 @@ const primaryNavigation = computed(() => {
     items.push({ labelKey: "navigation.terminal", to: "/terminal", icon: TerminalSquare });
   return items;
 });
+
+async function checkForUpdates() {
+  const result = await checkForUpdate();
+
+  if (result.kind === "updateAvailable") {
+    toast.info(t("appUpdate.updateAvailable"), {
+      description: t("appUpdate.updateAvailableDescription", { version: result.version }),
+      action: {
+        label: t("appUpdate.viewRelease"),
+        onClick: () => window.open(result.releaseUrl, "_blank", "noopener,noreferrer"),
+      },
+    });
+    return;
+  }
+
+  if (result.kind === "upToDate") {
+    toast.success(t("appUpdate.upToDate"), {
+      description: t("appUpdate.upToDateDescription", { version: result.version }),
+    });
+    return;
+  }
+
+  if (result.kind === "noRelease") {
+    toast.info(t("appUpdate.noRelease"), { description: t("appUpdate.noReleaseDescription") });
+    return;
+  }
+
+  toast.error(t("appUpdate.checkFailed"), { description: t("appUpdate.checkFailedDescription") });
+}
 </script>
 
 <template>
@@ -118,6 +151,29 @@ const primaryNavigation = computed(() => {
         <Settings2 class="shrink-0" :size="17" :stroke-width="1.6" />
         <span :class="collapsed ? 'md:hidden' : ''">{{ t("navigation.settings") }}</span>
       </RouterLink>
+      <div
+        class="flex min-h-[35px] items-center gap-2 px-2.5 text-[var(--sidebar-muted)]"
+        :class="collapsed ? 'md:justify-center md:px-0' : ''"
+      >
+        <span
+          class="min-w-0 flex-1 truncate font-mono text-[10px] tracking-[0.04em]"
+          :class="collapsed ? 'md:hidden' : ''"
+        >
+          {{ t("appUpdate.version", { version: `v${appVersion}` }) }}
+        </span>
+        <button
+          class="grid size-[26px] shrink-0 place-items-center rounded-[3px] hover:bg-[var(--sidebar-active)] hover:text-[var(--sidebar-strong)] disabled:cursor-wait disabled:opacity-70"
+          type="button"
+          :aria-label="
+            isChecking ? t('appUpdate.checkingForUpdates') : t('appUpdate.checkForUpdates')
+          "
+          :title="isChecking ? t('appUpdate.checkingForUpdates') : t('appUpdate.checkForUpdates')"
+          :disabled="isChecking"
+          @click="checkForUpdates"
+        >
+          <RefreshCw :size="14" :stroke-width="1.5" :class="isChecking ? 'animate-spin' : ''" />
+        </button>
+      </div>
       <div
         class="mx-2.5 my-3 h-px bg-[var(--sidebar-border)]"
         :class="collapsed ? 'md:mx-0.5' : ''"

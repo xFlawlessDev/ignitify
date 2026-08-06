@@ -21,4 +21,18 @@ export default {
     useLightTheme: "Use light theme",
     useDarkTheme: "Use dark theme",
   },
+  appUpdate: {
+    version: "Version {version}",
+    checkForUpdates: "Check for updates",
+    checkingForUpdates: "Checking for updates",
+    upToDate: "You're up to date",
+    upToDateDescription: "Version {version} is the latest release.",
+    updateAvailable: "Update available",
+    updateAvailableDescription: "Version {version} is ready to install.",
+    viewRelease: "View release",
+    noRelease: "No published release",
+    noReleaseDescription: "There is no published release to compare yet.",
+    checkFailed: "Could not check for updates",
+    checkFailedDescription: "Check your connection and try again.",
+  },
 } as const;

@@ -21,4 +21,18 @@ export default {
     useLightTheme: "Gunakan tema terang",
     useDarkTheme: "Gunakan tema gelap",
   },
+  appUpdate: {
+    version: "Versi {version}",
+    checkForUpdates: "Periksa pembaruan",
+    checkingForUpdates: "Memeriksa pembaruan",
+    upToDate: "Versi aplikasi sudah terbaru",
+    upToDateDescription: "Versi {version} adalah rilis terbaru.",
+    updateAvailable: "Pembaruan tersedia",
+    updateAvailableDescription: "Versi {version} siap dipasang.",
+    viewRelease: "Lihat rilis",
+    noRelease: "Belum ada rilis yang dipublikasikan",
+    noReleaseDescription: "Belum ada rilis yang dapat dibandingkan.",
+    checkFailed: "Tidak dapat memeriksa pembaruan",
+    checkFailedDescription: "Periksa koneksi Anda, lalu coba lagi.",
+  },
 } as const;

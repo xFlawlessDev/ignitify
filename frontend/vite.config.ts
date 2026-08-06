@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite-plus";
@@ -5,8 +6,14 @@ import tailwindcss from "@tailwindcss/vite";
 import vue from "@vitejs/plugin-vue";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const packageManifest = JSON.parse(
+  readFileSync(new URL("./package.json", import.meta.url), "utf8"),
+) as { version: string };
 
 export default defineConfig({
+  define: {
+    __IGNITIFY_APP_VERSION__: JSON.stringify(packageManifest.version),
+  },
   plugins: [vue(), tailwindcss()],
   resolve: {
     alias: { "@": path.resolve(__dirname, "./src") },
