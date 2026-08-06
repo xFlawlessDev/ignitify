@@ -56,7 +56,9 @@ describe("ServiceDialog", () => {
     );
     await nextTick();
 
-    expect(document.body.textContent).toContain("Image reference must include an exact sha256 digest.");
+    expect(document.body.textContent).toContain(
+      "Image reference must include an exact sha256 digest.",
+    );
     const addButton = [...document.querySelectorAll("button")].find((button) =>
       button.textContent?.includes("Add variable"),
     ) as HTMLButtonElement;

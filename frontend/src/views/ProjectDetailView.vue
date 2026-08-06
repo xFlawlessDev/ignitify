@@ -225,14 +225,7 @@ onUnmounted(() => {
         aria-label="Project sections"
       >
         <button
-          v-for="tab in [
-            'overview',
-            'services',
-            'domains',
-            'deployments',
-            'activity',
-            'settings',
-          ]"
+          v-for="tab in ['overview', 'services', 'domains', 'deployments', 'activity', 'settings']"
           :key="tab"
           class="h-[39px] flex-none border-b-2 border-b-transparent px-2.5 text-xs text-muted-foreground capitalize hover:text-foreground"
           :class="activeTab === tab ? 'border-b-[var(--status-live)] text-foreground' : ''"
@@ -335,7 +328,6 @@ onUnmounted(() => {
         :loading="activity.loading.value"
         @retry="activity.load(data.id)"
       />
-
 
       <form
         v-else-if="data.role === 'owner'"

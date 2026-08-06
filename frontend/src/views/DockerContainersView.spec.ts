@@ -94,4 +94,33 @@ describe("DockerContainersView", () => {
 
     mounted.app.unmount();
   });
+
+  it("paginates container inventory", async () => {
+    const state = monitoringState();
+    const first = state.containers.data.value[0]!;
+    state.containers.data.value = Array.from({ length: 11 }, (_, index) => ({
+      ...first,
+      id: `container-${index + 1}`,
+      name: `web-${String(index + 1).padStart(2, "0")}`,
+    }));
+    mocks.containers = state.containers;
+    mocks.runtime = state.runtime;
+    const mounted = await mount();
+
+    expect(mounted.host.textContent).toContain("web-01");
+    expect(mounted.host.textContent).toContain("web-10");
+    expect(mounted.host.textContent).not.toContain("web-11");
+    expect(mounted.host.textContent).toContain("Showing 1–10 of 11 containers");
+    expect(mounted.host.textContent).toContain("Page 1 of 2");
+
+    (mounted.host.querySelector('button[aria-label="Next page"]') as HTMLButtonElement).click();
+    await nextTick();
+
+    expect(mounted.host.textContent).not.toContain("web-01");
+    expect(mounted.host.textContent).toContain("web-11");
+    expect(mounted.host.textContent).toContain("Showing 11–11 of 11 containers");
+    expect(mounted.host.textContent).toContain("Page 2 of 2");
+
+    mounted.app.unmount();
+  });
 });

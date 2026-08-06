@@ -1,6 +1,15 @@
 <script setup lang="ts">
-import { CircleAlert, Container, Cpu, Layers3, RefreshCw, Server } from "@lucide/vue";
-import { computed, onMounted, onUnmounted } from "vue";
+import {
+  ChevronLeft,
+  ChevronRight,
+  CircleAlert,
+  Container,
+  Cpu,
+  Layers3,
+  RefreshCw,
+  Server,
+} from "@lucide/vue";
+import { computed, onMounted, onUnmounted, shallowRef, watch } from "vue";
 import RuntimeStatusPanel from "@/components/runtime/RuntimeStatusPanel.vue";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -31,6 +40,22 @@ const {
 const metrics = computed(() => runtime.value?.metrics ?? null);
 const error = computed(() => runtimeError.value ?? inventoryError.value);
 const loading = computed(() => runtimeLoading.value || inventoryLoading.value);
+const CONTAINERS_PER_PAGE = 10;
+const currentPage = shallowRef(1);
+const containerCount = computed(() => containers.value?.length ?? 0);
+const pageCount = computed(() =>
+  Math.max(1, Math.ceil(containerCount.value / CONTAINERS_PER_PAGE)),
+);
+const visibleContainers = computed(() => {
+  const start = (currentPage.value - 1) * CONTAINERS_PER_PAGE;
+  return (containers.value ?? []).slice(start, start + CONTAINERS_PER_PAGE);
+});
+const firstVisibleContainer = computed(() =>
+  containerCount.value === 0 ? 0 : (currentPage.value - 1) * CONTAINERS_PER_PAGE + 1,
+);
+const lastVisibleContainer = computed(() =>
+  Math.min(currentPage.value * CONTAINERS_PER_PAGE, containerCount.value),
+);
 
 const REFRESH_INTERVAL_MS = 3_000;
 let refreshTimer: number | undefined;
@@ -57,6 +82,26 @@ function formatPort(port: RuntimePort) {
   if (port.host_port === null) return container;
   return `${port.host_ip ?? "0.0.0.0"}:${port.host_port} → ${container}`;
 }
+
+function goToPage(page: number) {
+  currentPage.value = Math.min(Math.max(page, 1), pageCount.value);
+}
+
+function goToPreviousPage() {
+  goToPage(currentPage.value - 1);
+}
+
+function goToNextPage() {
+  goToPage(currentPage.value + 1);
+}
+
+watch(
+  containerCount,
+  () => {
+    if (currentPage.value > pageCount.value) currentPage.value = pageCount.value;
+  },
+  { immediate: true },
+);
 
 function scheduleRefresh(delay = REFRESH_INTERVAL_MS) {
   if (document.visibilityState === "hidden") return;
@@ -224,7 +269,7 @@ onUnmounted(() => {
             </TableRow>
           </TableHeader>
           <TableBody>
-            <TableRow v-for="container in containers" :key="container.id">
+            <TableRow v-for="container in visibleContainers" :key="container.id">
               <TableCell class="px-5 py-3">
                 <p class="max-w-56 truncate text-sm font-medium">{{ container.name }}</p>
                 <p class="mt-1 font-mono text-[10px] text-muted-foreground">
@@ -295,7 +340,40 @@ onUnmounted(() => {
             </TableRow>
           </TableBody>
         </Table>
-        <div v-else class="px-5 py-8">
+        <nav
+          v-if="containers && pageCount > 1"
+          class="flex items-center justify-between gap-4 border-t border-border px-5 py-3 max-[640px]:items-start max-[640px]:flex-col"
+          aria-label="Container inventory pagination"
+        >
+          <p class="text-xs text-muted-foreground" aria-live="polite">
+            Showing {{ firstVisibleContainer }}–{{ lastVisibleContainer }} of
+            {{ containerCount }} containers
+          </p>
+          <div class="flex items-center gap-2">
+            <Button
+              size="icon-sm"
+              variant="outline"
+              :disabled="currentPage === 1"
+              aria-label="Previous page"
+              @click="goToPreviousPage"
+            >
+              <ChevronLeft class="size-4" :stroke-width="1.5" />
+            </Button>
+            <span class="min-w-20 text-center font-mono text-xs text-muted-foreground">
+              Page {{ currentPage }} of {{ pageCount }}
+            </span>
+            <Button
+              size="icon-sm"
+              variant="outline"
+              :disabled="currentPage === pageCount"
+              aria-label="Next page"
+              @click="goToNextPage"
+            >
+              <ChevronRight class="size-4" :stroke-width="1.5" />
+            </Button>
+          </div>
+        </nav>
+        <div v-if="containers !== null && containers.length === 0" class="px-5 py-8">
           <Container class="size-4 text-muted-foreground" :stroke-width="1.5" />
           <p class="mt-4 text-sm font-medium">No containers found</p>
           <p class="mt-1 text-xs leading-5 text-muted-foreground">
