@@ -15,12 +15,15 @@ use std::{
 
 use age::{Decryptor, Encryptor, x25519};
 use ignitify_db::{
-    AuthorizedDeploymentService, AuthorizedService, CreateDeploymentOutcome, DeploymentActor,
-    DeploymentRecord, DeploymentsRepository, DomainsRepository, NewDeployment, NewServiceVariable,
-    ServiceActor, ServiceMutationOutcome, ServicesRepository,
+    AuthorizedDeploymentService, AuthorizedProjectVariables, AuthorizedService,
+    CreateDeploymentOutcome, DeploymentActor, DeploymentRecord, DeploymentsRepository,
+    DomainsRepository, NewDeployment, NewProjectVariable, NewServiceVariable, ProjectActor,
+    ProjectVariablesMutationOutcome, ProjectsRepository, ServiceActor, ServiceMutationOutcome,
+    ServicesRepository,
 };
 use ignitify_domain::{
     DeploymentState, DomainId, DomainName, ServiceId, ServiceInput, ServiceSpec,
+    ServiceVariableInput, validate_variable_inputs,
 };
 use thiserror::Error;
 use tokio::sync::{broadcast, mpsc};
@@ -29,15 +32,121 @@ use zeroize::Zeroizing;
 #[derive(Clone)]
 pub struct ServiceControl {
     cipher: Arc<AgeCipher>,
+    projects: ProjectsRepository,
     services: ServicesRepository,
 }
 
 impl ServiceControl {
-    pub fn new(services: ServicesRepository, identity: impl AsRef<str>) -> Result<Self> {
+    pub fn new(
+        services: ServicesRepository,
+        projects: ProjectsRepository,
+        identity: impl AsRef<str>,
+    ) -> Result<Self> {
         Ok(Self {
             cipher: Arc::new(AgeCipher::from_identity(identity)?),
+            projects,
             services,
         })
+    }
+
+    pub async fn project_environment(
+        &self,
+        actor: ProjectActor<'_>,
+        project_id: &str,
+    ) -> Result<Option<ProjectEnvironmentReadModel>> {
+        self.projects
+            .variables(actor, project_id)
+            .await?
+            .map(|environment| self.read_project_environment(environment))
+            .transpose()
+    }
+
+    pub async fn update_project_environment(
+        &self,
+        actor: ProjectActor<'_>,
+        project_id: &str,
+        variables: Vec<ProjectEnvironmentVariableInput>,
+    ) -> Result<ProjectEnvironmentMutationModel> {
+        let Some(current) = self.projects.variables(actor.clone(), project_id).await? else {
+            return Ok(ProjectEnvironmentMutationModel::Missing);
+        };
+        if !actor.is_admin && !current.role.can_manage_services() {
+            return Ok(ProjectEnvironmentMutationModel::Forbidden);
+        }
+
+        let existing = current
+            .variables
+            .iter()
+            .map(|variable| (variable.key.as_str(), variable))
+            .collect::<std::collections::HashMap<_, _>>();
+        let mut validation_inputs = Vec::with_capacity(variables.len());
+        let mut encrypted = Vec::with_capacity(variables.len());
+        for variable in variables {
+            let key = variable.key.clone();
+            let value = match variable.value {
+                Some(value) => {
+                    validation_inputs.push(ServiceVariableInput {
+                        key: key.clone(),
+                        value: value.clone(),
+                        is_secret: variable.is_secret,
+                    });
+                    Some(value)
+                }
+                None if variable.is_secret
+                    && existing
+                        .get(key.as_str())
+                        .is_some_and(|stored| stored.is_secret) =>
+                {
+                    validation_inputs.push(ServiceVariableInput {
+                        key: key.clone(),
+                        value: String::new(),
+                        is_secret: variable.is_secret,
+                    });
+                    None
+                }
+                None => return Err(ignitify_domain::InputError::InvalidVariableValue.into()),
+            };
+            encrypted.push((key, variable.is_secret, value));
+        }
+        validate_variable_inputs(&validation_inputs)?;
+        let encrypted = encrypted
+            .into_iter()
+            .map(|(key, is_secret, value)| {
+                let ciphertext = if let Some(value) = value {
+                    self.cipher.encrypt(Zeroizing::new(value).as_bytes())?
+                } else {
+                    existing
+                        .get(key.as_str())
+                        .ok_or(Error::InvalidCiphertext)?
+                        .ciphertext
+                        .clone()
+                };
+                Ok(NewProjectVariable {
+                    key,
+                    is_secret,
+                    ciphertext,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        Ok(
+            match self
+                .projects
+                .replace_variables(actor, project_id, encrypted)
+                .await?
+            {
+                ProjectVariablesMutationOutcome::Updated(environment) => {
+                    ProjectEnvironmentMutationModel::Updated(
+                        self.read_project_environment(environment)?,
+                    )
+                }
+                ProjectVariablesMutationOutcome::Missing => {
+                    ProjectEnvironmentMutationModel::Missing
+                }
+                ProjectVariablesMutationOutcome::Forbidden => {
+                    ProjectEnvironmentMutationModel::Forbidden
+                }
+            },
+        )
     }
 
     pub async fn list(
@@ -175,6 +284,37 @@ impl ServiceControl {
             created_at: service.created_at,
             updated_at: service.updated_at,
             variables,
+        })
+    }
+
+    fn read_project_environment(
+        &self,
+        environment: AuthorizedProjectVariables,
+    ) -> Result<ProjectEnvironmentReadModel> {
+        let can_read_values = environment.role.can_manage_services();
+        let variables = environment
+            .variables
+            .into_iter()
+            .map(|variable| {
+                let value = if variable.is_secret || !can_read_values {
+                    None
+                } else {
+                    let plaintext = self.cipher.decrypt(&variable.ciphertext)?;
+                    let value = std::str::from_utf8(plaintext.as_slice())
+                        .map_err(|_| Error::InvalidCiphertext)?;
+                    Some(Zeroizing::new(value.to_owned()))
+                };
+                Ok(ProjectEnvironmentVariableReadModel {
+                    key: variable.key,
+                    is_secret: variable.is_secret,
+                    is_set: true,
+                    value,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        Ok(ProjectEnvironmentReadModel {
+            variables,
+            role: environment.role.as_str().to_owned(),
         })
     }
 }
@@ -1355,6 +1495,34 @@ pub struct ServiceReadModel {
 }
 
 #[derive(Debug, Clone)]
+pub struct ProjectEnvironmentVariableInput {
+    pub key: String,
+    pub value: Option<String>,
+    pub is_secret: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct ProjectEnvironmentReadModel {
+    pub role: String,
+    pub variables: Vec<ProjectEnvironmentVariableReadModel>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ProjectEnvironmentVariableReadModel {
+    pub key: String,
+    pub is_secret: bool,
+    pub is_set: bool,
+    pub value: Option<Zeroizing<String>>,
+}
+
+#[derive(Debug, Clone)]
+pub enum ProjectEnvironmentMutationModel {
+    Updated(ProjectEnvironmentReadModel),
+    Missing,
+    Forbidden,
+}
+
+#[derive(Debug, Clone)]
 pub struct ServiceVariableReadModel {
     pub key: String,
     pub is_secret: bool,
@@ -1387,6 +1555,8 @@ pub enum Error {
     #[error("worker is unavailable")]
     WorkerUnavailable,
     #[error(transparent)]
+    Domain(#[from] ignitify_domain::InputError),
+    #[error(transparent)]
     Database(#[from] ignitify_db::DatabaseError),
 }
 
@@ -1406,12 +1576,15 @@ mod tests {
 
     use age::secrecy::ExposeSecret;
     use ignitify_db::{
-        Database, DatabaseConfig, DeploymentActor, NewServiceVariable, ServiceActor,
+        Database, DatabaseConfig, DeploymentActor, NewServiceVariable, ProjectActor, ServiceActor,
         UserRole as DatabaseUserRole,
     };
-    use ignitify_domain::{ProjectInput, ServiceInput};
+    use ignitify_domain::{ProjectInput, ServiceInput, ServiceVariableInput};
 
-    use super::{AgeCipher, ImageRuntime, Ingress, IngressRoute, reconcile_once};
+    use super::{
+        AgeCipher, ControlHandle, ImageRuntime, Ingress, IngressRoute,
+        ProjectEnvironmentVariableInput, ServiceControl, reconcile_once,
+    };
 
     #[test]
     fn deployment_logs_redact_snapshot_values() {
@@ -1645,5 +1818,101 @@ mod tests {
             ]
         );
         assert!(runtime.calls.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn deployment_snapshot_merges_project_variables_before_service_overrides() {
+        let database = Database::connect(&DatabaseConfig {
+            url: "sqlite::memory:".to_owned(),
+        })
+        .await
+        .unwrap();
+        let actor_id = database
+            .users()
+            .create("owner", "hash", DatabaseUserRole::User)
+            .await
+            .unwrap()
+            .id;
+        let project = database
+            .projects()
+            .create(&actor_id, ProjectInput::new("Platform").unwrap())
+            .await
+            .unwrap();
+        let identity = age::x25519::Identity::generate().to_string();
+        let service_control = ServiceControl::new(
+            database.services(),
+            database.projects(),
+            identity.expose_secret(),
+        )
+        .unwrap();
+        let service = service_control
+            .create(
+                ServiceActor {
+                    id: &actor_id,
+                    is_admin: false,
+                },
+                project.id.as_str(),
+                ServiceInput::image(
+                    "web",
+                    "nginx@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    None,
+                    None,
+                    vec![ServiceVariableInput {
+                        key: "SHARED".to_owned(),
+                        value: "service".to_owned(),
+                        is_secret: false,
+                    }],
+                )
+                .unwrap(),
+            )
+            .await
+            .unwrap();
+        let super::ServiceMutationOutcomeModel::Created(service) = service else {
+            panic!("service must exist");
+        };
+        service_control
+            .update_project_environment(
+                ProjectActor {
+                    id: &actor_id,
+                    is_admin: false,
+                },
+                project.id.as_str(),
+                vec![
+                    ProjectEnvironmentVariableInput {
+                        key: "SHARED".to_owned(),
+                        value: Some("project".to_owned()),
+                        is_secret: false,
+                    },
+                    ProjectEnvironmentVariableInput {
+                        key: "PROJECT_ONLY".to_owned(),
+                        value: Some("available".to_owned()),
+                        is_secret: false,
+                    },
+                ],
+            )
+            .await
+            .unwrap();
+        let (control, _wake) =
+            ControlHandle::new(database.deployments(), identity.expose_secret()).unwrap();
+        let submission = control
+            .submit_deploy(
+                DeploymentActor {
+                    id: &actor_id,
+                    is_admin: false,
+                },
+                &service.id,
+                "deploy-1",
+            )
+            .await
+            .unwrap();
+        let deployment = match submission {
+            super::DeploymentSubmission::Accepted(deployment) => deployment,
+            _ => panic!("deployment must be accepted"),
+        };
+        let cipher = AgeCipher::from_identity(identity.expose_secret()).unwrap();
+        let values =
+            super::decrypt_deployment_values(&cipher, &deployment.variables_ciphertext).unwrap();
+        assert_eq!(values["SHARED"].as_str(), "service");
+        assert_eq!(values["PROJECT_ONLY"].as_str(), "available");
     }
 }

@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use chrono::Utc;
 use ignitify_domain::{DeploymentId, DeploymentState, ProjectMemberRole, ServiceId, ServiceSpec};
 use serde_json::json;
@@ -124,18 +126,31 @@ impl DeploymentsRepository {
             return Ok(None);
         };
         let spec = decode_spec(&row.desired_spec_json)?;
-        let variables = sqlx::query_as::<_, VariableRow>(
+        let project_variables = sqlx::query_as::<_, ProjectVariableRow>(
+            "SELECT key, ciphertext
+             FROM project_variables
+             WHERE project_id = ?
+             ORDER BY key",
+        )
+        .bind(&row.project_id)
+        .fetch_all(&self.pool)
+        .await?
+        .into_iter()
+        .map(ProjectVariableRow::into_record);
+        let service_variables = sqlx::query_as::<_, VariableRow>(
             "SELECT key, ciphertext FROM service_variables WHERE service_id = ? ORDER BY key",
         )
         .bind(&row.id)
         .fetch_all(&self.pool)
         .await?
         .into_iter()
-        .map(|row| DeploymentVariableRecord {
-            key: row.key,
-            ciphertext: row.ciphertext,
-        })
-        .collect();
+        .map(VariableRow::into_record);
+        let variables = project_variables
+            .chain(service_variables)
+            .map(|variable| (variable.key.clone(), variable))
+            .collect::<BTreeMap<_, _>>()
+            .into_values()
+            .collect();
         Ok(Some(AuthorizedDeploymentService {
             id: parse_service_id(row.id)?,
             role,
@@ -908,6 +923,30 @@ struct ServiceRow {
 struct VariableRow {
     key: String,
     ciphertext: String,
+}
+
+impl VariableRow {
+    fn into_record(self) -> DeploymentVariableRecord {
+        DeploymentVariableRecord {
+            key: self.key,
+            ciphertext: self.ciphertext,
+        }
+    }
+}
+
+#[derive(Debug, FromRow)]
+struct ProjectVariableRow {
+    key: String,
+    ciphertext: String,
+}
+
+impl ProjectVariableRow {
+    fn into_record(self) -> DeploymentVariableRecord {
+        DeploymentVariableRecord {
+            key: self.key,
+            ciphertext: self.ciphertext,
+        }
+    }
 }
 
 #[derive(Debug, FromRow)]

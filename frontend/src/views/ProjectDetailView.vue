@@ -4,6 +4,7 @@ import { onUnmounted, shallowRef, watch } from "vue";
 import { RouterLink, useRoute } from "vue-router";
 import DeploymentLogsPanel from "@/components/project/DeploymentLogsPanel.vue";
 import ProjectActivityPanel from "@/components/project/ProjectActivityPanel.vue";
+import ProjectEnvironmentPanel from "@/components/project/ProjectEnvironmentPanel.vue";
 import ProjectServiceList from "@/components/project/ProjectServiceList.vue";
 import ServiceDomainsPanel from "@/components/project/ServiceDomainsPanel.vue";
 import ServiceDialog from "@/components/project/ServiceDialog.vue";
@@ -17,6 +18,7 @@ import { useDeployment } from "@/composables/useDeployment";
 import { useDeploymentStream } from "@/composables/useDeploymentStream";
 import { useDomains } from "@/composables/useDomains";
 import { useService } from "@/composables/useService";
+import { useProjectEnvironment } from "@/composables/useProjectEnvironment";
 import type {
   DeploymentEvent,
   DeploymentLog,
@@ -32,6 +34,7 @@ const services = useService();
 const deployments = useDeployment();
 const domains = useDomains();
 const activity = useProjectActivity();
+const projectEnvironment = useProjectEnvironment();
 const selectedDeploymentId = shallowRef<string | null>(null);
 const streamLogs = shallowRef<DeploymentLog[]>([]);
 const logStream = useDeploymentStream("", {
@@ -95,10 +98,16 @@ function load(projectId: string) {
     if (generation !== projectLoadGeneration) return;
     editName.value = data.value?.name ?? "";
     if (data.value) {
+      projectEnvironment.load(data.value.id);
       void loadDeployments(data.value.id, generation);
       void activity.load(data.value.id);
     }
   });
+}
+
+async function saveProjectEnvironment(variables: Parameters<typeof projectEnvironment.save>[1]) {
+  if (!data.value) return;
+  await projectEnvironment.save(data.value.id, variables);
 }
 
 async function renameProject() {
@@ -250,20 +259,41 @@ onUnmounted(() => {
 
       <section
         v-if="activeTab === 'overview'"
-        class="mt-[22px] grid min-w-0 overflow-hidden border border-border bg-card sm:grid-cols-2"
+        class="mt-[22px] grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_18rem]"
       >
-        <div class="grid gap-2 border-b border-border p-5 sm:border-r sm:border-b-0">
-          <p class="ui-label">Default environment</p>
-          <strong class="text-[15px] font-medium">{{ data.default_environment.name }}</strong>
-          <span class="text-xs text-muted-foreground">Ready for service configuration.</span>
-        </div>
-        <div class="grid gap-2 p-5">
-          <p class="ui-label">Access</p>
-          <strong class="text-[15px] font-medium capitalize">{{ data.role }}</strong>
-          <span class="text-xs text-muted-foreground"
-            >Project membership controls service configuration.</span
-          >
-        </div>
+        <ProjectEnvironmentPanel
+          :can-manage="data.role === 'owner' || data.role === 'editor'"
+          :error="projectEnvironment.error.value"
+          :saving="projectEnvironment.saving.value"
+          :variables="projectEnvironment.data.value.variables"
+          @save="saveProjectEnvironment"
+        />
+        <aside class="grid content-start gap-4">
+          <section class="grid gap-3 border border-border bg-card p-5">
+            <p class="ui-label">Project scope</p>
+            <div class="flex items-center justify-between gap-3 border-b border-border pb-3">
+              <span class="text-xs text-muted-foreground">Environment</span>
+              <strong class="text-xs font-medium">{{ data.default_environment.name }}</strong>
+            </div>
+            <div class="flex items-center justify-between gap-3 border-b border-border pb-3">
+              <span class="text-xs text-muted-foreground">Role</span>
+              <strong class="text-xs font-medium capitalize">{{ data.role }}</strong>
+            </div>
+            <div class="flex items-center justify-between gap-3">
+              <span class="text-xs text-muted-foreground">Shared keys</span>
+              <strong class="font-mono text-xs font-medium">{{
+                projectEnvironment.data.value.variables.length
+              }}</strong>
+            </div>
+          </section>
+          <section class="border border-border bg-muted/40 p-5">
+            <p class="text-xs font-medium">How inheritance works</p>
+            <p class="mt-2 text-xs leading-5 text-muted-foreground">
+              Each deployment merges project values first. A service-level key with the same name
+              wins.
+            </p>
+          </section>
+        </aside>
       </section>
 
       <section v-else-if="activeTab === 'services'" class="mt-[22px] grid gap-4">
@@ -299,6 +329,7 @@ onUnmounted(() => {
         <ProjectServiceList
           v-else
           :can-manage="data.role === 'owner' || data.role === 'editor'"
+          :project-variable-count="projectEnvironment.data.value.variables.length"
           :services="serviceData"
           @create="createService"
           @edit="editService"
@@ -382,6 +413,7 @@ onUnmounted(() => {
       <ServiceDialog
         v-model:open="serviceDialogOpen"
         :error="services.error.value"
+        :inherited-variables="projectEnvironment.data.value.variables"
         :saving="savingService"
         :service="selectedService"
         @save="saveService"

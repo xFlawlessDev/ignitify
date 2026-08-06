@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { Plus, RefreshCw } from "@lucide/vue";
-import { onMounted, shallowRef } from "vue";
+import { Box, KeyRound, Plus, RefreshCw, Users } from "@lucide/vue";
+import { computed, onMounted, shallowRef } from "vue";
 import { useRouter } from "vue-router";
 import ProjectCreateDialog from "@/components/project/ProjectCreateDialog.vue";
 import ProjectList from "@/components/project/ProjectList.vue";
@@ -11,6 +11,11 @@ import { useProjects } from "@/composables/useProjects";
 const router = useRouter();
 const { create, data, error, load, loading } = useProjects();
 const createOpen = shallowRef(false);
+const projectCount = computed(() => data.value.length);
+const ownerCount = computed(() => data.value.filter((project) => project.role === "owner").length);
+const environmentCount = computed(
+  () => data.value.filter((project) => project.default_environment.is_default).length,
+);
 
 async function createProject(name: string) {
   const project = await create({ name });
@@ -29,16 +34,55 @@ onMounted(load);
     >
       <div>
         <p class="ui-label">Workspace</p>
-        <h1 class="mt-3 text-[30px] leading-none font-normal">Projects</h1>
-        <p class="mt-2 text-xs text-muted-foreground">
-          Deployments grouped by product and environment.
+        <h1 class="mt-2.5 text-[30px] leading-none font-medium">Projects</h1>
+        <p class="mt-2.5 max-w-[56ch] text-[13px] leading-5 text-muted-foreground">
+          Organize deployment services, shared environment values, and release history by product.
         </p>
       </div>
-      <Button class="w-full sm:w-auto" @click="createOpen = true">
-        <Plus class="size-4" :stroke-width="1.5" />
-        New project
-      </Button>
+      <div class="flex w-full items-center gap-2 sm:w-auto">
+        <Button class="order-1 w-full sm:order-none sm:w-auto" @click="createOpen = true">
+          <Plus class="size-4" :stroke-width="1.5" />
+          New project
+        </Button>
+        <button
+          class="grid size-9 shrink-0 place-items-center rounded-[3px] border border-border bg-card text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          type="button"
+          aria-label="Refresh projects"
+          title="Refresh projects"
+          :disabled="loading"
+          @click="load"
+        >
+          <RefreshCw class="size-4" :class="loading ? 'animate-spin' : ''" :stroke-width="1.5" />
+        </button>
+      </div>
     </header>
+
+    <section
+      class="mt-[22px] grid overflow-hidden divide-y divide-border border border-border bg-card sm:grid-cols-3 sm:divide-x sm:divide-y-0"
+      aria-label="Project summary"
+    >
+      <div class="flex min-h-[86px] items-center gap-3 px-5 py-4">
+        <Box class="size-4 text-muted-foreground" :stroke-width="1.5" />
+        <div class="grid gap-1">
+          <span class="ui-label">Projects</span>
+          <strong class="font-mono text-lg font-medium tabular-nums">{{ projectCount }}</strong>
+        </div>
+      </div>
+      <div class="flex min-h-[86px] items-center gap-3 px-5 py-4">
+        <KeyRound class="size-4 text-muted-foreground" :stroke-width="1.5" />
+        <div class="grid gap-1">
+          <span class="ui-label">Environments</span>
+          <strong class="font-mono text-lg font-medium tabular-nums">{{ environmentCount }}</strong>
+        </div>
+      </div>
+      <div class="flex min-h-[86px] items-center gap-3 px-5 py-4">
+        <Users class="size-4 text-muted-foreground" :stroke-width="1.5" />
+        <div class="grid gap-1">
+          <span class="ui-label">Owned by you</span>
+          <strong class="font-mono text-lg font-medium tabular-nums">{{ ownerCount }}</strong>
+        </div>
+      </div>
+    </section>
 
     <section
       v-if="loading"
@@ -76,7 +120,16 @@ onMounted(load);
         Create project to get production environment.
       </p>
     </section>
-    <ProjectList v-else class="mt-[22px]" :projects="data" />
+    <section v-else class="mt-[22px] grid gap-3">
+      <div class="flex items-end justify-between gap-4">
+        <div>
+          <p class="ui-label">Workspace inventory</p>
+          <h2 class="mt-2 text-base font-medium">Your projects</h2>
+        </div>
+        <span class="font-mono text-[11px] text-muted-foreground">{{ projectCount }} total</span>
+      </div>
+      <ProjectList :projects="data" />
+    </section>
 
     <ProjectCreateDialog v-model:open="createOpen" :error="error" @create="createProject" />
   </div>

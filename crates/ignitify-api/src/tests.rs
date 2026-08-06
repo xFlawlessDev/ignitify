@@ -37,7 +37,12 @@ async fn state() -> AppState {
     )
     .shared();
     let identity = age::x25519::Identity::generate().to_string();
-    let services = ServiceControl::new(database.services(), identity.expose_secret()).unwrap();
+    let services = ServiceControl::new(
+        database.services(),
+        database.projects(),
+        identity.expose_secret(),
+    )
+    .unwrap();
     let (control, _wake) =
         ControlHandle::new(database.deployments(), identity.expose_secret()).unwrap();
     AppState {
@@ -48,6 +53,7 @@ async fn state() -> AppState {
         runtime_health: Arc::new(StaticRuntimeHealth(true)),
         worker_health: Arc::new(StaticRuntimeHealth(true)),
         system_metrics: Arc::new(StaticSystemMetrics(None)),
+        docker_runtime: None,
         terminal: ignitify_terminal::TerminalService,
         secure_cookies: false,
         trusted_origins: Arc::from([]),
@@ -269,6 +275,113 @@ async fn project_routes_enforce_auth_membership_and_role() {
         .await
         .unwrap();
     assert_eq!(viewer.status(), 403);
+}
+
+#[tokio::test]
+async fn project_environment_routes_encrypt_values_and_enforce_roles() {
+    let state = state().await;
+    let token = session_token(&state).await;
+    let app = router(
+        state.auth.clone(),
+        state.database.clone(),
+        state.services.clone(),
+        state.control.clone(),
+        state.runtime_health.clone(),
+        state.worker_health.clone(),
+        state.secure_cookies,
+        state.trusted_origins.clone(),
+    );
+    let project = app
+        .clone()
+        .oneshot(request(
+            "POST",
+            "/api/v1/projects",
+            Some(&token),
+            r#"{"name":"Platform"}"#,
+        ))
+        .await
+        .unwrap()
+        .into_body()
+        .collect()
+        .await
+        .unwrap()
+        .to_bytes();
+    let project: serde_json::Value = serde_json::from_slice(&project).unwrap();
+    let project_id = project["id"].as_str().unwrap();
+    let updated = app
+        .clone()
+        .oneshot(request(
+            "PUT",
+            &format!("/api/v1/projects/{project_id}/environment"),
+            Some(&token),
+            r#"{"variables":[{"key":"APP_ENV","value":"production","is_secret":false},{"key":"TOKEN","value":"project-secret","is_secret":true}]}"#,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(updated.status(), StatusCode::OK);
+    let updated_body = updated.into_body().collect().await.unwrap().to_bytes();
+    let updated_json: serde_json::Value = serde_json::from_slice(&updated_body).unwrap();
+    assert_eq!(updated_json["variables"][0]["value"], "production");
+    assert!(updated_json["variables"][1].get("value").is_none());
+    assert!(!String::from_utf8_lossy(&updated_body).contains("project-secret"));
+
+    let password_hash = Argon2::default()
+        .hash_password(b"password123", &SaltString::generate(&mut OsRng))
+        .unwrap()
+        .to_string();
+    let viewer = state
+        .database
+        .users()
+        .create("viewer", &password_hash, DatabaseUserRole::User)
+        .await
+        .unwrap();
+    state
+        .database
+        .projects()
+        .add_member(project_id, &viewer.id, ProjectMemberRole::Viewer)
+        .await
+        .unwrap();
+    let viewer_token = ignitify_auth::AuthService::new(
+        state.database.clone(),
+        AuthConfig {
+            jwt_secret: "test-secret".to_owned(),
+            ..AuthConfig::default()
+        },
+    )
+    .login("viewer", "password123")
+    .await
+    .unwrap()
+    .access_token;
+    let viewer_read = app
+        .clone()
+        .oneshot(request(
+            "GET",
+            &format!("/api/v1/projects/{project_id}/environment"),
+            Some(&viewer_token),
+            "",
+        ))
+        .await
+        .unwrap();
+    assert_eq!(viewer_read.status(), StatusCode::OK);
+    let viewer_body = viewer_read.into_body().collect().await.unwrap().to_bytes();
+    let viewer_json: serde_json::Value = serde_json::from_slice(&viewer_body).unwrap();
+    assert!(
+        viewer_json["variables"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|variable| variable.get("value").is_none())
+    );
+    let viewer_update = app
+        .oneshot(request(
+            "PUT",
+            &format!("/api/v1/projects/{project_id}/environment"),
+            Some(&viewer_token),
+            r#"{"variables":[]}"#,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(viewer_update.status(), StatusCode::FORBIDDEN);
 }
 
 #[tokio::test]
@@ -926,4 +1039,43 @@ async fn runtime_containers_requires_auth_and_returns_inventory() {
     assert_eq!(inventory["containers"][0]["health"], "healthy");
     assert_eq!(inventory["containers"][0]["cpu_percentage"], 1.25);
     assert_eq!(inventory["containers"][0]["memory_usage_bytes"], 67_108_864);
+}
+
+#[tokio::test]
+async fn runtime_container_action_requires_auth_and_docker_capability() {
+    let state = state().await;
+    let token = session_token(&state).await;
+    let app = router(
+        state.auth.clone(),
+        state.database.clone(),
+        state.services.clone(),
+        state.control.clone(),
+        state.runtime_health.clone(),
+        state.worker_health.clone(),
+        state.secure_cookies,
+        state.trusted_origins.clone(),
+    );
+
+    let unauthenticated = app
+        .clone()
+        .oneshot(request(
+            "GET",
+            "/api/v1/runtime/containers/web/details",
+            None,
+            "",
+        ))
+        .await
+        .unwrap();
+    assert_eq!(unauthenticated.status(), StatusCode::UNAUTHORIZED);
+
+    let unavailable = app
+        .oneshot(request(
+            "GET",
+            "/api/v1/runtime/containers/web/details",
+            Some(&token),
+            "",
+        ))
+        .await
+        .unwrap();
+    assert_eq!(unavailable.status(), StatusCode::SERVICE_UNAVAILABLE);
 }

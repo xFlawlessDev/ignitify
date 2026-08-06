@@ -15,6 +15,33 @@ pub struct ProjectActor<'a> {
 }
 
 #[derive(Debug, Clone)]
+pub struct NewProjectVariable {
+    pub key: String,
+    pub is_secret: bool,
+    pub ciphertext: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct ProjectVariableRecord {
+    pub key: String,
+    pub is_secret: bool,
+    pub ciphertext: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct AuthorizedProjectVariables {
+    pub role: ProjectMemberRole,
+    pub variables: Vec<ProjectVariableRecord>,
+}
+
+#[derive(Debug, Clone)]
+pub enum ProjectVariablesMutationOutcome {
+    Updated(AuthorizedProjectVariables),
+    Missing,
+    Forbidden,
+}
+
+#[derive(Debug, Clone)]
 pub struct ProjectsRepository {
     pool: SqlitePool,
 }
@@ -155,6 +182,87 @@ impl ProjectsRepository {
         row.map(ProjectSummaryRow::into_summary).transpose()
     }
 
+    pub async fn variables(
+        &self,
+        actor: ProjectActor<'_>,
+        project_id: &str,
+    ) -> Result<Option<AuthorizedProjectVariables>> {
+        let Some(project) = self.get(actor.clone(), project_id).await? else {
+            return Ok(None);
+        };
+        let rows = sqlx::query_as::<_, ProjectVariableRow>(
+            "SELECT key, is_secret, ciphertext
+             FROM project_variables
+             WHERE project_id = ?
+             ORDER BY key",
+        )
+        .bind(project_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(Some(AuthorizedProjectVariables {
+            role: project.role,
+            variables: rows
+                .into_iter()
+                .map(ProjectVariableRow::into_record)
+                .collect(),
+        }))
+    }
+
+    pub async fn replace_variables(
+        &self,
+        actor: ProjectActor<'_>,
+        project_id: &str,
+        variables: Vec<NewProjectVariable>,
+    ) -> Result<ProjectVariablesMutationOutcome> {
+        let Some(project) = self.get(actor.clone(), project_id).await? else {
+            return Ok(ProjectVariablesMutationOutcome::Missing);
+        };
+        if !actor.is_admin && !project.role.can_manage_services() {
+            return Ok(ProjectVariablesMutationOutcome::Forbidden);
+        }
+
+        let now = Utc::now().to_rfc3339();
+        let mut tx = self.pool.begin().await?;
+        sqlx::query("DELETE FROM project_variables WHERE project_id = ?")
+            .bind(project_id)
+            .execute(&mut *tx)
+            .await?;
+        for variable in variables {
+            sqlx::query(
+                "INSERT INTO project_variables
+                 (id, project_id, key, is_secret, ciphertext, created_at, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?)",
+            )
+            .bind(Uuid::new_v4().to_string())
+            .bind(project_id)
+            .bind(variable.key)
+            .bind(variable.is_secret)
+            .bind(variable.ciphertext)
+            .bind(&now)
+            .bind(&now)
+            .execute(&mut *tx)
+            .await?;
+        }
+        sqlx::query("UPDATE projects SET updated_at = ? WHERE id = ?")
+            .bind(&now)
+            .bind(project_id)
+            .execute(&mut *tx)
+            .await?;
+        insert_environment_audit(&mut tx, actor.id, project_id, &now).await?;
+        tx.commit().await?;
+
+        self.variables(
+            ProjectActor {
+                id: actor.id,
+                is_admin: actor.is_admin,
+            },
+            project_id,
+        )
+        .await?
+        .map(ProjectVariablesMutationOutcome::Updated)
+        .ok_or_else(|| sqlx::Error::RowNotFound.into())
+    }
+
     pub async fn rename(
         &self,
         actor: ProjectActor<'_>,
@@ -221,6 +329,42 @@ struct ProjectSummaryRow {
     environment_id: String,
     environment_name: String,
     is_default: bool,
+}
+
+#[derive(Debug, FromRow)]
+struct ProjectVariableRow {
+    key: String,
+    is_secret: bool,
+    ciphertext: String,
+}
+
+impl ProjectVariableRow {
+    fn into_record(self) -> ProjectVariableRecord {
+        ProjectVariableRecord {
+            key: self.key,
+            is_secret: self.is_secret,
+            ciphertext: self.ciphertext,
+        }
+    }
+}
+
+async fn insert_environment_audit(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    actor_id: &str,
+    project_id: &str,
+    now: &str,
+) -> Result<()> {
+    sqlx::query(
+        "INSERT INTO audit_logs (id, user_id, action, resource_type, resource_id, created_at)
+         VALUES (?, ?, 'project.environment.update', 'project', ?, ?)",
+    )
+    .bind(Uuid::new_v4().to_string())
+    .bind(actor_id)
+    .bind(project_id)
+    .bind(now)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
 }
 
 impl ProjectSummaryRow {

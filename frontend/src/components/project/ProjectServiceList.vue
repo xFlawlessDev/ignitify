@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { Pencil, Plus, Settings2 } from "@lucide/vue";
+import { Box, FileCode2, Pencil, Plus } from "@lucide/vue";
 import { Button } from "@/components/ui/button";
 import type { ServiceSummary } from "@/lib/types";
 
 defineProps<{
   canManage: boolean;
   services: ServiceSummary[];
+  projectVariableCount?: number;
 }>();
 
 const emit = defineEmits<{
@@ -20,8 +21,11 @@ const emit = defineEmits<{
       class="flex items-start justify-between gap-4 border-b border-border px-5 pt-5 pb-4 max-[520px]:flex-col"
     >
       <div>
-        <p class="ui-label">Configuration</p>
+        <p class="ui-label">Deployment services</p>
         <h2 class="mt-2 text-xl leading-none font-normal">Services</h2>
+        <p class="mt-2 text-xs leading-5 text-muted-foreground">
+          Each service has a deployment source and can override shared project environment keys.
+        </p>
       </div>
       <Button v-if="canManage" size="sm" @click="emit('create')">
         <Plus class="size-4" :stroke-width="1.5" />
@@ -39,15 +43,24 @@ const emit = defineEmits<{
           <span
             class="grid size-[30px] shrink-0 place-items-center rounded-[4px] border border-border bg-muted text-muted-foreground"
           >
-            <Settings2 :size="15" :stroke-width="1.5" />
+            <FileCode2 v-if="service.kind === 'compose'" :size="15" :stroke-width="1.5" />
+            <Box v-else :size="15" :stroke-width="1.5" />
           </span>
-          <div class="grid min-w-0 gap-1">
+          <div class="grid min-w-0 gap-1.5">
             <strong class="truncate text-[13px] font-medium">{{ service.name }}</strong>
             <code class="truncate font-mono text-[11px] text-muted-foreground">{{
               service.kind === "compose"
-                ? `compose / ${service.exposed_service}`
+                ? `raw compose / ${service.exposed_service}`
                 : service.image_reference
             }}</code>
+            <span class="font-mono text-[10px] text-muted-foreground">
+              {{ service.variables.length }} service key{{
+                service.variables.length === 1 ? "" : "s"
+              }}
+              <template v-if="projectVariableCount">
+                · {{ projectVariableCount }} inherited</template
+              >
+            </span>
           </div>
         </div>
         <div class="flex items-center gap-3">
@@ -69,8 +82,9 @@ const emit = defineEmits<{
     </div>
     <div v-else class="px-5 py-8">
       <p class="text-sm font-medium">No services configured</p>
-      <p class="mt-1 text-xs text-muted-foreground">
-        Add a digest-pinned image to define desired configuration.
+      <p class="mt-1 max-w-[52ch] text-xs leading-5 text-muted-foreground">
+        Start with a container image or hardened Compose file. Git providers are prepared in the
+        workspace and will be available after a provider connection is configured.
       </p>
     </div>
   </section>

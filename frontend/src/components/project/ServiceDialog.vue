@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Plus, Trash2 } from "@lucide/vue";
+import { Box, FileCode2, GitBranch, Info, Plus, Trash2 } from "@lucide/vue";
 import { reactive, shallowRef, watch } from "vue";
 import { Button } from "@/components/ui/button";
 import {
@@ -14,12 +14,18 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
-import type { ServiceInput, ServiceSummary, ServiceVariable } from "@/lib/types";
+import type {
+  ProjectEnvironmentVariable,
+  ServiceInput,
+  ServiceSummary,
+  ServiceVariable,
+} from "@/lib/types";
 
 const props = defineProps<{
   error?: string | null;
   saving?: boolean;
   service?: ServiceSummary | null;
+  inheritedVariables?: ProjectEnvironmentVariable[];
 }>();
 
 const open = defineModel<boolean>("open", { required: true });
@@ -122,7 +128,7 @@ watch(open, (isOpen) => {
       class="max-h-[calc(100vh-2rem)] w-[calc(100%-1rem)] overflow-y-auto rounded-md shadow-none sm:max-w-xl"
     >
       <DialogHeader>
-        <DialogTitle>{{ service ? "Edit image service" : "New image service" }}</DialogTitle>
+        <DialogTitle>{{ service ? "Edit service" : "New deployment service" }}</DialogTitle>
         <DialogDescription
           >Changes desired configuration only. Nothing deploys from this form.</DialogDescription
         >
@@ -140,14 +146,52 @@ watch(open, (isOpen) => {
           />
         </div>
         <div class="grid gap-2">
-          <Label for="service-kind">Service kind</Label>
-          <select
-            id="service-kind"
-            v-model="kind"
-            class="h-9 rounded-md border border-input bg-background px-3 text-sm"
-          >
-            <option value="image">Digest-pinned image</option>
-            <option value="compose">Hardened Compose subset</option>
+          <Label for="service-kind">Deployment source</Label>
+          <div class="grid gap-2 sm:grid-cols-3" role="group" aria-label="Deployment source">
+            <button
+              class="grid gap-1 border px-3 py-2 text-left transition-colors"
+              :class="
+                kind === 'image'
+                  ? 'border-[var(--status-live)] bg-muted'
+                  : 'border-border hover:bg-muted'
+              "
+              type="button"
+              :aria-pressed="kind === 'image'"
+              @click="kind = 'image'"
+            >
+              <Box class="size-4 text-muted-foreground" :stroke-width="1.5" />
+              <span class="text-xs font-medium">Container image</span>
+              <span class="text-[11px] text-muted-foreground">Immutable digest</span>
+            </button>
+            <button
+              class="grid gap-1 border px-3 py-2 text-left transition-colors"
+              :class="
+                kind === 'compose'
+                  ? 'border-[var(--status-live)] bg-muted'
+                  : 'border-border hover:bg-muted'
+              "
+              type="button"
+              :aria-pressed="kind === 'compose'"
+              @click="kind = 'compose'"
+            >
+              <FileCode2 class="size-4 text-muted-foreground" :stroke-width="1.5" />
+              <span class="text-xs font-medium">Raw Compose / Docker</span>
+              <span class="text-[11px] text-muted-foreground">Hardened YAML subset</span>
+            </button>
+            <button
+              class="grid gap-1 border border-border px-3 py-2 text-left opacity-55"
+              type="button"
+              disabled
+              aria-disabled="true"
+            >
+              <GitBranch class="size-4 text-muted-foreground" :stroke-width="1.5" />
+              <span class="text-xs font-medium">Git repository</span>
+              <span class="text-[11px] text-muted-foreground">Provider connection soon</span>
+            </button>
+          </div>
+          <select id="service-kind" v-model="kind" class="sr-only" aria-hidden="true" tabindex="-1">
+            <option value="image">Container image</option>
+            <option value="compose">Raw Compose / Docker</option>
           </select>
         </div>
         <div v-if="kind === 'image'" class="grid gap-2">
@@ -162,7 +206,7 @@ watch(open, (isOpen) => {
         </div>
         <template v-else>
           <div class="grid gap-2">
-            <Label for="service-compose-yaml">Compose YAML</Label>
+            <Label for="service-compose-yaml">Compose / Docker file</Label>
             <Textarea
               id="service-compose-yaml"
               v-model="composeYaml"
@@ -194,8 +238,35 @@ watch(open, (isOpen) => {
             spellcheck="false"
           />
         </div>
+        <section
+          v-if="inheritedVariables?.length"
+          class="grid gap-2 border-t border-border pt-4"
+          aria-labelledby="service-inherited-title"
+        >
+          <div class="flex items-center gap-2">
+            <Info class="size-3.5 text-muted-foreground" :stroke-width="1.5" />
+            <h3 id="service-inherited-title" class="text-sm font-medium">Project defaults</h3>
+          </div>
+          <p class="text-xs leading-5 text-muted-foreground">
+            The control plane injects these keys at deployment. Add a matching key below to override
+            it for this service.
+          </p>
+          <div class="flex flex-wrap gap-1.5">
+            <span
+              v-for="variable in inheritedVariables"
+              :key="variable.key"
+              class="border border-border bg-muted px-2 py-1 font-mono text-[10px] text-muted-foreground"
+            >
+              {{ variable.key }}
+            </span>
+          </div>
+        </section>
         <fieldset class="grid gap-3 border-t border-border pt-4">
-          <legend class="text-sm font-medium">Variables</legend>
+          <legend class="text-sm font-medium">Service overrides</legend>
+          <p class="-mt-1 text-xs leading-5 text-muted-foreground">
+            Keep values that only this service needs here. They override project defaults during
+            deployment.
+          </p>
           <div
             v-for="(variable, index) in variables"
             :key="index"

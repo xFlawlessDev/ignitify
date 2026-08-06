@@ -2,7 +2,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp, nextTick } from "vue";
 
-async function mount(onSave = () => {}) {
+async function mount(
+  onSave = () => {},
+  inheritedVariables: { key: string; value: string; is_secret: boolean }[] = [],
+) {
   const component = (await import("./ServiceDialog.vue")).default;
   const host = document.createElement("div");
   document.body.append(host);
@@ -10,6 +13,7 @@ async function mount(onSave = () => {}) {
     error: null,
     saving: false,
     service: null,
+    inheritedVariables,
     open: true,
     "onUpdate:open": () => {},
     onSave,
@@ -67,6 +71,29 @@ describe("ServiceDialog", () => {
     expect((document.querySelector('input[type="password"]') as HTMLInputElement).type).toBe(
       "password",
     );
+    app.unmount();
+  });
+
+  it("keeps project defaults out of the service override payload", async () => {
+    const onSave = vi.fn();
+    const { app } = await mount(onSave, [
+      { key: "APP_ENV", value: "production", is_secret: false },
+    ]);
+    const image = document.querySelector("#service-image") as HTMLInputElement;
+    image.value = "nginx@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    image.dispatchEvent(new Event("input", { bubbles: true }));
+    await nextTick();
+
+    (document.querySelector("form") as HTMLFormElement).dispatchEvent(
+      new Event("submit", { bubbles: true, cancelable: true }),
+    );
+    await nextTick();
+
+    expect(onSave.mock.calls.length).toBe(1);
+    const payload = onSave.mock.calls[0]?.[0] as {
+      variables: { key: string; value: string; is_secret: boolean }[];
+    };
+    expect(payload.variables).toEqual([]);
     app.unmount();
   });
 });

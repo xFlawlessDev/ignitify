@@ -523,6 +523,11 @@ fn validate_variables(variables: &[ServiceVariableInput]) -> Result<()> {
     Ok(())
 }
 
+/// Validates a set of environment variable inputs without tying them to a service configuration.
+pub fn validate_variable_inputs(variables: &[ServiceVariableInput]) -> Result<()> {
+    validate_variables(variables)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum InputError {
     #[error("invalid identifier")]

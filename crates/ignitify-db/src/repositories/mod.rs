@@ -20,7 +20,10 @@ pub use deployments::{
 };
 pub use domains::{DomainActor, DomainMutationOutcome, DomainRecord, DomainsRepository};
 pub use environments::EnvironmentsRepository;
-pub use projects::{ProjectActor, ProjectUpdateOutcome, ProjectsRepository};
+pub use projects::{
+    AuthorizedProjectVariables, NewProjectVariable, ProjectActor, ProjectUpdateOutcome,
+    ProjectVariableRecord, ProjectVariablesMutationOutcome, ProjectsRepository,
+};
 pub use refresh_tokens::RefreshTokensRepository;
 pub use services::{
     AuthorizedService, NewServiceVariable, ServiceActor, ServiceMutationOutcome,
