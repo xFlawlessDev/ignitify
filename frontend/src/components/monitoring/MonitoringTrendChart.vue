@@ -22,6 +22,20 @@ const padding = { top: 16, right: 12, bottom: 30, left: 12 };
 const plotWidth = width - padding.left - padding.right;
 const plotHeight = height - padding.top - padding.bottom;
 
+const colorClasses: Record<ChartSeries["color"], string> = {
+  signal: "text-signal-orange",
+  healthy: "text-metric-green",
+  neutral: "text-muted-foreground",
+  secondary: "text-[var(--sidebar-accent)]",
+};
+
+const legendColorClasses: Record<ChartSeries["color"], string> = {
+  signal: "bg-signal-orange",
+  healthy: "bg-metric-green",
+  neutral: "bg-muted-foreground",
+  secondary: "bg-[var(--sidebar-accent)]",
+};
+
 const maxValue = computed(() => {
   if (props.max !== undefined) return props.max;
   const values = props.samples.flatMap((sample) =>
@@ -59,15 +73,27 @@ function formatTick(value: number) {
 </script>
 
 <template>
-  <div class="trend-chart" role="img" aria-label="Resource usage trend chart">
-    <div class="trend-chart__legend">
-      <span v-for="item in series" :key="item.key" class="trend-chart__legend-item">
-        <i :data-color="item.color" aria-hidden="true" />
+  <div class="min-w-0" role="img" aria-label="Resource usage trend chart">
+    <div class="mb-3.5 flex flex-wrap gap-3.5">
+      <span
+        v-for="item in series"
+        :key="item.key"
+        class="inline-flex items-center gap-1.5 font-mono text-[10px] text-muted-foreground"
+      >
+        <i
+          class="size-[7px] shrink-0 rounded-full"
+          :class="legendColorClasses[item.color]"
+          aria-hidden="true"
+        />
         {{ item.label }}
       </span>
     </div>
-    <svg class="trend-chart__svg" :viewBox="`0 0 ${width} ${height}`" preserveAspectRatio="none">
-      <g class="trend-chart__grid" aria-hidden="true">
+    <svg
+      class="block h-auto min-h-[190px] w-full overflow-visible"
+      :viewBox="`0 0 ${width} ${height}`"
+      preserveAspectRatio="none"
+    >
+      <g class="text-border" aria-hidden="true">
         <line
           v-for="(tick, index) in yTicks"
           :key="tick"
@@ -75,9 +101,12 @@ function formatTick(value: number) {
           :x2="width - padding.right"
           :y1="padding.top + plotHeight - (index / 4) * plotHeight"
           :y2="padding.top + plotHeight - (index / 4) * plotHeight"
+          stroke="currentColor"
+          stroke-dasharray="2 4"
+          stroke-width="1"
         />
       </g>
-      <g class="trend-chart__ticks" aria-hidden="true">
+      <g class="fill-muted-foreground font-mono text-[9px]" aria-hidden="true">
         <text
           v-for="(tick, index) in yTicks"
           :key="tick"
@@ -90,13 +119,14 @@ function formatTick(value: number) {
       <polyline
         v-for="line in lines"
         :key="line.key"
-        class="trend-chart__line"
-        :data-color="line.color"
+        class="stroke-current"
+        :class="colorClasses[line.color]"
         :points="line.points"
         fill="none"
+        stroke-width="1.7"
         vector-effect="non-scaling-stroke"
       />
-      <g class="trend-chart__labels" aria-hidden="true">
+      <g class="fill-muted-foreground font-mono text-[9px]" aria-hidden="true">
         <text
           v-for="item in xLabels"
           :key="item.label"
@@ -110,94 +140,3 @@ function formatTick(value: number) {
     </svg>
   </div>
 </template>
-
-<style scoped>
-.trend-chart {
-  min-width: 0;
-}
-
-.trend-chart__legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 14px;
-  margin-bottom: 14px;
-}
-
-.trend-chart__legend-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--muted-foreground);
-  font-family: var(--font-geist-mono);
-  font-size: 10px;
-}
-
-.trend-chart__legend-item i {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--graphite-mid);
-}
-
-.trend-chart__legend-item i[data-color="signal"],
-.trend-chart__line[data-color="signal"] {
-  --chart-stroke: var(--status-live);
-}
-
-.trend-chart__legend-item i[data-color="healthy"],
-.trend-chart__line[data-color="healthy"] {
-  --chart-stroke: var(--status-healthy);
-}
-
-.trend-chart__legend-item i[data-color="neutral"],
-.trend-chart__line[data-color="neutral"] {
-  --chart-stroke: var(--muted-foreground);
-}
-
-.trend-chart__legend-item i[data-color="secondary"],
-.trend-chart__line[data-color="secondary"] {
-  --chart-stroke: var(--sidebar-accent);
-}
-
-.trend-chart__legend-item i[data-color="signal"] {
-  background: var(--status-live);
-}
-
-.trend-chart__legend-item i[data-color="healthy"] {
-  background: var(--status-healthy);
-}
-
-.trend-chart__legend-item i[data-color="neutral"] {
-  background: var(--muted-foreground);
-}
-
-.trend-chart__legend-item i[data-color="secondary"] {
-  background: var(--sidebar-accent);
-}
-
-.trend-chart__svg {
-  display: block;
-  width: 100%;
-  height: auto;
-  min-height: 190px;
-  overflow: visible;
-}
-
-.trend-chart__grid line {
-  stroke: var(--border);
-  stroke-dasharray: 2 4;
-  stroke-width: 1;
-}
-
-.trend-chart__ticks text,
-.trend-chart__labels text {
-  fill: var(--muted-foreground);
-  font-family: var(--font-geist-mono);
-  font-size: 9px;
-}
-
-.trend-chart__line {
-  stroke: var(--chart-stroke);
-  stroke-width: 1.7;
-}
-</style>

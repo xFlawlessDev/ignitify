@@ -141,8 +141,8 @@ describe("DockerContainersView", () => {
     expect(popover?.textContent).toContain("View Logs");
     expect(popover?.textContent).toContain("Remove Container");
 
-    const logsButton = Array.from(popover?.querySelectorAll("button") ?? []).find(
-      (button) => button.textContent?.includes("View Logs"),
+    const logsButton = Array.from(popover?.querySelectorAll("button") ?? []).find((button) =>
+      button.textContent?.includes("View Logs"),
     );
     expect(logsButton).not.toBeUndefined();
     logsButton?.click();

@@ -86,13 +86,17 @@ function updateRange(nextRange: MonitoringRange) {
         </p>
       </div>
       <div class="flex w-full items-center gap-2 sm:w-auto">
-        <div class="range-control" role="group" aria-label="Monitoring time range">
+        <div
+          class="flex min-w-0 overflow-hidden border border-border bg-card max-[560px]:flex-1"
+          role="group"
+          aria-label="Monitoring time range"
+        >
           <button
             v-for="option in rangeOptions"
             :key="option.value"
             type="button"
-            class="range-control__button"
-            :class="{ 'range-control__button--active': range === option.value }"
+            class="min-h-8 whitespace-nowrap px-[11px] font-mono text-[10px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground max-[560px]:flex-1 max-[560px]:px-[7px]"
+            :class="range === option.value ? 'bg-muted text-foreground' : ''"
             :aria-pressed="range === option.value"
             @click="updateRange(option.value)"
           >
@@ -117,7 +121,11 @@ function updateRange(nextRange: MonitoringRange) {
       </div>
     </header>
 
-    <div class="monitoring-status" role="status" aria-live="polite">
+    <div
+      class="mt-4 flex flex-wrap items-center gap-2 font-mono text-[10px] text-muted-foreground"
+      role="status"
+      aria-live="polite"
+    >
       <span
         class="status-dot"
         :data-status="error ? 'live' : metrics.length ? 'healthy' : undefined"
@@ -126,15 +134,31 @@ function updateRange(nextRange: MonitoringRange) {
       <span v-if="error">Metrics unavailable</span>
       <span v-else-if="metrics.length">Live sample</span>
       <Skeleton v-else class="h-2.5 w-14" />
-      <span class="monitoring-status__divider" aria-hidden="true">/</span>
+      <span class="text-border" aria-hidden="true">/</span>
       <span>Updated {{ updatedLabel }}</span>
-      <button class="monitoring-status__auto" type="button" @click="autoRefresh = !autoRefresh">
-        <span class="monitoring-status__switch" :data-active="autoRefresh" aria-hidden="true" />
+      <button
+        class="ml-2 inline-flex items-center gap-1.5 font-mono text-[10px] text-muted-foreground transition-colors hover:text-foreground"
+        type="button"
+        @click="autoRefresh = !autoRefresh"
+      >
+        <span
+          class="relative h-2.5 w-[18px] rounded-full border border-border bg-muted"
+          aria-hidden="true"
+        >
+          <span
+            class="absolute top-px left-px size-1.5 rounded-full bg-muted-foreground transition-[transform,background-color] duration-150 motion-reduce:transition-none"
+            :class="autoRefresh ? 'translate-x-2 bg-metric-green' : ''"
+          />
+        </span>
         Auto-refresh {{ autoRefresh ? "on" : "off" }}
       </button>
     </div>
 
-    <section v-if="error" class="monitoring-error" role="alert">
+    <section
+      v-if="error"
+      class="mt-[18px] flex items-center gap-2.5 border border-border px-3.5 py-3 text-[11px] text-signal-orange"
+      role="alert"
+    >
       <TriangleAlert class="size-4 shrink-0" :stroke-width="1.5" />
       <p>{{ error }}</p>
       <Button
@@ -148,7 +172,11 @@ function updateRange(nextRange: MonitoringRange) {
       </Button>
     </section>
 
-    <section v-if="metrics.length" class="metric-grid" aria-label="System resource metrics">
+    <section
+      v-if="metrics.length"
+      class="mt-[18px] grid grid-cols-3 gap-3 max-[900px]:grid-cols-2 max-[560px]:grid-cols-1"
+      aria-label="System resource metrics"
+    >
       <MonitoringMetricCard
         v-for="metric in metrics"
         :key="metric.id"
@@ -165,11 +193,15 @@ function updateRange(nextRange: MonitoringRange) {
 
     <section
       v-else-if="loading"
-      class="metric-grid"
+      class="mt-[18px] grid grid-cols-3 gap-3 max-[900px]:grid-cols-2 max-[560px]:grid-cols-1"
       role="status"
       aria-label="Loading current system metrics"
     >
-      <article v-for="index in 6" :key="index" class="metric-card">
+      <article
+        v-for="index in 6"
+        :key="index"
+        class="min-w-0 border border-border bg-card px-[18px] pt-[18px] pb-4"
+      >
         <div class="flex items-center justify-between gap-3">
           <Skeleton class="h-2.5 w-24" />
           <Skeleton class="h-2.5 w-10" />
@@ -180,14 +212,16 @@ function updateRange(nextRange: MonitoringRange) {
       </article>
     </section>
 
-    <section class="monitoring-grid">
-      <article class="monitoring-panel monitoring-panel--wide">
-        <div class="monitoring-panel__header">
+    <section
+      class="mt-3 grid grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)] gap-3 max-[900px]:grid-cols-1"
+    >
+      <article class="min-w-0 border border-border bg-card p-[18px]">
+        <div class="mb-[18px] flex min-h-12 items-start justify-between gap-4">
           <div>
             <p class="ui-label">Resource pressure</p>
             <h2 class="mt-2 text-base font-medium">Host utilization</h2>
           </div>
-          <span class="monitoring-panel__window">{{ range }} window</span>
+          <span class="font-mono text-[10px] text-muted-foreground">{{ range }} window</span>
         </div>
         <template v-if="samples.length">
           <MonitoringTrendChart
@@ -204,8 +238,8 @@ function updateRange(nextRange: MonitoringRange) {
         <Skeleton v-else class="h-[220px] w-full" />
       </article>
 
-      <article class="monitoring-panel">
-        <div class="monitoring-panel__header">
+      <article class="min-w-0 border border-border bg-card p-[18px]">
+        <div class="mb-[18px] flex min-h-12 items-start justify-between gap-4">
           <div>
             <p class="ui-label">I/O throughput</p>
             <h2 class="mt-2 text-base font-medium">Read, write, and transfer</h2>
@@ -228,238 +262,29 @@ function updateRange(nextRange: MonitoringRange) {
       </article>
     </section>
 
-    <section v-if="metrics.length" class="monitoring-footer">
-      <div class="monitoring-footer__summary">
+    <section
+      v-if="metrics.length"
+      class="mt-3 flex items-center justify-between gap-5 border-y border-border px-0.5 py-3.5 max-[560px]:items-start max-[560px]:flex-col"
+    >
+      <div class="flex min-w-0 items-center gap-2.5">
         <span class="status-dot" data-status="healthy" aria-hidden="true" />
-        <p>
-          <strong>Current sample is healthy.</strong>
+        <p class="text-[11px] leading-[1.5] text-muted-foreground">
+          <strong class="font-medium text-foreground">Current sample is healthy.</strong>
           Resource pressure is below the configured alert threshold.
         </p>
       </div>
-      <div class="monitoring-footer__io">
-        <span
-          ><ArrowDown class="size-3.5" :stroke-width="1.5" /> In
-          {{ networkMetric?.value ?? "—" }}</span
-        >
-        <span><ArrowUp class="size-3.5" :stroke-width="1.5" /> Out {{ networkOutLabel }}</span>
+      <div
+        class="flex flex-none items-center gap-4 font-mono text-[10px] text-muted-foreground max-[560px]:flex-wrap"
+      >
+        <span class="flex items-center gap-1.5">
+          <ArrowDown class="size-3.5" :stroke-width="1.5" />
+          In {{ networkMetric?.value ?? "—" }}
+        </span>
+        <span class="flex items-center gap-1.5">
+          <ArrowUp class="size-3.5" :stroke-width="1.5" />
+          Out {{ networkOutLabel }}
+        </span>
       </div>
     </section>
   </div>
 </template>
-
-<style scoped>
-.range-control {
-  display: flex;
-  min-width: 0;
-  overflow: hidden;
-  border: 1px solid var(--border);
-  background: var(--card);
-}
-
-.range-control__button {
-  min-height: 32px;
-  padding: 0 11px;
-  color: var(--muted-foreground);
-  font-family: var(--font-geist-mono);
-  font-size: 10px;
-  white-space: nowrap;
-}
-
-.range-control__button:hover,
-.range-control__button--active {
-  background: var(--muted);
-  color: var(--foreground);
-}
-
-.monitoring-status {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 16px;
-  color: var(--muted-foreground);
-  font-family: var(--font-geist-mono);
-  font-size: 10px;
-}
-
-.monitoring-status__divider {
-  color: var(--border);
-}
-
-.monitoring-status__auto {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin-left: 8px;
-  color: var(--muted-foreground);
-  font-size: 10px;
-}
-
-.monitoring-status__auto:hover {
-  color: var(--foreground);
-}
-
-.monitoring-status__switch {
-  width: 18px;
-  height: 10px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--muted);
-}
-
-.monitoring-status__switch::after {
-  display: block;
-  width: 6px;
-  height: 6px;
-  margin: 1px;
-  border-radius: 50%;
-  background: var(--muted-foreground);
-  content: "";
-  transition:
-    transform 150ms ease,
-    background 150ms ease;
-}
-
-.monitoring-status__switch[data-active="true"]::after {
-  background: var(--status-healthy);
-  transform: translateX(8px);
-}
-
-.monitoring-error,
-.monitoring-empty {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-top: 18px;
-  border: 1px solid var(--border);
-  padding: 12px 14px;
-  color: var(--muted-foreground);
-  font-size: 11px;
-}
-
-.monitoring-error {
-  color: var(--status-live);
-}
-
-.metric-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-  margin-top: 18px;
-}
-
-.monitoring-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
-  gap: 12px;
-  margin-top: 12px;
-}
-
-.monitoring-panel {
-  min-width: 0;
-  border: 1px solid var(--border);
-  background: var(--card);
-  padding: 18px;
-}
-
-.monitoring-panel__header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  min-height: 48px;
-  margin-bottom: 18px;
-}
-
-.monitoring-panel__window {
-  color: var(--muted-foreground);
-  font-family: var(--font-geist-mono);
-  font-size: 10px;
-}
-
-.monitoring-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 20px;
-  margin-top: 12px;
-  border-top: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
-  padding: 14px 2px;
-}
-
-.monitoring-footer__summary,
-.monitoring-footer__io,
-.monitoring-footer__io span {
-  display: flex;
-  align-items: center;
-}
-
-.monitoring-footer__summary {
-  min-width: 0;
-  gap: 10px;
-}
-
-.monitoring-footer__summary p {
-  color: var(--muted-foreground);
-  font-size: 11px;
-  line-height: 1.5;
-}
-
-.monitoring-footer__summary strong {
-  color: var(--foreground);
-  font-weight: 500;
-}
-
-.monitoring-footer__io {
-  flex: none;
-  gap: 16px;
-  color: var(--muted-foreground);
-  font-family: var(--font-geist-mono);
-  font-size: 10px;
-}
-
-.monitoring-footer__io span {
-  gap: 5px;
-}
-
-@media (max-width: 900px) {
-  .metric-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .monitoring-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-@media (max-width: 560px) {
-  .range-control {
-    flex: 1;
-  }
-
-  .range-control__button {
-    flex: 1;
-    padding: 0 7px;
-  }
-
-  .metric-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .monitoring-footer {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .monitoring-footer__io {
-    flex-wrap: wrap;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .monitoring-status__switch::after {
-    transition: none;
-  }
-}
-</style>
