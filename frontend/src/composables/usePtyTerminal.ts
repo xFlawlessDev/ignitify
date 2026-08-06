@@ -8,16 +8,25 @@ interface TerminalSize {
   rows: number;
 }
 
+interface UsePtyTerminalOptions {
+  createSocket?: () => Promise<WebSocket>;
+  idPrefix?: string;
+  name?: string;
+}
+
 let terminalId = 0;
 const MAX_OUTPUT_CHUNKS = 512;
 
-function nextTerminalId() {
+function nextTerminalId(prefix: string) {
   terminalId += 1;
-  return `host-terminal-${terminalId}`;
+  return `${prefix}-${terminalId}`;
 }
 
-export function usePtyTerminal() {
-  const id = shallowRef(nextTerminalId());
+export function usePtyTerminal(options: UsePtyTerminalOptions = {}) {
+  const createSocket = options.createSocket ?? createTerminalSocket;
+  const idPrefix = options.idPrefix ?? "host-terminal";
+  const name = options.name ?? "host terminal";
+  const id = shallowRef(nextTerminalId(idPrefix));
   const status = shallowRef<PtyTerminalStatus>("connecting");
   const output = shallowRef<Uint8Array[]>([]);
   const error = shallowRef<string | null>(null);
@@ -27,14 +36,14 @@ export function usePtyTerminal() {
   let receivedExit = false;
 
   function resetBuffer() {
-    id.value = nextTerminalId();
+    id.value = nextTerminalId(idPrefix);
     output.value = [];
   }
 
   function appendOutput(data: Uint8Array) {
     const next = [...output.value, data];
     if (next.length > MAX_OUTPUT_CHUNKS) {
-      id.value = nextTerminalId();
+      id.value = nextTerminalId(idPrefix);
       output.value = next.slice(-MAX_OUTPUT_CHUNKS);
       return;
     }
@@ -57,11 +66,11 @@ export function usePtyTerminal() {
 
     let nextSocket: WebSocket;
     try {
-      nextSocket = await createTerminalSocket();
+      nextSocket = await createSocket();
     } catch (cause) {
       if (attempt !== connectionAttempt) return;
       status.value = "error";
-      error.value = cause instanceof Error ? cause.message : "Could not open the host terminal";
+      error.value = cause instanceof Error ? cause.message : `Could not open the ${name}`;
       return;
     }
     if (attempt !== connectionAttempt) {
@@ -90,7 +99,7 @@ export function usePtyTerminal() {
     };
     socket.onerror = () => {
       if (socket === nextSocket && status.value !== "exited") {
-        error.value = "The host terminal connection failed";
+        error.value = `The ${name} connection failed`;
       }
     };
     socket.onclose = (event) => {
@@ -98,7 +107,7 @@ export function usePtyTerminal() {
       socket = null;
       if (status.value === "error" || receivedExit) return;
       status.value = event.wasClean ? "exited" : "error";
-      if (!event.wasClean) error.value = "The host terminal connection closed unexpectedly";
+      if (!event.wasClean) error.value = `The ${name} connection closed unexpectedly`;
     };
   }
 
@@ -110,7 +119,7 @@ export function usePtyTerminal() {
         status.value = "exited";
       } else if (message.type === "error") {
         status.value = "error";
-        error.value = message.message ?? "The host terminal is unavailable";
+        error.value = message.message ?? `The ${name} is unavailable`;
       }
     } catch {
       // The PTY stream is binary; unknown text messages are ignored.

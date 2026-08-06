@@ -65,7 +65,8 @@ async fn main() -> Result<()> {
     .shared();
     let (services, control, runtime_health, worker_health, docker_runtime): RuntimeCapabilities =
         if let Some(secrets_identity) = env_value("IGNITIFY_SECRETS_AGE_IDENTITY") {
-            let services = ServiceControl::new(database.services(), &secrets_identity)?;
+            let services =
+                ServiceControl::new(database.services(), database.projects(), &secrets_identity)?;
             let (control, wake) = ControlHandle::new(database.deployments(), &secrets_identity)?;
             let image_runtime =
                 DockerRuntime::from_environment().map_err(|_| CoreError::DockerRuntime)?;
@@ -100,9 +101,10 @@ async fn main() -> Result<()> {
                 Arc::new(ignitify_control_plane::StaticRuntimeHealth(false));
             (None, None, unavailable.clone(), unavailable, None)
         };
-    let system_metrics: Arc<dyn SystemMetricsProvider> =
-        Arc::new(system_metrics::SystemMetricsCollector::new(docker_runtime));
-    let app = ignitify_api::router_with_system_metrics(
+    let system_metrics: Arc<dyn SystemMetricsProvider> = Arc::new(
+        system_metrics::SystemMetricsCollector::new(docker_runtime.clone()),
+    );
+    let app = ignitify_api::router_with_system_metrics_and_docker(
         auth,
         database,
         services,
@@ -110,6 +112,7 @@ async fn main() -> Result<()> {
         runtime_health,
         worker_health,
         system_metrics,
+        docker_runtime,
         ignitify_terminal::TerminalService,
         env_value("IGNITIFY_SECURE_COOKIES").is_some_and(|value| value == "true"),
         trusted_origins(),

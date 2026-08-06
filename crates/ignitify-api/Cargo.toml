@@ -11,6 +11,7 @@ ignitify-auth = { path = "../ignitify-auth" }
 ignitify-control-plane = { path = "../ignitify-control-plane" }
 ignitify-db = { path = "../ignitify-db" }
 ignitify-domain = { path = "../ignitify-domain" }
+ignitify-runtime-docker = { path = "../ignitify-runtime-docker" }
 ignitify-runtime-compose = { path = "../ignitify-runtime-compose" }
 ignitify-terminal = { path = "../ignitify-terminal" }
 serde.workspace = true

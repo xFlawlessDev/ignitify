@@ -9,7 +9,7 @@ license = "MIT OR Apache-2.0"
 [workspace.dependencies]
 age = { version = "0.11", features = ["armor"] }
 argon2 = { version = "0.5", features = ["std"] }
-axum = { version = "0.8", features = ["json", "ws"] }
+axum = { version = "0.8", features = ["json", "multipart", "ws"] }
 dotenvy = "0.15"
 base64 = "0.22"
 bollard = "0.18"

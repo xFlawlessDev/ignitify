@@ -53,7 +53,7 @@ export async function apiFetch<T>(
   await waitForServer();
 
   const headers = new Headers(options.headers);
-  if (!headers.has("Content-Type")) {
+  if (!headers.has("Content-Type") && !isFormDataBody(options.body)) {
     headers.set("Content-Type", "application/json");
   }
 
@@ -116,6 +116,10 @@ export async function apiFetch<T>(
 
   const body = await response.json();
   return { success: true, data: body };
+}
+
+function isFormDataBody(body: RequestInit["body"]): body is FormData {
+  return typeof FormData !== "undefined" && body instanceof FormData;
 }
 
 export async function apiOpenEventStream(

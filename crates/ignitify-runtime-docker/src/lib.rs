@@ -1,5 +1,12 @@
 //! Docker Engine adapter for restricted Ignitify image containers.
 
+mod actions;
+
+pub use actions::{
+    ContainerConfig, ContainerDetails, ContainerMount, ContainerNetwork, ContainerTerminalEvent,
+    ContainerTerminalSession,
+};
+
 use std::{collections::HashMap, env, path::PathBuf};
 
 use futures_util::{StreamExt, TryStreamExt};
@@ -689,6 +696,18 @@ fn is_not_found_or_stopped(error: &bollard::errors::Error) -> bool {
 pub enum Error {
     #[error("Docker connection failed")]
     Connection,
+    #[error("container not found")]
+    ContainerNotFound,
+    #[error("container is not running")]
+    ContainerNotRunning,
+    #[error("invalid container reference")]
+    InvalidContainerReference,
+    #[error("invalid upload path")]
+    InvalidUploadPath,
+    #[error("container terminal is unavailable")]
+    TerminalUnavailable,
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
     #[error(transparent)]
     Docker(#[from] bollard::errors::Error),
 }

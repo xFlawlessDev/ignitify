@@ -1,5 +1,6 @@
 use axum::{
     Router,
+    extract::DefaultBodyLimit,
     routing::{get, post},
 };
 
@@ -22,6 +23,27 @@ pub(crate) fn router(state: AppState) -> Router {
             "/api/v1/runtime/containers",
             get(handlers::runtime::containers),
         )
+        .route(
+            "/api/v1/runtime/containers/{container_id}/details",
+            get(handlers::runtime::container_details),
+        )
+        .route(
+            "/api/v1/runtime/containers/{container_id}/logs",
+            get(handlers::runtime::container_logs),
+        )
+        .route(
+            "/api/v1/runtime/containers/{container_id}/upload",
+            post(handlers::runtime::upload_container_file)
+                .layer(DefaultBodyLimit::max(8 * 1024 * 1024)),
+        )
+        .route(
+            "/api/v1/runtime/containers/{container_id}/terminal",
+            get(handlers::terminal::container),
+        )
+        .route(
+            "/api/v1/runtime/containers/{container_id}",
+            axum::routing::delete(handlers::runtime::remove_container),
+        )
         .route("/api/v1/runtime/metrics", get(handlers::runtime::metrics))
         .route("/api/v1/terminal", get(handlers::terminal::open))
         .route(
@@ -31,6 +53,10 @@ pub(crate) fn router(state: AppState) -> Router {
         .route(
             "/api/v1/projects/{project_id}",
             get(handlers::projects::get).patch(handlers::projects::update),
+        )
+        .route(
+            "/api/v1/projects/{project_id}/environment",
+            get(handlers::project_environment::get).put(handlers::project_environment::update),
         )
         .route(
             "/api/v1/projects/{project_id}/deployments",

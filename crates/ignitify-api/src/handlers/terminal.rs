@@ -1,12 +1,13 @@
 use axum::{
     extract::{
-        State,
+        Path, State,
         ws::{Message, WebSocket, WebSocketUpgrade},
     },
     http::HeaderMap,
     response::IntoResponse,
 };
 use futures_util::{SinkExt, StreamExt};
+use ignitify_runtime_docker::{ContainerTerminalEvent, ContainerTerminalSession};
 use ignitify_terminal::{TerminalEvent, TerminalSession};
 use serde::{Deserialize, Serialize};
 
@@ -49,6 +50,27 @@ pub(crate) async fn open(
     Ok(websocket
         .protocols([TERMINAL_PROTOCOL])
         .on_upgrade(move |socket| serve(socket, session)))
+}
+
+pub(crate) async fn container(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(container_id): Path<String>,
+    websocket: WebSocketUpgrade,
+) -> Result<impl IntoResponse, ApiError> {
+    let actor = require_websocket_actor(&state, &headers).await?;
+    if !actor.has_admin_access() {
+        return Err(ApiError::Forbidden);
+    }
+    require_trusted_websocket_origin(&state, &headers)?;
+    if !requests_terminal_protocol(&headers) {
+        return Err(ApiError::BadRequest("invalid terminal protocol"));
+    }
+
+    let session = state.docker_runtime()?.open_terminal(&container_id).await?;
+    Ok(websocket
+        .protocols([TERMINAL_PROTOCOL])
+        .on_upgrade(move |socket| serve_container(socket, session)))
 }
 
 async fn serve(socket: WebSocket, mut terminal: TerminalSession) {
@@ -101,6 +123,58 @@ async fn serve(socket: WebSocket, mut terminal: TerminalSession) {
     }
 
     terminal.close();
+    let _ = sender.send(Message::Close(None)).await;
+}
+
+async fn serve_container(socket: WebSocket, mut terminal: ContainerTerminalSession) {
+    let (mut sender, mut receiver) = socket.split();
+
+    loop {
+        tokio::select! {
+            event = terminal.next_event() => {
+                match event {
+                    Ok(Some(ContainerTerminalEvent::Output(output))) => {
+                        if sender.send(Message::Binary(output.into())).await.is_err() {
+                            break;
+                        }
+                    }
+                    Ok(Some(ContainerTerminalEvent::Exited)) | Ok(None) => {
+                        send_server_message(&mut sender, TerminalServerMessage::Exited).await;
+                        break;
+                    }
+                    Err(_) => {
+                        send_server_message(
+                            &mut sender,
+                            TerminalServerMessage::Error {
+                                message: "Container terminal is unavailable.",
+                            },
+                        )
+                        .await;
+                        break;
+                    }
+                }
+            }
+            incoming = receiver.next() => {
+                match incoming {
+                    Some(Ok(Message::Binary(input))) => {
+                        if terminal.input(input.as_ref()).await.is_err() {
+                            break;
+                        }
+                    }
+                    Some(Ok(Message::Text(message))) => {
+                        if let Ok(TerminalClientMessage::Resize { cols, rows }) = serde_json::from_str(&message)
+                            && terminal.resize(cols, rows).await.is_err()
+                        {
+                            break;
+                        }
+                    }
+                    Some(Ok(Message::Close(_))) | None | Some(Err(_)) => break,
+                    Some(Ok(Message::Ping(_) | Message::Pong(_))) => {}
+                }
+            }
+        }
+    }
+
     let _ = sender.send(Message::Close(None)).await;
 }
 

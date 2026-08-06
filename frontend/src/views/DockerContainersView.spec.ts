@@ -20,6 +20,38 @@ vi.mock("@/composables/useRuntimeStatus", () => ({
   useRuntimeStatus: () => mocks.runtime,
 }));
 
+vi.mock("@/lib/api/runtime-containers", () => ({
+  apiGetRuntimeContainerDetails: vi.fn(async () => ({
+    success: true,
+    data: {
+      config: {
+        command: [],
+        entrypoint: [],
+        environment_keys: [],
+        labels: [],
+        privileged: false,
+        restart_policy: null,
+        tty: false,
+        user: null,
+        working_dir: null,
+      },
+      id: "f0f0f0f0f0f0f0f0",
+      image: "nginx:latest",
+      mounts: [],
+      name: "web",
+      networks: [],
+      state: "running",
+      status: "running",
+    },
+  })),
+  apiGetRuntimeContainerLogs: vi.fn(async () => ({
+    success: true,
+    data: { logs: "\u001b[34m2026-08-06T00:00:00Z web started\u001b[0m" },
+  })),
+  apiRemoveRuntimeContainer: vi.fn(),
+  apiUploadRuntimeContainerFile: vi.fn(),
+}));
+
 function monitoringState() {
   return {
     containers: {
@@ -147,9 +179,12 @@ describe("DockerContainersView", () => {
     expect(logsButton).not.toBeUndefined();
     logsButton?.click();
     await nextTick();
+    await Promise.resolve();
+    await nextTick();
 
-    expect(document.body.textContent).toContain("Log stream is not included");
+    expect(document.body.textContent).toContain("web started");
     expect(document.body.textContent).toContain("web");
+    expect(document.body.querySelector("pre code span")?.getAttribute("style")).toContain("color");
 
     mounted.app.unmount();
   });

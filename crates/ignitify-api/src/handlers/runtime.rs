@@ -1,7 +1,20 @@
-use axum::{Json, extract::State, http::HeaderMap};
+use axum::{
+    Json,
+    extract::{Multipart, Path, State},
+    http::{HeaderMap, StatusCode},
+};
+use ignitify_runtime_docker::{
+    ContainerConfig, ContainerDetails, ContainerMount, ContainerNetwork,
+};
 use serde::Serialize;
 
-use crate::{error::ApiError, extract::require_actor, state::AppState};
+use crate::{
+    error::ApiError,
+    extract::{require_actor, require_same_origin_request},
+    state::AppState,
+};
+
+const MAX_UPLOAD_BYTES: usize = 8 * 1024 * 1024;
 
 #[derive(Debug, Serialize)]
 pub(crate) struct RuntimeStatusResponse {
@@ -84,6 +97,58 @@ struct RuntimeContainerResponse {
     managed: bool,
 }
 
+#[derive(Debug, Serialize)]
+pub(crate) struct ContainerDetailsResponse {
+    id: String,
+    name: String,
+    image: String,
+    state: String,
+    status: String,
+    config: ContainerConfigResponse,
+    mounts: Vec<ContainerMountResponse>,
+    networks: Vec<ContainerNetworkResponse>,
+}
+
+#[derive(Debug, Serialize)]
+struct ContainerConfigResponse {
+    command: Vec<String>,
+    entrypoint: Vec<String>,
+    user: Option<String>,
+    working_dir: Option<String>,
+    tty: bool,
+    environment_keys: Vec<String>,
+    labels: Vec<ContainerLabelResponse>,
+    restart_policy: Option<String>,
+    privileged: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct ContainerLabelResponse {
+    key: String,
+    value: String,
+}
+
+#[derive(Debug, Serialize)]
+struct ContainerMountResponse {
+    kind: String,
+    source: Option<String>,
+    destination: Option<String>,
+    read_only: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct ContainerNetworkResponse {
+    name: String,
+    ip_address: Option<String>,
+    gateway: Option<String>,
+    mac_address: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct ContainerLogsResponse {
+    logs: String,
+}
+
 impl From<ignitify_control_plane::RuntimeContainer> for RuntimeContainerResponse {
     fn from(container: ignitify_control_plane::RuntimeContainer) -> Self {
         Self {
@@ -109,6 +174,63 @@ impl From<ignitify_control_plane::RuntimeContainer> for RuntimeContainerResponse
             cpu_limit_nano_cpus: container.cpu_limit_nano_cpus,
             memory_limit_bytes: container.memory_limit_bytes,
             managed: container.managed,
+        }
+    }
+}
+
+impl From<ContainerDetails> for ContainerDetailsResponse {
+    fn from(details: ContainerDetails) -> Self {
+        Self {
+            id: details.id,
+            name: details.name,
+            image: details.image,
+            state: details.state,
+            status: details.status,
+            config: details.config.into(),
+            mounts: details.mounts.into_iter().map(Into::into).collect(),
+            networks: details.networks.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+impl From<ContainerConfig> for ContainerConfigResponse {
+    fn from(config: ContainerConfig) -> Self {
+        Self {
+            command: config.command,
+            entrypoint: config.entrypoint,
+            user: config.user,
+            working_dir: config.working_dir,
+            tty: config.tty,
+            environment_keys: config.environment_keys,
+            labels: config
+                .labels
+                .into_iter()
+                .map(|(key, value)| ContainerLabelResponse { key, value })
+                .collect(),
+            restart_policy: config.restart_policy,
+            privileged: config.privileged,
+        }
+    }
+}
+
+impl From<ContainerMount> for ContainerMountResponse {
+    fn from(mount: ContainerMount) -> Self {
+        Self {
+            kind: mount.kind,
+            source: mount.source,
+            destination: mount.destination,
+            read_only: mount.read_only,
+        }
+    }
+}
+
+impl From<ContainerNetwork> for ContainerNetworkResponse {
+    fn from(network: ContainerNetwork) -> Self {
+        Self {
+            name: network.name,
+            ip_address: network.ip_address,
+            gateway: network.gateway,
+            mac_address: network.mac_address,
         }
     }
 }
@@ -172,4 +294,105 @@ pub(crate) async fn metrics(
         .map(SystemMetricsResponse::from)
         .map(Json)
         .ok_or(ApiError::CapabilityUnavailable)
+}
+
+pub(crate) async fn container_details(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(container_id): Path<String>,
+) -> Result<Json<ContainerDetailsResponse>, ApiError> {
+    require_container_admin(&state, &headers).await?;
+    let details = state
+        .docker_runtime()?
+        .container_details(&container_id)
+        .await?;
+    Ok(Json(details.into()))
+}
+
+pub(crate) async fn container_logs(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(container_id): Path<String>,
+) -> Result<Json<ContainerLogsResponse>, ApiError> {
+    require_container_admin(&state, &headers).await?;
+    let logs = state
+        .docker_runtime()?
+        .container_logs(&container_id)
+        .await?;
+    Ok(Json(ContainerLogsResponse { logs }))
+}
+
+pub(crate) async fn upload_container_file(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(container_id): Path<String>,
+    mut multipart: Multipart,
+) -> Result<StatusCode, ApiError> {
+    require_container_admin(&state, &headers).await?;
+    require_same_origin_request(&state, &headers)?;
+
+    let mut destination = "/tmp".to_owned();
+    let mut file = None;
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|_| ApiError::BadRequest("invalid file upload"))?
+    {
+        let name = field.name().map(str::to_owned);
+        match name.as_deref() {
+            Some("destination") => {
+                destination = field
+                    .text()
+                    .await
+                    .map_err(|_| ApiError::BadRequest("invalid upload destination"))?;
+            }
+            Some("file") if file.is_none() => {
+                let file_name = field
+                    .file_name()
+                    .map(str::to_owned)
+                    .ok_or(ApiError::BadRequest("uploaded file must have a name"))?;
+                let data = field
+                    .bytes()
+                    .await
+                    .map_err(|_| ApiError::BadRequest("invalid file upload"))?;
+                if data.len() > MAX_UPLOAD_BYTES {
+                    return Err(ApiError::BadRequest("uploaded file is too large"));
+                }
+                file = Some((file_name, data));
+            }
+            _ => {}
+        }
+    }
+
+    let (file_name, data) = file.ok_or(ApiError::BadRequest("uploaded file is required"))?;
+    state
+        .docker_runtime()?
+        .upload_file(&container_id, &destination, &file_name, &data)
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub(crate) async fn remove_container(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(container_id): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    require_container_admin(&state, &headers).await?;
+    require_same_origin_request(&state, &headers)?;
+    state
+        .docker_runtime()?
+        .remove_container(&container_id)
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+pub(crate) async fn require_container_admin(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<(), ApiError> {
+    if require_actor(state, headers).await?.has_admin_access() {
+        Ok(())
+    } else {
+        Err(ApiError::Forbidden)
+    }
 }

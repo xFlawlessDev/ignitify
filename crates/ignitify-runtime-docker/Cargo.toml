@@ -10,6 +10,7 @@ futures-util.workspace = true
 ignitify-control-plane = { path = "../ignitify-control-plane" }
 ignitify-domain = { path = "../ignitify-domain" }
 thiserror.workspace = true
+tokio.workspace = true
 
 [dev-dependencies]
 tokio.workspace = true

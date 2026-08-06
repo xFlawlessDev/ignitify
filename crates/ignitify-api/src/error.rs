@@ -6,6 +6,7 @@ use axum::{
 use ignitify_auth::AuthError;
 use ignitify_control_plane::Error as ControlError;
 use ignitify_db::DatabaseError;
+use ignitify_runtime_docker::Error as DockerRuntimeError;
 use ignitify_terminal::TerminalError;
 use thiserror::Error;
 
@@ -21,6 +22,8 @@ pub(crate) enum ApiError {
     Control(#[from] ControlError),
     #[error(transparent)]
     Terminal(#[from] TerminalError),
+    #[error(transparent)]
+    DockerRuntime(#[from] DockerRuntimeError),
     #[error("not found")]
     NotFound,
     #[error("forbidden")]
@@ -31,6 +34,8 @@ pub(crate) enum ApiError {
     ActiveDeploymentConflict,
     #[error("deployment capability unavailable")]
     CapabilityUnavailable,
+    #[error("Docker runtime unavailable")]
+    DockerCapabilityUnavailable,
 }
 
 impl IntoResponse for ApiError {
@@ -74,6 +79,9 @@ impl IntoResponse for ApiError {
                 StatusCode::BAD_REQUEST,
                 format!("compose policy rejected input: {message}"),
             ),
+            Self::Control(ControlError::Domain(error)) => {
+                (StatusCode::BAD_REQUEST, error.to_string())
+            }
             Self::NotFound => (StatusCode::NOT_FOUND, "not found".to_owned()),
             Self::Forbidden => (StatusCode::FORBIDDEN, "forbidden".to_owned()),
             Self::BadRequest(message) => (StatusCode::BAD_REQUEST, message.to_owned()),
@@ -85,11 +93,34 @@ impl IntoResponse for ApiError {
                 StatusCode::SERVICE_UNAVAILABLE,
                 "deployment capability is unavailable".to_owned(),
             ),
+            Self::DockerCapabilityUnavailable => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Docker runtime is unavailable".to_owned(),
+            ),
             Self::Terminal(_) => (
                 StatusCode::SERVICE_UNAVAILABLE,
                 "host terminal is unavailable".to_owned(),
             ),
-            Self::Auth(_) | Self::Control(_) | Self::Database(_) => (
+            Self::DockerRuntime(DockerRuntimeError::ContainerNotFound) => {
+                (StatusCode::NOT_FOUND, "not found".to_owned())
+            }
+            Self::DockerRuntime(
+                DockerRuntimeError::InvalidContainerReference
+                | DockerRuntimeError::InvalidUploadPath,
+            ) => (
+                StatusCode::BAD_REQUEST,
+                "invalid container request".to_owned(),
+            ),
+            Self::DockerRuntime(
+                DockerRuntimeError::Connection | DockerRuntimeError::TerminalUnavailable,
+            ) => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Docker runtime is unavailable".to_owned(),
+            ),
+            Self::DockerRuntime(DockerRuntimeError::ContainerNotRunning) => {
+                (StatusCode::CONFLICT, "container is not running".to_owned())
+            }
+            Self::Auth(_) | Self::Control(_) | Self::Database(_) | Self::DockerRuntime(_) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "internal server error".to_owned(),
             ),

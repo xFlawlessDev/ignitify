@@ -42,6 +42,24 @@ export interface ProjectInput {
   name: string;
 }
 
+export interface ProjectEnvironmentVariable {
+  key: string;
+  is_secret: boolean;
+  is_set: boolean;
+  value?: string;
+}
+
+export interface ProjectEnvironmentVariableInput {
+  key: string;
+  value?: string;
+  is_secret: boolean;
+}
+
+export interface ProjectEnvironmentResponse {
+  role: ProjectMemberRole;
+  variables: ProjectEnvironmentVariable[];
+}
+
 export interface ServiceVariable {
   key: string;
   value: string;
@@ -190,6 +208,47 @@ export interface RuntimeContainer {
 
 export interface RuntimeContainerInventory {
   containers: RuntimeContainer[] | null;
+}
+
+export interface RuntimeContainerConfig {
+  command: string[];
+  entrypoint: string[];
+  user: string | null;
+  working_dir: string | null;
+  tty: boolean;
+  environment_keys: string[];
+  labels: Array<{ key: string; value: string }>;
+  restart_policy: string | null;
+  privileged: boolean;
+}
+
+export interface RuntimeContainerMount {
+  kind: string;
+  source: string | null;
+  destination: string | null;
+  read_only: boolean;
+}
+
+export interface RuntimeContainerNetwork {
+  name: string;
+  ip_address: string | null;
+  gateway: string | null;
+  mac_address: string | null;
+}
+
+export interface RuntimeContainerDetails {
+  id: string;
+  name: string;
+  image: string;
+  state: string;
+  status: string;
+  config: RuntimeContainerConfig;
+  mounts: RuntimeContainerMount[];
+  networks: RuntimeContainerNetwork[];
+}
+
+export interface RuntimeContainerLogs {
+  logs: string;
 }
 
 export interface ActivitySummary {

@@ -20,28 +20,10 @@ import {
   Upload,
 } from "@lucide/vue";
 import { computed, onMounted, onUnmounted, shallowRef, watch } from "vue";
-import {
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogOverlay,
-  AlertDialogPortal,
-  AlertDialogRoot,
-  AlertDialogTitle,
-  PopoverClose,
-} from "reka-ui";
-import RuntimeStatusPanel from "@/components/runtime/RuntimeStatusPanel.vue";
+import { PopoverClose } from "reka-ui";
+import ContainerActionDialog from "@/components/runtime/ContainerActionDialog.vue";
+import type { ContainerActionKey } from "@/components/runtime/container-actions";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -130,17 +112,12 @@ const containerActions = [
     icon: Upload,
   },
 ] as const;
-type ContainerActionKey = (typeof containerActions)[number]["key"] | "remove";
 
 const copiedContainerId = shallowRef<string | null>(null);
 const selectedContainer = shallowRef<RuntimeContainer | null>(null);
 const activeAction = shallowRef<ContainerActionKey | null>(null);
 const actionDialogOpen = shallowRef(false);
 const removeDialogOpen = shallowRef(false);
-const selectedUploadFile = shallowRef<string | null>(null);
-const activeActionDefinition = computed(() =>
-  containerActions.find((action) => action.key === activeAction.value),
-);
 
 function formatBytes(value: number | null | undefined) {
   if (!value) return "Unavailable";
@@ -207,17 +184,11 @@ async function copyContainerId(container: RuntimeContainer) {
 function openContainerAction(container: RuntimeContainer, action: ContainerActionKey) {
   selectedContainer.value = container;
   activeAction.value = action;
-  selectedUploadFile.value = null;
   if (action === "remove") {
     removeDialogOpen.value = true;
     return;
   }
   actionDialogOpen.value = true;
-}
-
-function handleUploadFile(event: Event) {
-  const input = event.target as HTMLInputElement;
-  selectedUploadFile.value = input.files?.[0]?.name ?? null;
 }
 
 watch(
@@ -253,6 +224,12 @@ async function refresh() {
   const startedAt = Date.now();
   await Promise.all([loadRuntime(), loadContainers()]);
   scheduleRefresh(Math.max(0, REFRESH_INTERVAL_MS - (Date.now() - startedAt)));
+}
+
+async function handleContainerRemoved() {
+  selectedContainer.value = null;
+  activeAction.value = null;
+  await refresh();
 }
 
 onMounted(() => {
@@ -360,7 +337,7 @@ onUnmounted(() => {
       </Button>
     </section>
 
-    <section class="mt-[22px] grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_17rem]">
+    <section class="mt-[22px] min-w-0 gap-4">
       <section class="min-w-0 border border-border bg-card">
         <div class="border-b border-border px-5 py-4">
           <p class="ui-label">Container inventory</p>
@@ -578,180 +555,14 @@ onUnmounted(() => {
           </p>
         </div>
       </section>
-      <RuntimeStatusPanel :runtime="runtime" :loading="runtimeLoading && !runtime" />
     </section>
 
-    <Dialog v-model:open="actionDialogOpen">
-      <DialogContent
-        class="max-h-[calc(100vh-2rem)] w-[calc(100%-1rem)] overflow-y-auto rounded-md shadow-none sm:max-w-lg"
-      >
-        <template v-if="activeActionDefinition && selectedContainer">
-          <DialogHeader>
-            <div class="flex items-start gap-3 pr-6">
-              <div class="grid size-9 shrink-0 place-items-center border border-border bg-muted">
-                <component
-                  :is="activeActionDefinition.icon"
-                  class="size-4 text-muted-foreground"
-                  :stroke-width="1.5"
-                />
-              </div>
-              <div class="min-w-0">
-                <DialogTitle>{{ activeActionDefinition.label }}</DialogTitle>
-                <DialogDescription>{{ activeActionDefinition.description }}</DialogDescription>
-              </div>
-            </div>
-          </DialogHeader>
-
-          <div class="grid gap-4">
-            <div class="flex items-center justify-between gap-3 border-b border-border pb-3">
-              <div class="min-w-0">
-                <p class="text-sm font-medium">{{ selectedContainer.name }}</p>
-                <p class="mt-1 truncate font-mono text-[10px] text-muted-foreground">
-                  {{ selectedContainer.id }}
-                </p>
-              </div>
-              <span class="shrink-0 text-xs text-muted-foreground">{{
-                selectedContainer.state
-              }}</span>
-            </div>
-
-            <div v-if="activeAction === 'logs'" class="grid gap-2">
-              <p class="ui-label">Live output</p>
-              <pre
-                class="min-h-28 overflow-x-auto border border-border bg-muted/40 p-3 font-mono text-xs leading-5 text-muted-foreground"
-              >
-Log stream is not included in the current monitoring response.</pre>
-            </div>
-
-            <dl v-else-if="activeAction === 'config'" class="grid gap-3 text-sm">
-              <div
-                class="grid gap-1 border-b border-border pb-3 sm:grid-cols-[7rem_1fr] sm:items-baseline"
-              >
-                <dt class="text-xs text-muted-foreground">Image</dt>
-                <dd class="truncate font-mono text-xs" :title="selectedContainer.image">
-                  {{ selectedContainer.image || "Unavailable" }}
-                </dd>
-              </div>
-              <div
-                class="grid gap-1 border-b border-border pb-3 sm:grid-cols-[7rem_1fr] sm:items-baseline"
-              >
-                <dt class="text-xs text-muted-foreground">Status</dt>
-                <dd class="text-xs">{{ selectedContainer.status }}</dd>
-              </div>
-              <div class="grid gap-1 sm:grid-cols-[7rem_1fr] sm:items-baseline">
-                <dt class="text-xs text-muted-foreground">Managed</dt>
-                <dd class="text-xs">{{ selectedContainer.managed ? "Yes" : "No" }}</dd>
-              </div>
-            </dl>
-
-            <div v-else-if="activeAction === 'mounts'" class="grid gap-2">
-              <p class="ui-label">Mount points</p>
-              <p
-                class="border border-border bg-muted/40 p-3 text-xs leading-5 text-muted-foreground"
-              >
-                Mount metadata is not included in the current monitoring response.
-              </p>
-            </div>
-
-            <div v-else-if="activeAction === 'networks'" class="grid gap-3">
-              <p class="ui-label">Published ports</p>
-              <div v-if="selectedContainer.ports.length" class="grid gap-2">
-                <p
-                  v-for="port in selectedContainer.ports"
-                  :key="`${port.container_port}-${port.protocol}-${port.host_port ?? 'internal'}`"
-                  class="border border-border bg-muted/40 px-3 py-2 font-mono text-xs"
-                >
-                  {{ formatPort(port) }}
-                </p>
-              </div>
-              <p v-else class="border border-border bg-muted/40 p-3 text-xs text-muted-foreground">
-                No published ports reported.
-              </p>
-              <p class="text-xs leading-5 text-muted-foreground">
-                Network attachments are not included in the current monitoring response.
-              </p>
-            </div>
-
-            <div v-else-if="activeAction === 'terminal'" class="grid gap-3">
-              <p class="ui-label">Shell command</p>
-              <code
-                class="block overflow-x-auto border border-border bg-muted/40 p-3 font-mono text-xs"
-              >
-                docker exec -it {{ selectedContainer.name }} /bin/sh
-              </code>
-              <p class="text-xs leading-5 text-muted-foreground">
-                Interactive terminal sessions will be available when runtime control actions are
-                connected.
-              </p>
-            </div>
-
-            <div v-else-if="activeAction === 'upload'" class="grid gap-3">
-              <label class="grid gap-2 text-sm font-medium" for="container-upload-file">
-                Choose a file
-                <input
-                  id="container-upload-file"
-                  class="block w-full rounded-sm border border-input bg-background px-3 py-2 text-xs file:mr-3 file:border-0 file:bg-transparent file:text-xs file:font-medium"
-                  type="file"
-                  @change="handleUploadFile"
-                />
-              </label>
-              <p v-if="selectedUploadFile" class="text-xs text-muted-foreground">
-                Selected: <span class="font-medium text-foreground">{{ selectedUploadFile }}</span>
-              </p>
-              <p class="text-xs leading-5 text-muted-foreground">
-                Upload is not connected to the runtime control API yet.
-              </p>
-            </div>
-          </div>
-
-          <DialogFooter>
-            <DialogClose as-child>
-              <Button class="w-full sm:w-auto" variant="outline">Close</Button>
-            </DialogClose>
-          </DialogFooter>
-        </template>
-      </DialogContent>
-    </Dialog>
-
-    <AlertDialogRoot v-model:open="removeDialogOpen">
-      <AlertDialogPortal>
-        <AlertDialogOverlay
-          class="data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-50 bg-black/80 backdrop-blur-sm"
-        />
-        <AlertDialogContent
-          class="bg-background data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 fixed top-[50%] left-[50%] z-50 grid w-[calc(100%-2rem)] max-w-lg translate-x-[-50%] translate-y-[-50%] gap-5 rounded-md border p-6 shadow-none duration-200"
-        >
-          <div class="flex items-start gap-3">
-            <div
-              class="grid size-9 shrink-0 place-items-center border border-destructive/30 bg-destructive/10 text-destructive"
-            >
-              <CircleAlert class="size-4" :stroke-width="1.5" />
-            </div>
-            <div class="min-w-0">
-              <AlertDialogTitle class="text-base font-medium">Remove container?</AlertDialogTitle>
-              <AlertDialogDescription class="mt-2 text-sm leading-5">
-                This will remove
-                <span class="font-medium text-foreground">{{ selectedContainer?.name }}</span>
-                from the host. This action cannot be undone.
-              </AlertDialogDescription>
-            </div>
-          </div>
-          <p class="border border-border bg-muted/40 p-3 text-xs leading-5 text-muted-foreground">
-            Container removal is not connected to the runtime control API yet.
-          </p>
-          <div class="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-            <AlertDialogCancel as-child>
-              <Button class="w-full sm:w-auto" variant="outline">Cancel</Button>
-            </AlertDialogCancel>
-            <AlertDialogAction as-child>
-              <Button class="w-full sm:w-auto" variant="destructive" disabled>
-                <Trash2 class="size-4" :stroke-width="1.5" />
-                Remove container
-              </Button>
-            </AlertDialogAction>
-          </div>
-        </AlertDialogContent>
-      </AlertDialogPortal>
-    </AlertDialogRoot>
+    <ContainerActionDialog
+      v-model:open="actionDialogOpen"
+      v-model:remove-open="removeDialogOpen"
+      :action="activeAction"
+      :container="selectedContainer"
+      @removed="handleContainerRemoved"
+    />
   </div>
 </template>
