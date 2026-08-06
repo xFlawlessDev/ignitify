@@ -23,8 +23,8 @@ use crate::state::AppState;
 pub fn router(
     auth: Arc<AuthService>,
     database: Database,
-    services: ServiceControl,
-    control: ControlHandle,
+    services: Option<ServiceControl>,
+    control: Option<ControlHandle>,
     runtime_health: Arc<dyn RuntimeHealth>,
     worker_health: Arc<dyn RuntimeHealth>,
     secure_cookies: bool,

@@ -1247,6 +1247,7 @@ dependencies = [
  "ignitify-control-plane",
  "ignitify-db",
  "ignitify-domain",
+ "ignitify-runtime-compose",
  "serde",
  "serde_json",
  "thiserror 2.0.19",
@@ -1294,6 +1295,7 @@ name = "ignitify-core"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "dotenvy",
  "ignitify-api",
  "ignitify-auth",
  "ignitify-control-plane",
@@ -1341,7 +1343,6 @@ name = "ignitify-runtime-compose"
 version = "0.1.0"
 dependencies = [
  "ignitify-control-plane",
- "ignitify-db",
  "ignitify-domain",
  "serde_json",
  "tempfile",
@@ -1358,7 +1359,6 @@ dependencies = [
  "bollard",
  "futures-util",
  "ignitify-control-plane",
- "ignitify-db",
  "ignitify-domain",
  "thiserror 2.0.19",
  "tokio",

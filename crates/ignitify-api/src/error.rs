@@ -26,6 +26,8 @@ pub(crate) enum ApiError {
     BadRequest(&'static str),
     #[error("active deployment exists")]
     ActiveDeploymentConflict,
+    #[error("deployment capability unavailable")]
+    CapabilityUnavailable,
 }
 
 impl IntoResponse for ApiError {
@@ -53,14 +55,6 @@ impl IntoResponse for ApiError {
                 StatusCode::CONFLICT,
                 "service name already exists".to_owned(),
             ),
-            Self::Database(DatabaseError::RegistryNameConflict) => (
-                StatusCode::CONFLICT,
-                "registry name already exists".to_owned(),
-            ),
-            Self::Database(DatabaseError::WebhookNameConflict) => (
-                StatusCode::CONFLICT,
-                "webhook name already exists in project".to_owned(),
-            ),
             Self::Database(DatabaseError::DomainNameConflict) => (
                 StatusCode::CONFLICT,
                 "domain hostname already exists".to_owned(),
@@ -68,14 +62,6 @@ impl IntoResponse for ApiError {
             Self::Database(DatabaseError::DomainConfirmationMismatch) => (
                 StatusCode::BAD_REQUEST,
                 "domain confirmation does not match hostname".to_owned(),
-            ),
-            Self::Database(DatabaseError::RegistryConfirmationMismatch) => (
-                StatusCode::BAD_REQUEST,
-                "registry confirmation does not match name".to_owned(),
-            ),
-            Self::Database(DatabaseError::WebhookConfirmationMismatch) => (
-                StatusCode::BAD_REQUEST,
-                "webhook confirmation does not match name".to_owned(),
             ),
             Self::Control(ControlError::InvalidIdempotencyKey) => (
                 StatusCode::BAD_REQUEST,
@@ -91,6 +77,10 @@ impl IntoResponse for ApiError {
             Self::ActiveDeploymentConflict => (
                 StatusCode::CONFLICT,
                 "an active deployment already exists for this service".to_owned(),
+            ),
+            Self::CapabilityUnavailable => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "deployment capability is unavailable".to_owned(),
             ),
             Self::Auth(_) | Self::Control(_) | Self::Database(_) => (
                 StatusCode::INTERNAL_SERVER_ERROR,

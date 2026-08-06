@@ -15,11 +15,9 @@ pub use repositories::{
     DeploymentActor, DeploymentEventRecord, DeploymentLogRecord, DeploymentRecord,
     DeploymentVariableRecord, DeploymentsRepository, DomainActor, DomainMutationOutcome,
     DomainRecord, DomainsRepository, EnvironmentsRepository, NewDeployment, NewDeploymentLog,
-    NewRegistry, NewServiceVariable, NewWebhook, ProjectActor, ProjectUpdateOutcome,
-    ProjectsRepository, RefreshTokensRepository, RegistriesRepository, RegistryActor,
-    RegistryRecord, SequenceCursor, ServiceActor, ServiceMutationOutcome, ServiceVariableRecord,
-    ServicesRepository, UsersRepository, WebhookActor, WebhookMutationOutcome, WebhookRecord,
-    WebhooksRepository,
+    NewServiceVariable, ProjectActor, ProjectUpdateOutcome, ProjectsRepository,
+    RefreshTokensRepository, SequenceCursor, ServiceActor, ServiceMutationOutcome,
+    ServiceVariableRecord, ServicesRepository, UsersRepository,
 };
 
 #[cfg(test)]

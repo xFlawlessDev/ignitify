@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use chrono::Utc;
 use ignitify_domain::{
     EnvironmentId, ProjectId, ProjectMemberRole, ServiceConfiguration, ServiceId, ServiceKind,
@@ -81,9 +83,11 @@ impl ServicesRepository {
         .bind(project_id)
         .fetch_all(&self.pool)
         .await?;
+        let mut variables_by_service = self.variables_for_project(project_id).await?;
         let mut services = Vec::with_capacity(rows.len());
         for row in rows {
-            services.push(self.read_service(row, role).await?);
+            let variables = variables_by_service.remove(&row.id).unwrap_or_default();
+            services.push(Self::read_service(row, role, variables)?);
         }
         Ok(Some(services))
     }
@@ -109,7 +113,8 @@ impl ServicesRepository {
         let Some(role) = self.project_role(actor, &row.project_id).await? else {
             return Ok(None);
         };
-        Ok(Some(self.read_service(row, role).await?))
+        let variables = self.variables_for_service(&row.id).await?;
+        Ok(Some(Self::read_service(row, role, variables)?))
     }
 
     pub async fn create(
@@ -248,10 +253,39 @@ impl ServicesRepository {
         .transpose()
     }
 
-    async fn read_service(
+    async fn variables_for_project(
         &self,
+        project_id: &str,
+    ) -> Result<HashMap<String, Vec<ServiceVariableRecord>>> {
+        let rows = sqlx::query_as::<_, VariableRow>(
+            "SELECT sv.service_id, sv.key, sv.is_secret, sv.ciphertext
+             FROM service_variables sv
+             JOIN services s ON s.id = sv.service_id
+             JOIN environments e ON e.id = s.environment_id
+             WHERE e.project_id = ?
+             ORDER BY sv.service_id, sv.key",
+        )
+        .bind(project_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(variable_map(rows))
+    }
+
+    async fn variables_for_service(&self, service_id: &str) -> Result<Vec<ServiceVariableRecord>> {
+        let rows = sqlx::query_as::<_, VariableRow>(
+            "SELECT service_id, key, is_secret, ciphertext
+             FROM service_variables WHERE service_id = ? ORDER BY key",
+        )
+        .bind(service_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(variable_map(rows).remove(service_id).unwrap_or_default())
+    }
+
+    fn read_service(
         row: ServiceRow,
         role: ProjectMemberRole,
+        variables: Vec<ServiceVariableRecord>,
     ) -> Result<AuthorizedService> {
         let kind = row
             .kind
@@ -267,19 +301,6 @@ impl ServicesRepository {
                 "service kind does not match desired specification".to_owned(),
             ));
         }
-        let variables = sqlx::query_as::<_, VariableRow>(
-            "SELECT key, is_secret, ciphertext FROM service_variables WHERE service_id = ? ORDER BY key",
-        )
-        .bind(&row.id)
-        .fetch_all(&self.pool)
-        .await?
-        .into_iter()
-        .map(|variable| ServiceVariableRecord {
-            key: variable.key,
-            is_secret: variable.is_secret,
-            ciphertext: variable.ciphertext,
-        })
-        .collect();
         Ok(AuthorizedService {
             id: ServiceId::new(row.id)
                 .map_err(|_| sqlx::Error::Protocol("stored service id is invalid".into()))?,
@@ -298,6 +319,21 @@ impl ServicesRepository {
             variables,
         })
     }
+}
+
+fn variable_map(rows: Vec<VariableRow>) -> HashMap<String, Vec<ServiceVariableRecord>> {
+    let mut variables = HashMap::<String, Vec<ServiceVariableRecord>>::new();
+    for row in rows {
+        variables
+            .entry(row.service_id)
+            .or_default()
+            .push(ServiceVariableRecord {
+                key: row.key,
+                is_secret: row.is_secret,
+                ciphertext: row.ciphertext,
+            });
+    }
+    variables
 }
 
 async fn insert_variables(
@@ -361,6 +397,7 @@ struct ServiceRow {
 
 #[derive(Debug, FromRow)]
 struct VariableRow {
+    service_id: String,
     key: String,
     is_secret: bool,
     ciphertext: String,

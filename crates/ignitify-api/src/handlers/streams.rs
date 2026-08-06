@@ -83,32 +83,27 @@ async fn open_stream(
 ) -> Result<impl axum::response::IntoResponse, ApiError> {
     let actor = require_actor(&state, &headers).await?;
     let after = cursor(&headers, query_after)?;
-    if after < 0 {
-        return Err(ApiError::BadRequest("cursor must be non-negative"));
-    }
     let actor_id = actor.id.clone();
     let actor_is_admin = actor.has_admin_access();
     let deployment_actor = DeploymentActor {
         id: &actor_id,
         is_admin: actor_is_admin,
     };
-    let deployment = state
-        .control
+    let control = state.control()?.clone();
+    let deployment = control
         .get(deployment_actor, &deployment_id)
         .await?
         .ok_or(ApiError::NotFound)?;
 
-    let receiver = state.control.subscribe();
+    let receiver = control.subscribe();
     let through = match kind {
-        StreamKind::Events => state
-            .control
+        StreamKind::Events => control
             .event_cursor(deployment_actor, &deployment_id)
             .await?
             .ok_or(ApiError::NotFound)?
             .newest
             .unwrap_or(after),
-        StreamKind::Logs => state
-            .control
+        StreamKind::Logs => control
             .log_cursor(deployment_actor, &deployment_id)
             .await?
             .ok_or(ApiError::NotFound)?
@@ -118,14 +113,13 @@ async fn open_stream(
     let mut pending = VecDeque::new();
     let oldest = match kind {
         StreamKind::Events => {
-            let cursor = state
-                .control
+            let cursor = control
                 .event_cursor(deployment_actor, &deployment_id)
                 .await?
                 .ok_or(ApiError::NotFound)?;
             if cursor.oldest.is_none_or(|oldest| after >= oldest - 1) {
                 replay_events(
-                    &state,
+                    &control,
                     deployment_actor,
                     &deployment_id,
                     after,
@@ -137,14 +131,13 @@ async fn open_stream(
             cursor.oldest
         }
         StreamKind::Logs => {
-            let cursor = state
-                .control
+            let cursor = control
                 .log_cursor(deployment_actor, &deployment_id)
                 .await?
                 .ok_or(ApiError::NotFound)?;
             if cursor.oldest.is_none_or(|oldest| after >= oldest - 1) {
                 replay_logs(
-                    &state,
+                    &control,
                     deployment_actor,
                     &deployment_id,
                     after,
@@ -172,7 +165,7 @@ async fn open_stream(
 
     let stream = stream::unfold(
         StreamState {
-            control: state.control,
+            control,
             receiver,
             actor_id,
             actor_is_admin,
@@ -201,15 +194,14 @@ async fn open_stream(
 }
 
 async fn replay_events(
-    state: &AppState,
+    control: &ignitify_control_plane::ControlHandle,
     actor: DeploymentActor<'_>,
     deployment_id: &str,
     after: i64,
     through: i64,
     pending: &mut VecDeque<Event>,
 ) -> Result<(), ApiError> {
-    let records = state
-        .control
+    let records = control
         .events(actor, deployment_id, after, through)
         .await?
         .ok_or(ApiError::NotFound)?;
@@ -220,15 +212,14 @@ async fn replay_events(
 }
 
 async fn replay_logs(
-    state: &AppState,
+    control: &ignitify_control_plane::ControlHandle,
     actor: DeploymentActor<'_>,
     deployment_id: &str,
     after: i64,
     through: i64,
     pending: &mut VecDeque<Event>,
 ) -> Result<(), ApiError> {
-    let records = state
-        .control
+    let records = control
         .logs(actor, deployment_id, after, through)
         .await?
         .ok_or(ApiError::NotFound)?;
@@ -269,13 +260,23 @@ async fn next_stream_item(
                         StreamKind::Events => state.control.events(actor, &state.deployment_id, state.cursor, through).await.ok().flatten().unwrap_or_default().into_iter().filter_map(|record| event_record(record).ok()).collect::<Vec<_>>(),
                         StreamKind::Logs => state.control.logs(actor, &state.deployment_id, state.cursor, through).await.ok().flatten().unwrap_or_default().into_iter().filter_map(|record| log_record(record).ok()).collect::<Vec<_>>(),
                     };
-                    state.pending.extend(replay);
+                    queue_catch_up(&mut state.cursor, &mut state.pending, through, replay);
                     Some((Ok(Event::default().comment("catch-up")), state))
                 }
                 Err(broadcast::error::RecvError::Closed) => None,
             }
         }
     }
+}
+
+fn queue_catch_up(
+    cursor: &mut i64,
+    pending: &mut VecDeque<Event>,
+    through: i64,
+    replay: impl IntoIterator<Item = Event>,
+) {
+    *cursor = (*cursor).max(through);
+    pending.extend(replay);
 }
 
 async fn stream_record(state: &mut StreamState, record: StreamRecord) -> Option<Event> {
@@ -362,5 +363,21 @@ mod tests {
         headers.insert("last-event-id", HeaderValue::from_static("-1"));
 
         assert!(super::cursor(&headers, None).is_err());
+    }
+
+    #[test]
+    fn durable_lag_replay_advances_cursor_before_queuing_events() {
+        let mut cursor = 7;
+        let mut pending = std::collections::VecDeque::new();
+
+        super::queue_catch_up(
+            &mut cursor,
+            &mut pending,
+            11,
+            [axum::response::sse::Event::default().event("deployment.running")],
+        );
+
+        assert_eq!(cursor, 11);
+        assert_eq!(pending.len(), 1);
     }
 }

@@ -59,7 +59,7 @@ pub(crate) async fn deploy(
         .ok_or(ApiError::BadRequest("Idempotency-Key is required"))?;
     let deployment = submission_record(
         state
-            .control
+            .control()?
             .submit_deploy(deployment_actor(&actor), &service_id, key)
             .await?,
     )?;
@@ -74,7 +74,7 @@ pub(crate) async fn list(
 ) -> Result<Json<Vec<DeploymentResponse>>, ApiError> {
     let actor = require_actor(&state, &headers).await?;
     let deployments = state
-        .control
+        .control()?
         .list(
             deployment_actor(&actor),
             &service_id,
@@ -97,7 +97,7 @@ pub(crate) async fn list_for_project(
 ) -> Result<Json<Vec<DeploymentResponse>>, ApiError> {
     let actor = require_actor(&state, &headers).await?;
     let deployments = state
-        .control
+        .control()?
         .list_for_project(
             deployment_actor(&actor),
             &project_id,
@@ -121,7 +121,7 @@ pub(crate) async fn stop(
     require_same_origin_request(&state, &headers)?;
     let deployment = submission_record(
         state
-            .control
+            .control()?
             .submit_stop(deployment_actor(&actor), &service_id)
             .await?,
     )?;
@@ -135,7 +135,7 @@ pub(crate) async fn get(
 ) -> Result<Json<DeploymentResponse>, ApiError> {
     let actor = require_actor(&state, &headers).await?;
     let deployment = state
-        .control
+        .control()?
         .get(deployment_actor(&actor), &deployment_id)
         .await?
         .ok_or(ApiError::NotFound)?;
@@ -154,7 +154,7 @@ pub(crate) async fn rollback(
         .and_then(|value| value.to_str().ok())
         .ok_or(ApiError::BadRequest("Idempotency-Key is required"))?;
     let outcome = state
-        .control
+        .control()?
         .submit_rollback(deployment_actor(&actor), &deployment_id, key)
         .await?;
     let deployment = submission_record(outcome)?;

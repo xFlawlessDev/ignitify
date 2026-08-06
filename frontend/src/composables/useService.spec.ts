@@ -20,7 +20,7 @@ const service = {
   role: "owner" as const,
   name: "web",
   kind: "image" as const,
-  image_reference: "nginx@sha256:deadbeef",
+  image_reference: "nginx@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   internal_port: 8080,
   healthcheck: null,
   desired_generation: 1,

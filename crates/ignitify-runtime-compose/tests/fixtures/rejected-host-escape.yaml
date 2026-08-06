@@ -1,6 +1,6 @@
 services:
   web:
-    image: nginx@sha256:deadbeef
+    image: nginx@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
     build: .
     ports:
       - "127.0.0.1:8080:80"

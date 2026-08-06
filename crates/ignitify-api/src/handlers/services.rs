@@ -8,6 +8,7 @@ use ignitify_control_plane::{
 };
 use ignitify_db::ServiceActor;
 use ignitify_domain::{ServiceInput, ServiceSpec, ServiceVariableInput};
+use ignitify_runtime_compose::validate_submission_yaml;
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
 
@@ -133,7 +134,7 @@ pub(crate) async fn list(
 ) -> Result<Json<Vec<ServiceResponse>>, ApiError> {
     let actor = require_actor(&state, &headers).await?;
     let services = state
-        .services
+        .services()?
         .list(service_actor(&actor), &project_id)
         .await?
         .ok_or(ApiError::NotFound)?
@@ -152,7 +153,7 @@ pub(crate) async fn create(
     let actor = require_actor(&state, &headers).await?;
     require_same_origin_request(&state, &headers)?;
     match state
-        .services
+        .services()?
         .create(service_actor(&actor), &project_id, input(request)?)
         .await?
     {
@@ -172,7 +173,7 @@ pub(crate) async fn get(
 ) -> Result<Json<ServiceResponse>, ApiError> {
     let actor = require_actor(&state, &headers).await?;
     let service = state
-        .services
+        .services()?
         .get(service_actor(&actor), &service_id)
         .await?
         .ok_or(ApiError::NotFound)?;
@@ -188,7 +189,7 @@ pub(crate) async fn update(
     let actor = require_actor(&state, &headers).await?;
     require_same_origin_request(&state, &headers)?;
     match state
-        .services
+        .services()?
         .update(service_actor(&actor), &service_id, input(request)?)
         .await?
     {
@@ -209,7 +210,7 @@ fn input(request: ServiceRequest) -> Result<ServiceInput, ignitify_domain::Input
             is_secret: variable.is_secret,
         })
         .collect();
-    match request.kind.as_deref().unwrap_or("image") {
+    let input = match request.kind.as_deref().unwrap_or("image") {
         "image" => ServiceInput::image(
             request.name,
             request.image_reference.unwrap_or_default(),
@@ -225,7 +226,12 @@ fn input(request: ServiceRequest) -> Result<ServiceInput, ignitify_domain::Input
             variables,
         ),
         _ => Err(ignitify_domain::InputError::InvalidServiceKind),
+    }?;
+    if let ServiceSpec::Compose { yaml, .. } = &input.configuration.spec {
+        validate_submission_yaml(yaml)
+            .map_err(|_| ignitify_domain::InputError::InvalidComposeYaml)?;
     }
+    Ok(input)
 }
 
 fn service_actor(actor: &ignitify_auth::AuthenticatedUser) -> ServiceActor<'_> {
@@ -237,7 +243,7 @@ fn service_actor(actor: &ignitify_auth::AuthenticatedUser) -> ServiceActor<'_> {
 
 #[cfg(test)]
 mod tests {
-    use super::{ServiceVariableReadModel, ServiceVariableResponse};
+    use super::{ServiceRequest, ServiceVariableReadModel, ServiceVariableResponse, input};
 
     #[test]
     fn secret_response_omits_value() {
@@ -250,5 +256,46 @@ mod tests {
         let value = serde_json::to_value(variable).unwrap();
 
         assert!(value.get("value").is_none());
+    }
+
+    #[test]
+    fn compose_policy_rejects_host_escape_before_persistence() {
+        let result = input(ServiceRequest {
+            name: "web".to_owned(),
+            kind: Some("compose".to_owned()),
+            image_reference: None,
+            compose_yaml: Some(
+                "services:\n  web:\n    image: nginx@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n    ports: [\"8080:80\"]\n"
+                    .to_owned(),
+            ),
+            exposed_service: Some("web".to_owned()),
+            internal_port: Some(80),
+            healthcheck: None,
+            variables: vec![],
+        });
+
+        assert!(matches!(
+            result,
+            Err(ignitify_domain::InputError::InvalidComposeYaml)
+        ));
+    }
+
+    #[test]
+    fn compose_policy_accepts_safe_prebuilt_image() {
+        let result = input(ServiceRequest {
+            name: "web".to_owned(),
+            kind: Some("compose".to_owned()),
+            image_reference: None,
+            compose_yaml: Some(
+                "services:\n  web:\n    image: nginx@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+                    .to_owned(),
+            ),
+            exposed_service: Some("web".to_owned()),
+            internal_port: Some(80),
+            healthcheck: None,
+            variables: vec![],
+        });
+
+        assert!(result.is_ok());
     }
 }

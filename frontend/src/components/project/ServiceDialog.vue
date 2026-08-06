@@ -63,9 +63,13 @@ function removeVariable(index: number) {
   variables.splice(index, 1);
 }
 
+function isDigestPinnedImage(value: string) {
+  return /^[^\s@]+@sha256:[a-fA-F0-9]{64}$/.test(value);
+}
+
 function submit() {
-  if (kind.value === "image" && !imageReference.value.includes("@sha256:")) {
-    validationError.value = "Image reference must include a sha256 digest.";
+  if (kind.value === "image" && !isDigestPinnedImage(imageReference.value.trim())) {
+    validationError.value = "Image reference must include an exact sha256 digest.";
     return;
   }
   if (kind.value === "compose" && (!composeYaml.value.trim() || !exposedService.value.trim())) {
@@ -106,6 +110,7 @@ function submit() {
     variables: variables.map((variable) => ({ ...variable, key: variable.key.trim() })),
   });
 }
+
 
 watch(open, (isOpen) => {
   if (isOpen) reset();

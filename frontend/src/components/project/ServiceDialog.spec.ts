@@ -28,7 +28,7 @@ describe("ServiceDialog", () => {
     const onSave = vi.fn();
     const { app } = await mount(onSave);
     const image = document.querySelector("#service-image") as HTMLInputElement;
-    image.value = "nginx@sha256:deadbeef";
+    image.value = "nginx@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     image.dispatchEvent(new Event("input", { bubbles: true }));
     await nextTick();
     const port = document.querySelector("#service-port") as HTMLInputElement;
@@ -56,7 +56,7 @@ describe("ServiceDialog", () => {
     );
     await nextTick();
 
-    expect(document.body.textContent).toContain("Image reference must include a sha256 digest.");
+    expect(document.body.textContent).toContain("Image reference must include an exact sha256 digest.");
     const addButton = [...document.querySelectorAll("button")].find((button) =>
       button.textContent?.includes("Add variable"),
     ) as HTMLButtonElement;

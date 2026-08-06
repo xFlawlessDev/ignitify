@@ -7,17 +7,16 @@ use futures_util::{StreamExt, TryStreamExt};
 use bollard::{
     Docker,
     container::{
-        Config, CreateContainerOptions, RemoveContainerOptions, StartContainerOptions,
-        StopContainerOptions,
+        Config, CreateContainerOptions, ListContainersOptions, RemoveContainerOptions,
+        StartContainerOptions, StatsOptions, StopContainerOptions,
     },
     image::CreateImageOptions,
     models::{HealthConfig, HealthStatusEnum, HostConfig},
 };
 use ignitify_control_plane::{
-    Error as ControlError, HostRuntimeMetrics, ImageRuntime, IngressRoute, RuntimeHealth,
-    RuntimeObservation,
+    Error as ControlError, HostRuntimeMetrics, ImageRuntime, IngressRoute, RuntimeContainer,
+    RuntimeDeployment, RuntimeHealth, RuntimeLog, RuntimeObservation, RuntimePort,
 };
-use ignitify_db::{DeploymentRecord, NewDeploymentLog};
 use thiserror::Error;
 
 const MANAGED_LABEL: &str = "com.ignitify.managed";
@@ -26,6 +25,8 @@ const GENERATION_LABEL: &str = "com.ignitify.generation";
 const MEMORY_LIMIT_BYTES: i64 = 512 * 1024 * 1024;
 const NANO_CPUS: i64 = 1_000_000_000;
 const PID_LIMIT: i64 = 256;
+
+const MAX_CONCURRENT_CONTAINER_OBSERVATIONS: usize = 8;
 
 #[derive(Debug, Clone, Copy)]
 pub struct RuntimeMetrics {
@@ -74,16 +75,169 @@ impl DockerRuntime {
         })
     }
 
+    pub async fn containers(&self) -> Result<Vec<RuntimeContainer>> {
+        let mut containers = futures_util::stream::iter(
+            self.docker
+                .list_containers(Some(ListContainersOptions::<String> {
+                    all: true,
+                    ..Default::default()
+                }))
+                .await?,
+        )
+        .map(|summary| async move { self.observe_container(summary).await })
+        .buffer_unordered(MAX_CONCURRENT_CONTAINER_OBSERVATIONS)
+        .try_collect::<Vec<_>>()
+        .await?
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>();
+        containers.sort_by(|left, right| left.name.cmp(&right.name));
+        Ok(containers)
+    }
+
+    async fn observe_container(
+        &self,
+        summary: bollard::models::ContainerSummary,
+    ) -> Result<Option<RuntimeContainer>> {
+        let Some(id) = summary.id else {
+            return Ok(None);
+        };
+        let fallback_name = summary
+            .names
+            .as_ref()
+            .and_then(|names| names.first())
+            .cloned()
+            .unwrap_or_else(|| id.chars().take(12).collect());
+        let mut ports = summary
+            .ports
+            .unwrap_or_default()
+            .into_iter()
+            .map(|port| RuntimePort {
+                container_port: port.private_port,
+                host_ip: port.ip.filter(|ip| !ip.is_empty()),
+                host_port: port.public_port,
+                protocol: port
+                    .typ
+                    .map(|protocol| protocol.to_string())
+                    .filter(|protocol| !protocol.is_empty())
+                    .unwrap_or_else(|| "tcp".to_owned()),
+            })
+            .collect::<Vec<_>>();
+        ports.sort_by(|left, right| {
+            (left.container_port, &left.protocol, left.host_port).cmp(&(
+                right.container_port,
+                &right.protocol,
+                right.host_port,
+            ))
+        });
+        let fallback_state = summary.state.unwrap_or_default();
+        let status = summary.status.unwrap_or_else(|| fallback_state.clone());
+        let inspected = match self.docker.inspect_container(&id, None).await {
+            Ok(inspected) => inspected,
+            Err(error) if is_not_found(&error) => return Ok(None),
+            Err(error) => return Err(error.into()),
+        };
+        let state = inspected
+            .state
+            .as_ref()
+            .and_then(|state| state.status)
+            .map(|status| status.to_string())
+            .unwrap_or(fallback_state);
+        let health = inspected
+            .state
+            .as_ref()
+            .and_then(|state| state.health.as_ref())
+            .and_then(|health| health.status)
+            .map(|status| status.to_string())
+            .filter(|status| !status.is_empty() && status != "none");
+        let (cpu_percentage, memory_usage_bytes) = if state == "running" {
+            self.container_stats(&id).await
+        } else {
+            (None, None)
+        };
+        let host_config = inspected.host_config.as_ref();
+        let managed = inspected
+            .config
+            .as_ref()
+            .and_then(|config| config.labels.as_ref())
+            .and_then(|labels| labels.get(MANAGED_LABEL))
+            .is_some_and(|value| value == "true");
+
+        Ok(Some(RuntimeContainer {
+            id,
+            name: inspected
+                .name
+                .unwrap_or(fallback_name)
+                .trim_start_matches('/')
+                .to_owned(),
+            image: summary.image.unwrap_or_default(),
+            state,
+            status,
+            health,
+            ports,
+            restart_count: inspected.restart_count.unwrap_or_default(),
+            cpu_percentage,
+            memory_usage_bytes,
+            cpu_limit_nano_cpus: host_config.and_then(|config| config.nano_cpus),
+            memory_limit_bytes: host_config.and_then(|config| config.memory),
+            managed,
+        }))
+    }
+
     #[cfg(test)]
     fn docker(&self) -> &Docker {
         &self.docker
     }
 
-    fn container_name(deployment: &DeploymentRecord) -> String {
+    fn container_name(deployment: &RuntimeDeployment) -> String {
         format!(
             "ignitify-svc-{}-g{}",
             deployment.service_id, deployment.generation
         )
+    }
+
+    async fn container_stats(&self, id: &str) -> (Option<f64>, Option<i64>) {
+        let mut stats = self.docker.stats(
+            id,
+            Some(StatsOptions {
+                stream: false,
+                one_shot: false,
+            }),
+        );
+        let Some(Ok(stats)) = stats.next().await else {
+            return (None, None);
+        };
+
+        let cpu_delta = stats
+            .cpu_stats
+            .cpu_usage
+            .total_usage
+            .saturating_sub(stats.precpu_stats.cpu_usage.total_usage);
+        let system_delta = stats
+            .cpu_stats
+            .system_cpu_usage
+            .unwrap_or_default()
+            .saturating_sub(stats.precpu_stats.system_cpu_usage.unwrap_or_default());
+        let cpu_count = stats
+            .cpu_stats
+            .online_cpus
+            .or_else(|| {
+                stats
+                    .cpu_stats
+                    .cpu_usage
+                    .percpu_usage
+                    .as_ref()
+                    .and_then(|cpus| u64::try_from(cpus.len()).ok())
+            })
+            .unwrap_or(1);
+        let cpu_percentage = (cpu_delta > 0 && system_delta > 0)
+            .then(|| (cpu_delta as f64 / system_delta as f64) * cpu_count as f64 * 100.0);
+        let memory_usage_bytes = stats
+            .memory_stats
+            .usage
+            .and_then(|usage| i64::try_from(usage).ok());
+
+        (cpu_percentage, memory_usage_bytes)
     }
 }
 
@@ -106,16 +260,24 @@ impl RuntimeHealth for DockerRuntime {
             })
         })
     }
+
+    fn container_inventory(
+        &self,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Option<Vec<RuntimeContainer>>> + Send + '_>,
+    > {
+        Box::pin(async move { self.containers().await.ok() })
+    }
 }
 
 impl ImageRuntime for DockerRuntime {
-    fn runtime_ref(&self, deployment: &DeploymentRecord) -> String {
+    fn runtime_ref(&self, deployment: &RuntimeDeployment) -> String {
         Self::container_name(deployment)
     }
 
     async fn start(
         &self,
-        deployment: &DeploymentRecord,
+        deployment: &RuntimeDeployment,
         environment: Vec<String>,
     ) -> std::result::Result<String, ControlError> {
         self.start_with_routes(deployment, environment, Vec::new())
@@ -124,13 +286,11 @@ impl ImageRuntime for DockerRuntime {
 
     async fn reconcile_routes(
         &self,
-        deployment: &DeploymentRecord,
+        deployment: &RuntimeDeployment,
+        runtime_ref: &str,
         environment: Vec<String>,
         routes: Vec<IngressRoute>,
     ) -> std::result::Result<bool, ControlError> {
-        let Some(runtime_ref) = deployment.runtime_ref.as_deref() else {
-            return Ok(false);
-        };
         let observation = self.inspect(deployment, runtime_ref).await?;
         if !observation.owned {
             return Ok(false);
@@ -157,7 +317,7 @@ impl ImageRuntime for DockerRuntime {
 
     async fn inspect(
         &self,
-        deployment: &DeploymentRecord,
+        deployment: &RuntimeDeployment,
         runtime_ref: &str,
     ) -> std::result::Result<RuntimeObservation, ControlError> {
         let inspected = match self.docker.inspect_container(runtime_ref, None).await {
@@ -208,7 +368,7 @@ impl ImageRuntime for DockerRuntime {
         &self,
         runtime_ref: &str,
         since: i64,
-    ) -> std::result::Result<Vec<NewDeploymentLog>, ControlError> {
+    ) -> std::result::Result<Vec<RuntimeLog>, ControlError> {
         let mut logs = self.docker.logs(
             runtime_ref,
             Some(bollard::container::LogsOptions::<String> {
@@ -231,7 +391,7 @@ impl ImageRuntime for DockerRuntime {
                 | bollard::container::LogOutput::Console { .. } => "system",
             };
             for line in log.to_string().lines() {
-                records.push(NewDeploymentLog {
+                records.push(RuntimeLog {
                     stream: stream.to_owned(),
                     line: line.to_owned(),
                 });
@@ -244,7 +404,7 @@ impl ImageRuntime for DockerRuntime {
 impl DockerRuntime {
     async fn start_with_routes(
         &self,
-        deployment: &DeploymentRecord,
+        deployment: &RuntimeDeployment,
         environment: Vec<String>,
         routes: Vec<IngressRoute>,
     ) -> std::result::Result<String, ControlError> {
@@ -501,14 +661,13 @@ pub type Result<T> = std::result::Result<T, Error>;
 mod tests {
     use std::env;
 
+    use super::{DockerRuntime, GENERATION_LABEL, MANAGED_LABEL, SERVICE_LABEL};
     use bollard::{
         container::{InspectContainerOptions, RemoveContainerOptions},
         models::HostConfig,
     };
     use ignitify_control_plane::ImageRuntime;
-    use ignitify_domain::{DeploymentId, DeploymentState, ServiceId, ServiceSpec};
-
-    use super::{DockerRuntime, GENERATION_LABEL, MANAGED_LABEL, SERVICE_LABEL};
+    use ignitify_domain::{DeploymentId, ServiceId, ServiceSpec};
 
     fn docker_test_enabled() -> bool {
         env::var("IGNITIFY_DOCKER_TEST").is_ok_and(|value| value == "1")
@@ -522,25 +681,16 @@ mod tests {
         let runtime = DockerRuntime::from_environment().unwrap();
         runtime.ping().await.unwrap();
         let service_id = ServiceId::new(uuid::Uuid::new_v4().to_string()).unwrap();
-        let deployment = ignitify_db::DeploymentRecord {
+        let deployment = ignitify_control_plane::RuntimeDeployment {
             id: DeploymentId::new(uuid::Uuid::new_v4().to_string()).unwrap(),
             service_id: service_id.clone(),
             generation: 1,
-            idempotency_key: "docker-test".to_owned(),
-            requested_by_user_id: uuid::Uuid::new_v4().to_string(),
             spec: ServiceSpec::image(
                 "caddy:2.11.4-alpine@sha256:98eb57d882ccd5213d1688764db10c1ca2c58a1ca3a6717a3411ad798f7a423a",
                 Some(80),
                 None,
             )
             .unwrap(),
-            variables_ciphertext: "unused".to_owned(),
-            runtime_ref: None,
-            state: DeploymentState::Queued,
-            failure_reason: None,
-            created_at: "2026-01-01T00:00:00Z".to_owned(),
-            started_at: None,
-            finished_at: None,
         };
         let runtime_ref = runtime.start(&deployment, vec![]).await.unwrap();
         let result = async {

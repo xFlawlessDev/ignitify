@@ -2,6 +2,8 @@
 set -eu
 
 umask 077
-: > /letsencrypt/acme.json
+if [ ! -e /letsencrypt/acme.json ]; then
+  : > /letsencrypt/acme.json
+fi
 chmod 0600 /letsencrypt/acme.json
 exec /entrypoint.sh "$@"

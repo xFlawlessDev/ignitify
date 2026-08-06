@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{future::Future, sync::Arc};
 
 use age::secrecy::ExposeSecret;
 use argon2::{
@@ -13,7 +13,8 @@ use futures_util::StreamExt;
 use http_body_util::BodyExt;
 use ignitify_auth::AuthConfig;
 use ignitify_control_plane::{
-    ControlHandle, HostRuntimeMetrics, ServiceControl, StaticRuntimeHealth,
+    ControlHandle, HostRuntimeMetrics, RuntimeContainer, RuntimePort, ServiceControl,
+    StaticRuntimeHealth,
 };
 use ignitify_db::{DatabaseConfig, ProjectActor, UserRole as DatabaseUserRole};
 use ignitify_domain::ProjectMemberRole;
@@ -42,8 +43,8 @@ async fn state() -> AppState {
     AppState {
         auth,
         database,
-        services,
-        control,
+        services: Some(services),
+        control: Some(control),
         runtime_health: Arc::new(StaticRuntimeHealth(true)),
         worker_health: Arc::new(StaticRuntimeHealth(true)),
         secure_cookies: false,
@@ -52,7 +53,7 @@ async fn state() -> AppState {
 }
 
 #[tokio::test]
-async fn health_reports_unavailable_when_docker_is_unready() {
+async fn health_reports_database_ready_when_runtime_is_unavailable() {
     let mut state = state().await;
     state.runtime_health = Arc::new(StaticRuntimeHealth(false));
     let app = router(
@@ -71,7 +72,7 @@ async fn health_reports_unavailable_when_docker_is_unready() {
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(response.status(), StatusCode::OK);
 }
 
 async fn session_token(state: &AppState) -> String {
@@ -261,7 +262,7 @@ async fn deployment_route_rejects_invalid_idempotency_key() {
             "POST",
             &format!("/api/v1/projects/{}/services", project["id"].as_str().unwrap()),
             Some(&token),
-            r#"{"name":"web","image_reference":"nginx@sha256:deadbeef","internal_port":null,"healthcheck":null,"variables":[]}"#,
+            r#"{"name":"web","image_reference":"nginx@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","internal_port":null,"healthcheck":null,"variables":[]}"#,
         ))
         .await
         .unwrap()
@@ -328,7 +329,7 @@ async fn deployment_events_replay_durable_rows_and_keep_unauthorized_hidden() {
                 project["id"].as_str().unwrap()
             ),
             Some(&token),
-            r#"{"name":"web","image_reference":"nginx@sha256:deadbeef","internal_port":8080,"healthcheck":null,"variables":[]}"#,
+            r#"{"name":"web","image_reference":"nginx@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","internal_port":8080,"healthcheck":null,"variables":[]}"#,
         ))
         .await
         .unwrap()
@@ -424,7 +425,7 @@ async fn domain_routes_require_service_port_and_exact_confirmation() {
                 project["id"].as_str().unwrap()
             ),
             Some(&token),
-            r#"{"name":"web","image_reference":"nginx@sha256:deadbeef","internal_port":8080,"healthcheck":null,"variables":[]}"#,
+            r#"{"name":"web","image_reference":"nginx@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","internal_port":8080,"healthcheck":null,"variables":[]}"#,
         ))
         .await
         .unwrap()
@@ -516,7 +517,7 @@ async fn service_routes_encrypt_variables_and_enforce_access() {
             "POST",
             &format!("/api/v1/projects/{project_id}/services"),
             Some(&token),
-            r#"{"name":"web","image_reference":"nginx@sha256:deadbeef","internal_port":8080,"healthcheck":["/health"],"variables":[{"key":"TOKEN","value":"plain-secret","is_secret":true},{"key":"PORT","value":"8080","is_secret":false}]}"#,
+            r#"{"name":"web","image_reference":"nginx@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","internal_port":8080,"healthcheck":["/health"],"variables":[{"key":"TOKEN","value":"plain-secret","is_secret":true},{"key":"PORT","value":"8080","is_secret":false}]}"#,
         ))
         .await
         .unwrap();
@@ -584,7 +585,7 @@ async fn service_routes_encrypt_variables_and_enforce_access() {
             "PATCH",
             &format!("/api/v1/services/{service_id}"),
             Some(&viewer_token),
-            r#"{"name":"web","image_reference":"nginx@sha256:deadbeef","internal_port":8080,"healthcheck":null,"variables":[]}"#,
+            r#"{"name":"web","image_reference":"nginx@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","internal_port":8080,"healthcheck":null,"variables":[]}"#,
         ))
         .await
         .unwrap();
@@ -635,7 +636,7 @@ async fn dashboard_requires_auth_and_returns_safe_aggregate() {
             "POST",
             &format!("/api/v1/projects/{project_id}/services"),
             Some(&token),
-            r#"{"name":"web","image_reference":"nginx@sha256:deadbeef","internal_port":8080,"healthcheck":null,"variables":[{"key":"TOKEN","value":"plain-secret","is_secret":true}]}"#,
+            r#"{"name":"web","image_reference":"nginx@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","internal_port":8080,"healthcheck":null,"variables":[{"key":"TOKEN","value":"plain-secret","is_secret":true}]}"#,
         ))
         .await
         .unwrap();
@@ -654,7 +655,7 @@ async fn dashboard_requires_auth_and_returns_safe_aggregate() {
 }
 
 #[tokio::test]
-async fn activity_registry_webhook_and_terminal_contracts_are_safe() {
+async fn deferred_feature_routes_are_not_registered() {
     let state = state().await;
     let token = session_token(&state).await;
     let app = router(
@@ -667,128 +668,60 @@ async fn activity_registry_webhook_and_terminal_contracts_are_safe() {
         state.secure_cookies,
         state.trusted_origins.clone(),
     );
+
+    for uri in [
+        "/api/v1/registries",
+        "/api/v1/projects/not-a-project/webhooks",
+        "/api/v1/services/not-a-service/terminal/capability",
+    ] {
+        let response = app
+            .clone()
+            .oneshot(request("GET", uri, Some(&token), ""))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND, "{uri}");
+    }
+}
+
+#[tokio::test]
+async fn service_and_deployment_routes_fail_closed_without_capability() {
+    let mut state = state().await;
+    state.services = None;
+    state.control = None;
+    let token = session_token(&state).await;
+    let app = router(
+        state.auth.clone(),
+        state.database.clone(),
+        state.services.clone(),
+        state.control.clone(),
+        state.runtime_health.clone(),
+        state.worker_health.clone(),
+        state.secure_cookies,
+        state.trusted_origins.clone(),
+    );
+
     let project = app
         .clone()
         .oneshot(request(
             "POST",
             "/api/v1/projects",
             Some(&token),
-            r#"{"name":"Operations"}"#,
-        ))
-        .await
-        .unwrap()
-        .into_body()
-        .collect()
-        .await
-        .unwrap()
-        .to_bytes();
-    let project: serde_json::Value = serde_json::from_slice(&project).unwrap();
-    let project_id = project["id"].as_str().unwrap();
-
-    let activity = app
-        .clone()
-        .oneshot(request(
-            "GET",
-            &format!("/api/v1/projects/{project_id}/activity"),
-            Some(&token),
-            "",
+            r#"{"name":"Base"}"#,
         ))
         .await
         .unwrap();
-    assert_eq!(activity.status(), StatusCode::OK);
-    let activity = activity.into_body().collect().await.unwrap().to_bytes();
-    assert!(String::from_utf8_lossy(&activity).contains("project.create"));
-
-    let registry = app
-        .clone()
-        .oneshot(request(
-            "POST",
-            "/api/v1/registries",
-            Some(&token),
-            r#"{"name":"private","endpoint":"https://registry.example.com","username":"deploy","credential":"secret"}"#,
-        ))
-        .await
-        .unwrap();
-    assert_eq!(registry.status(), StatusCode::CREATED);
-    let registry = registry.into_body().collect().await.unwrap().to_bytes();
-    assert!(String::from_utf8_lossy(&registry).contains("credential_configured"));
-    assert!(!String::from_utf8_lossy(&registry).contains("secret"));
-    let registry: serde_json::Value = serde_json::from_slice(&registry).unwrap();
-    let wrong_registry_confirmation = app
-        .clone()
-        .oneshot(request(
-            "DELETE",
-            &format!("/api/v1/registries/{}", registry["id"].as_str().unwrap()),
-            Some(&token),
-            r#"{"confirm_name":"wrong"}"#,
-        ))
-        .await
-        .unwrap();
-    assert_eq!(
-        wrong_registry_confirmation.status(),
-        StatusCode::BAD_REQUEST
-    );
-
-    let webhook = app
-        .clone()
-        .oneshot(request(
-            "POST",
-            &format!("/api/v1/projects/{project_id}/webhooks"),
-            Some(&token),
-            r#"{"name":"deploy","url":"https://hooks.example.com/deploy","secret":"secret"}"#,
-        ))
-        .await
-        .unwrap();
-    assert_eq!(webhook.status(), StatusCode::CREATED);
-    let webhook = webhook.into_body().collect().await.unwrap().to_bytes();
-    assert!(String::from_utf8_lossy(&webhook).contains("secret_configured"));
-    assert!(!String::from_utf8_lossy(&webhook).contains("secret\""));
-    let webhook: serde_json::Value = serde_json::from_slice(&webhook).unwrap();
-    let wrong_webhook_confirmation = app
-        .clone()
-        .oneshot(request(
-            "DELETE",
-            &format!("/api/v1/webhooks/{}", webhook["id"].as_str().unwrap()),
-            Some(&token),
-            r#"{"confirm_name":"wrong"}"#,
-        ))
-        .await
-        .unwrap();
-    assert_eq!(wrong_webhook_confirmation.status(), StatusCode::BAD_REQUEST);
-
+    assert_eq!(project.status(), StatusCode::CREATED);
     let service = app
-        .clone()
-        .oneshot(request(
-            "POST",
-            &format!("/api/v1/projects/{project_id}/services"),
-            Some(&token),
-            r#"{"name":"web","image_reference":"nginx@sha256:deadbeef","internal_port":8080,"healthcheck":null,"variables":[]}"#,
-        ))
-        .await
-        .unwrap()
-        .into_body()
-        .collect()
-        .await
-        .unwrap()
-        .to_bytes();
-    let service: serde_json::Value = serde_json::from_slice(&service).unwrap();
-    let terminal = app
         .oneshot(request(
             "GET",
-            &format!(
-                "/api/v1/services/{}/terminal/capability",
-                service["id"].as_str().unwrap()
-            ),
+            "/api/v1/projects/not-a-project/services",
             Some(&token),
             "",
         ))
         .await
         .unwrap();
-    assert_eq!(terminal.status(), StatusCode::OK);
-    let terminal = terminal.into_body().collect().await.unwrap().to_bytes();
-    assert!(String::from_utf8_lossy(&terminal).contains("\"available\":false"));
+    assert_eq!(service.status(), StatusCode::SERVICE_UNAVAILABLE);
 }
-
 #[tokio::test]
 async fn runtime_status_requires_auth_and_reports_component_state() {
     let mut state = state().await;
@@ -830,21 +763,20 @@ async fn runtime_status_returns_available_host_metrics() {
     struct MetricsHealth;
 
     impl ignitify_control_plane::RuntimeHealth for MetricsHealth {
-        fn ready(&self) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + '_>> {
+        fn ready(&self) -> std::pin::Pin<Box<dyn Future<Output = bool> + Send + '_>> {
             Box::pin(std::future::ready(true))
         }
 
         fn host_metrics(
             &self,
-        ) -> std::pin::Pin<
-            Box<dyn std::future::Future<Output = Option<HostRuntimeMetrics>> + Send + '_>,
-        > {
+        ) -> std::pin::Pin<Box<dyn Future<Output = Option<HostRuntimeMetrics>> + Send + '_>>
+        {
             Box::pin(std::future::ready(Some(HostRuntimeMetrics {
                 containers: 4,
-                containers_running: 2,
-                images: 7,
-                cpus: 8,
-                memory_bytes: 16,
+                containers_running: 3,
+                images: 9,
+                cpus: 2,
+                memory_bytes: 1_073_741_824,
             })))
         }
     }
@@ -869,5 +801,84 @@ async fn runtime_status_returns_available_host_metrics() {
         .unwrap();
     let body = response.into_body().collect().await.unwrap().to_bytes();
     let status: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(status["metrics"]["containers_running"], 2);
+    assert_eq!(status["metrics"]["containers_running"], 3);
+}
+
+#[tokio::test]
+async fn runtime_containers_requires_auth_and_returns_inventory() {
+    struct InventoryHealth;
+
+    impl ignitify_control_plane::RuntimeHealth for InventoryHealth {
+        fn ready(&self) -> std::pin::Pin<Box<dyn Future<Output = bool> + Send + '_>> {
+            Box::pin(std::future::ready(true))
+        }
+
+        fn container_inventory(
+            &self,
+        ) -> std::pin::Pin<Box<dyn Future<Output = Option<Vec<RuntimeContainer>>> + Send + '_>>
+        {
+            Box::pin(std::future::ready(Some(vec![RuntimeContainer {
+                id: "f0f0f0f0f0f0f0f0".to_owned(),
+                name: "web".to_owned(),
+                image: "nginx:latest".to_owned(),
+                state: "running".to_owned(),
+                status: "Up 2 minutes".to_owned(),
+                health: Some("healthy".to_owned()),
+                ports: vec![RuntimePort {
+                    container_port: 80,
+                    host_ip: Some("0.0.0.0".to_owned()),
+                    host_port: Some(8080),
+                    protocol: "tcp".to_owned(),
+                }],
+                restart_count: 2,
+                cpu_percentage: Some(1.25),
+                memory_usage_bytes: Some(67_108_864),
+                cpu_limit_nano_cpus: Some(1_000_000_000),
+                memory_limit_bytes: Some(536_870_912),
+                managed: true,
+            }])))
+        }
+    }
+
+    let mut state = state().await;
+    state.runtime_health = Arc::new(InventoryHealth);
+    let token = session_token(&state).await;
+    let app = router(
+        state.auth.clone(),
+        state.database.clone(),
+        state.services.clone(),
+        state.control.clone(),
+        state.runtime_health.clone(),
+        state.worker_health.clone(),
+        state.secure_cookies,
+        state.trusted_origins.clone(),
+    );
+
+    let unauthenticated = app
+        .clone()
+        .oneshot(request("GET", "/api/v1/runtime/containers", None, ""))
+        .await
+        .unwrap();
+    assert_eq!(unauthenticated.status(), StatusCode::UNAUTHORIZED);
+
+    let response = app
+        .oneshot(request(
+            "GET",
+            "/api/v1/runtime/containers",
+            Some(&token),
+            "",
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let inventory: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(inventory["containers"][0]["name"], "web");
+    assert_eq!(inventory["containers"][0]["status"], "Up 2 minutes");
+    assert_eq!(inventory["containers"][0]["state"], "running");
+    assert_eq!(inventory["containers"][0]["ports"][0]["host_port"], 8080);
+    assert_eq!(inventory["containers"][0]["ports"][0]["container_port"], 80);
+    assert_eq!(inventory["containers"][0]["health"], "healthy");
+    assert_eq!(inventory["containers"][0]["cpu_percentage"], 1.25);
+    assert_eq!(inventory["containers"][0]["memory_usage_bytes"], 67_108_864);
 }

@@ -5,16 +5,12 @@ import { RouterLink, useRoute } from "vue-router";
 import DeploymentLogsPanel from "@/components/project/DeploymentLogsPanel.vue";
 import ProjectActivityPanel from "@/components/project/ProjectActivityPanel.vue";
 import ProjectServiceList from "@/components/project/ProjectServiceList.vue";
-import ProjectWebhooksPanel from "@/components/project/ProjectWebhooksPanel.vue";
-import ProjectTerminalPanel from "@/components/project/ProjectTerminalPanel.vue";
 import ServiceDomainsPanel from "@/components/project/ServiceDomainsPanel.vue";
 import ServiceDialog from "@/components/project/ServiceDialog.vue";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useProject } from "@/composables/useProject";
 import { useProjectActivity } from "@/composables/useProjectActivity";
-import { useProjectWebhooks } from "@/composables/useProjectWebhooks";
-import { useTerminalCapability } from "@/composables/useTerminalCapability";
 import ProjectDeploymentTimeline from "@/components/project/ProjectDeploymentTimeline.vue";
 import { useDeployment } from "@/composables/useDeployment";
 import { useDeploymentStream } from "@/composables/useDeploymentStream";
@@ -35,8 +31,6 @@ const services = useService();
 const deployments = useDeployment();
 const domains = useDomains();
 const activity = useProjectActivity();
-const webhooks = useProjectWebhooks();
-const terminal = useTerminalCapability();
 const selectedDeploymentId = shallowRef<string | null>(null);
 const streamLogs = shallowRef<DeploymentLog[]>([]);
 const logStream = useDeploymentStream("", {
@@ -102,7 +96,6 @@ function load(projectId: string) {
     if (data.value) {
       void loadDeployments(data.value.id, generation);
       void activity.load(data.value.id);
-      void webhooks.load(data.value.id);
     }
   });
 }
@@ -165,9 +158,6 @@ watch(activeTab, (tab) => {
   } else {
     stream.stop();
     logStream.stop();
-  }
-  if (tab === "terminal" && serviceData.value[0]) {
-    void terminal.load(serviceData.value[0].id);
   }
 });
 onUnmounted(() => {
@@ -241,8 +231,6 @@ onUnmounted(() => {
             'domains',
             'deployments',
             'activity',
-            'webhooks',
-            'terminal',
             'settings',
           ]"
           :key="tab"
@@ -348,31 +336,6 @@ onUnmounted(() => {
         @retry="activity.load(data.id)"
       />
 
-      <ProjectWebhooksPanel
-        v-else-if="activeTab === 'webhooks'"
-        :can-manage="data.role === 'owner' || data.role === 'editor'"
-        :error="webhooks.error.value"
-        :loading="webhooks.loading.value"
-        :submitting="webhooks.submitting.value"
-        :webhooks="webhooks.data.value"
-        @create="(input) => webhooks.create(data.id, input)"
-        @remove="(webhook, confirmName) => webhooks.remove(webhook.id, confirmName)"
-        @retry="webhooks.load(data.id)"
-      />
-
-      <ProjectTerminalPanel
-        v-else-if="activeTab === 'terminal' && serviceData[0]"
-        :capability="terminal.data.value"
-        :error="terminal.error.value"
-        :loading="terminal.loading.value"
-        @retry="serviceData[0] && terminal.load(serviceData[0].id)"
-      />
-      <section
-        v-else-if="activeTab === 'terminal'"
-        class="mt-[22px] border border-border bg-card px-5 py-8 text-sm text-muted-foreground"
-      >
-        Create a service before opening terminal access.
-      </section>
 
       <form
         v-else-if="data.role === 'owner'"

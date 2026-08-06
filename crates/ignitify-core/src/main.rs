@@ -14,6 +14,13 @@ use tokio::net::TcpListener;
 
 use crate::error::{CoreError, Result};
 
+type RuntimeCapabilities = (
+    Option<ServiceControl>,
+    Option<ControlHandle>,
+    Arc<dyn ignitify_control_plane::RuntimeHealth>,
+    Arc<dyn ignitify_control_plane::RuntimeHealth>,
+);
+
 fn trusted_origins() -> Arc<[String]> {
     env_value("IGNITIFY_TRUSTED_ORIGINS")
         .map(|origins| {
@@ -29,18 +36,7 @@ fn trusted_origins() -> Arc<[String]> {
 }
 
 fn env_value(name: &str) -> Option<String> {
-    env::var(name).ok().or_else(|| match name {
-        "IGNITIFY_DATABASE_URL" => option_env!("IGNITIFY_DATABASE_URL").map(str::to_owned),
-        "IGNITIFY_JWT_SECRET" => option_env!("IGNITIFY_JWT_SECRET").map(str::to_owned),
-        "IGNITIFY_SECURE_COOKIES" => option_env!("IGNITIFY_SECURE_COOKIES").map(str::to_owned),
-        "IGNITIFY_TRUSTED_ORIGINS" => option_env!("IGNITIFY_TRUSTED_ORIGINS").map(str::to_owned),
-        "IGNITIFY_SECRETS_AGE_IDENTITY" => {
-            option_env!("IGNITIFY_SECRETS_AGE_IDENTITY").map(str::to_owned)
-        }
-        "IGNITIFY_DOCKER_BIN" => option_env!("IGNITIFY_DOCKER_BIN").map(str::to_owned),
-        "IGNITIFY_COMPOSE_ROOT" => option_env!("IGNITIFY_COMPOSE_ROOT").map(str::to_owned),
-        _ => None,
-    })
+    env::var(name).ok().filter(|value| !value.trim().is_empty())
 }
 
 fn required_env(name: &'static str) -> Result<String> {
@@ -49,6 +45,7 @@ fn required_env(name: &'static str) -> Result<String> {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let _ = dotenvy::dotenv();
     let database = Database::connect(&DatabaseConfig {
         url: env_value("IGNITIFY_DATABASE_URL").unwrap_or_else(|| DatabaseConfig::default().url),
     })
@@ -63,30 +60,36 @@ async fn main() -> Result<()> {
         },
     )
     .shared();
-    let secrets_identity = required_env("IGNITIFY_SECRETS_AGE_IDENTITY")?;
-    let services = ServiceControl::new(database.services(), &secrets_identity)?;
-    let (control, wake) = ControlHandle::new(database.deployments(), &secrets_identity)?;
-    let image_runtime = DockerRuntime::from_environment().map_err(|_| CoreError::DockerRuntime)?;
-    image_runtime
-        .ping()
-        .await
-        .map_err(|_| CoreError::DockerRuntime)?;
-    let compose_runtime = ComposeRuntime::from_paths(
-        env_value("IGNITIFY_DOCKER_BIN").map(Into::into),
-        env_value("IGNITIFY_COMPOSE_ROOT").map(Into::into),
-    )?;
-    let runtime = RuntimeSelector::new(image_runtime, compose_runtime);
-    let runtime_health = Arc::new(runtime.clone());
-    let (_worker, worker_ready) = spawn_worker(
-        database.deployments(),
-        database.domains(),
-        control.worker_cipher(),
-        runtime,
-        TraefikIngress,
-        control.worker_publisher(),
-        wake,
-    );
-    let worker_health = Arc::new(WorkerHealth(worker_ready));
+    let (services, control, runtime_health, worker_health): RuntimeCapabilities =
+        if let Some(secrets_identity) = env_value("IGNITIFY_SECRETS_AGE_IDENTITY") {
+            let services = ServiceControl::new(database.services(), &secrets_identity)?;
+            let (control, wake) = ControlHandle::new(database.deployments(), &secrets_identity)?;
+            let image_runtime =
+                DockerRuntime::from_environment().map_err(|_| CoreError::DockerRuntime)?;
+            let compose_runtime = ComposeRuntime::from_paths(
+                env_value("IGNITIFY_DOCKER_BIN").map(Into::into),
+                env_value("IGNITIFY_COMPOSE_ROOT").map(Into::into),
+            )?;
+            let runtime = RuntimeSelector::new(image_runtime, compose_runtime);
+            let runtime_health: Arc<dyn ignitify_control_plane::RuntimeHealth> =
+                Arc::new(runtime.clone());
+            let (_worker, worker_ready) = spawn_worker(
+                database.deployments(),
+                database.domains(),
+                control.worker_cipher(),
+                runtime,
+                TraefikIngress,
+                control.worker_publisher(),
+                wake,
+            );
+            let worker_health: Arc<dyn ignitify_control_plane::RuntimeHealth> =
+                Arc::new(WorkerHealth(worker_ready));
+            (Some(services), Some(control), runtime_health, worker_health)
+        } else {
+            let unavailable: Arc<dyn ignitify_control_plane::RuntimeHealth> =
+                Arc::new(ignitify_control_plane::StaticRuntimeHealth(false));
+            (None, None, unavailable.clone(), unavailable)
+        };
     let app = ignitify_api::router(
         auth,
         database,

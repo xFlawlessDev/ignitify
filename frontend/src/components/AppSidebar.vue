@@ -1,17 +1,13 @@
 <script setup lang="ts">
 import {
-  Activity,
   Box,
   CircleHelp,
-  GitBranch,
+  Container,
   LayoutDashboard,
   LogOut,
   PanelLeftClose,
-  Server,
   Settings2,
-  Warehouse,
 } from "@lucide/vue";
-import { computed } from "vue";
 import { RouterLink, useRoute } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
 
@@ -28,19 +24,8 @@ const auth = useAuthStore();
 const primaryNavigation = [
   { label: "Overview", to: "/dashboard", icon: LayoutDashboard },
   { label: "Projects", to: "/projects", icon: Box },
+  { label: "Docker", to: "/containers", icon: Container },
 ];
-
-const operations = [
-  { label: "Deployments", icon: GitBranch },
-  { label: "Activity", icon: Activity },
-];
-
-const operationNavigation = computed(() =>
-  [
-    { label: "Servers", to: "/servers", icon: Server },
-    { label: "Registries", to: "/registries", icon: Warehouse, adminOnly: true },
-  ].filter((item) => !item.adminOnly || auth.isAdmin),
-);
 </script>
 
 <template>
@@ -102,49 +87,6 @@ const operationNavigation = computed(() =>
         <component :is="item.icon" class="shrink-0" :size="17" :stroke-width="1.6" />
         <span :class="collapsed ? 'md:hidden' : ''">{{ item.label }}</span>
       </RouterLink>
-    </nav>
-
-    <nav class="mt-[30px] grid gap-[3px]" aria-label="Operations">
-      <p
-        class="mx-2.5 mb-2 font-mono text-[9px] tracking-[0.12em] text-[var(--sidebar-label)] uppercase"
-        :class="collapsed ? 'md:hidden' : ''"
-      >
-        Operations
-      </p>
-      <RouterLink
-        v-for="item in operationNavigation"
-        :key="item.to"
-        :to="item.to"
-        class="flex min-h-[35px] w-full items-center gap-[11px] rounded-[4px] px-2.5 text-xs text-[var(--sidebar-muted)] hover:bg-[var(--sidebar-active)] hover:text-[var(--sidebar-strong)]"
-        :class="[
-          route.path === item.to
-            ? 'bg-[var(--sidebar-active)] text-[var(--sidebar-strong)] shadow-[inset_2px_0_0_var(--sidebar-accent)]'
-            : '',
-          collapsed ? 'md:justify-center md:px-0' : '',
-        ]"
-        :title="collapsed ? item.label : undefined"
-        @click="emit('close')"
-      >
-        <component :is="item.icon" class="shrink-0" :size="17" :stroke-width="1.6" />
-        <span :class="collapsed ? 'md:hidden' : ''">{{ item.label }}</span>
-      </RouterLink>
-      <button
-        v-for="item in operations"
-        :key="item.label"
-        class="flex min-h-[35px] w-full items-center gap-[11px] rounded-[4px] px-2.5 text-left text-xs text-[var(--sidebar-muted)] opacity-70 disabled:cursor-default"
-        :class="collapsed ? 'md:justify-center md:px-0' : ''"
-        type="button"
-        :title="collapsed ? item.label : undefined"
-        disabled
-      >
-        <component :is="item.icon" class="shrink-0" :size="17" :stroke-width="1.6" />
-        <span :class="collapsed ? 'md:hidden' : ''">{{ item.label }}</span>
-        <span
-          class="ml-auto font-mono text-[9px] text-[var(--sidebar-label)] uppercase"
-          :class="collapsed ? 'md:hidden' : ''"
-          >Soon</span
-        >
-      </button>
     </nav>
 
     <div class="mt-auto grid gap-[3px]">

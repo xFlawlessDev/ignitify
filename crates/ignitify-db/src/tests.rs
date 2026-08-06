@@ -148,9 +148,15 @@ async fn deployment_repository_enforces_idempotency_active_conflict_and_immutabl
                 is_admin: false,
             },
             project.id.as_str(),
-            ServiceInput::image("web", "nginx@sha256:deadbeef", Some(8080), None, vec![])
-                .unwrap()
-                .configuration,
+            ServiceInput::image(
+                "web",
+                "nginx@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                Some(8080),
+                None,
+                vec![],
+            )
+            .unwrap()
+            .configuration,
             vec![],
         )
         .await
@@ -280,9 +286,15 @@ async fn deployment_log_retention_keeps_newest_ten_thousand_rows() {
                 is_admin: false,
             },
             project.id.as_str(),
-            ServiceInput::image("web", "nginx@sha256:deadbeef", Some(8080), None, vec![])
-                .unwrap()
-                .configuration,
+            ServiceInput::image(
+                "web",
+                "nginx@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                Some(8080),
+                None,
+                vec![],
+            )
+            .unwrap()
+            .configuration,
             vec![],
         )
         .await
@@ -355,9 +367,15 @@ async fn domain_repository_enforces_hostname_uniqueness_role_and_confirmation() 
                 is_admin: false,
             },
             project.id.as_str(),
-            ServiceInput::image("web", "nginx@sha256:deadbeef", Some(8080), None, vec![])
-                .unwrap()
-                .configuration,
+            ServiceInput::image(
+                "web",
+                "nginx@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                Some(8080),
+                None,
+                vec![],
+            )
+            .unwrap()
+            .configuration,
             vec![],
         )
         .await
@@ -433,7 +451,7 @@ async fn service_repository_enforces_role_updates_generation_and_audits_without_
         .unwrap();
     let input = ServiceInput::image(
         "web",
-        "nginx@sha256:deadbeef",
+        "nginx@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         Some(8080),
         None,
         vec![ServiceVariableInput {
@@ -469,9 +487,15 @@ async fn service_repository_enforces_role_updates_generation_and_audits_without_
         .update(
             viewer,
             service.id.as_str(),
-            ServiceInput::image("web", "nginx@sha256:feedface", None, None, vec![])
-                .unwrap()
-                .configuration,
+            ServiceInput::image(
+                "web",
+                "nginx@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                None,
+                None,
+                vec![],
+            )
+            .unwrap()
+            .configuration,
             vec![],
         )
         .await
@@ -482,9 +506,15 @@ async fn service_repository_enforces_role_updates_generation_and_audits_without_
         .update(
             owner,
             service.id.as_str(),
-            ServiceInput::image("web", "nginx@sha256:feedface", None, None, vec![])
-                .unwrap()
-                .configuration,
+            ServiceInput::image(
+                "web",
+                "nginx@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                None,
+                None,
+                vec![],
+            )
+            .unwrap()
+            .configuration,
             vec![],
         )
         .await

@@ -496,12 +496,72 @@ pub enum DeploymentSubmission {
     ActiveConflict,
 }
 
+/// Runtime-only deployment data. Adapters never receive persistence records or ciphertext.
+#[derive(Debug, Clone)]
+pub struct RuntimeDeployment {
+    pub id: ignitify_domain::DeploymentId,
+    pub service_id: ServiceId,
+    pub generation: i64,
+    pub spec: ServiceSpec,
+}
+
+impl From<&DeploymentRecord> for RuntimeDeployment {
+    fn from(deployment: &DeploymentRecord) -> Self {
+        Self {
+            id: deployment.id.clone(),
+            service_id: deployment.service_id.clone(),
+            generation: deployment.generation,
+            spec: deployment.spec.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct RuntimeLog {
+    pub stream: String,
+    pub line: String,
+}
+
+impl From<RuntimeLog> for ignitify_db::NewDeploymentLog {
+    fn from(log: RuntimeLog) -> Self {
+        Self {
+            stream: log.stream,
+            line: log.line,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct RuntimeObservation {
     pub owned: bool,
     pub running: bool,
     pub healthy: Option<bool>,
     pub health_failing: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimePort {
+    pub container_port: u16,
+    pub host_ip: Option<String>,
+    pub host_port: Option<u16>,
+    pub protocol: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RuntimeContainer {
+    pub id: String,
+    pub name: String,
+    pub image: String,
+    pub state: String,
+    pub status: String,
+    pub health: Option<String>,
+    pub ports: Vec<RuntimePort>,
+    pub restart_count: i64,
+    pub cpu_percentage: Option<f64>,
+    pub memory_usage_bytes: Option<i64>,
+    pub cpu_limit_nano_cpus: Option<i64>,
+    pub memory_limit_bytes: Option<i64>,
+    pub managed: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -519,6 +579,12 @@ pub trait RuntimeHealth: Send + Sync {
     fn host_metrics(
         &self,
     ) -> Pin<Box<dyn Future<Output = Option<HostRuntimeMetrics>> + Send + '_>> {
+        Box::pin(std::future::ready(None))
+    }
+
+    fn container_inventory(
+        &self,
+    ) -> Pin<Box<dyn Future<Output = Option<Vec<RuntimeContainer>>> + Send + '_>> {
         Box::pin(std::future::ready(None))
     }
 }
@@ -556,39 +622,41 @@ pub trait Ingress: Send + Sync + 'static {
 }
 
 pub trait ImageRuntime: Send + Sync + 'static {
-    fn runtime_ref(&self, deployment: &DeploymentRecord) -> String;
+    fn runtime_ref(&self, deployment: &RuntimeDeployment) -> String;
 
     fn start(
         &self,
-        deployment: &DeploymentRecord,
+        deployment: &RuntimeDeployment,
         environment: Vec<String>,
-    ) -> impl std::future::Future<Output = Result<String>> + Send;
+    ) -> impl Future<Output = Result<String>> + Send;
 
     fn inspect(
         &self,
-        deployment: &DeploymentRecord,
+        deployment: &RuntimeDeployment,
         runtime_ref: &str,
-    ) -> impl std::future::Future<Output = Result<RuntimeObservation>> + Send;
+    ) -> impl Future<Output = Result<RuntimeObservation>> + Send;
 
     fn stop(
         &self,
         runtime_ref: &str,
         service_id: &str,
         generation: i64,
-    ) -> impl std::future::Future<Output = Result<bool>> + Send;
+    ) -> impl Future<Output = Result<bool>> + Send;
 
     fn logs(
         &self,
         runtime_ref: &str,
         since: i64,
-    ) -> impl std::future::Future<Output = Result<Vec<ignitify_db::NewDeploymentLog>>> + Send;
+    ) -> impl Future<Output = Result<Vec<RuntimeLog>>> + Send;
 
     fn reconcile_routes(
         &self,
-        _deployment: &DeploymentRecord,
-        _environment: Vec<String>,
-        _routes: Vec<IngressRoute>,
-    ) -> impl std::future::Future<Output = Result<bool>> + Send {
+        deployment: &RuntimeDeployment,
+        runtime_ref: &str,
+        environment: Vec<String>,
+        routes: Vec<IngressRoute>,
+    ) -> impl Future<Output = Result<bool>> + Send {
+        let _ = (deployment, runtime_ref, environment, routes);
         async { Ok(true) }
     }
 }
@@ -619,6 +687,12 @@ where
     ) -> Pin<Box<dyn Future<Output = Option<HostRuntimeMetrics>> + Send + '_>> {
         self.image.host_metrics()
     }
+
+    fn container_inventory(
+        &self,
+    ) -> Pin<Box<dyn Future<Output = Option<Vec<RuntimeContainer>>> + Send + '_>> {
+        self.image.container_inventory()
+    }
 }
 
 impl<I, C> ImageRuntime for RuntimeSelector<I, C>
@@ -626,7 +700,7 @@ where
     I: ImageRuntime,
     C: ImageRuntime,
 {
-    fn runtime_ref(&self, deployment: &DeploymentRecord) -> String {
+    fn runtime_ref(&self, deployment: &RuntimeDeployment) -> String {
         match &deployment.spec {
             ServiceSpec::Image { .. } => self.image.runtime_ref(deployment),
             ServiceSpec::Compose { .. } => self.compose.runtime_ref(deployment),
@@ -635,7 +709,7 @@ where
 
     async fn start(
         &self,
-        deployment: &DeploymentRecord,
+        deployment: &RuntimeDeployment,
         environment: Vec<String>,
     ) -> Result<String> {
         match &deployment.spec {
@@ -646,7 +720,7 @@ where
 
     async fn inspect(
         &self,
-        deployment: &DeploymentRecord,
+        deployment: &RuntimeDeployment,
         runtime_ref: &str,
     ) -> Result<RuntimeObservation> {
         match &deployment.spec {
@@ -663,11 +737,7 @@ where
         }
     }
 
-    async fn logs(
-        &self,
-        runtime_ref: &str,
-        since: i64,
-    ) -> Result<Vec<ignitify_db::NewDeploymentLog>> {
+    async fn logs(&self, runtime_ref: &str, since: i64) -> Result<Vec<RuntimeLog>> {
         if runtime_ref.starts_with("ignitify-svc-") {
             self.image.logs(runtime_ref, since).await
         } else {
@@ -677,19 +747,20 @@ where
 
     async fn reconcile_routes(
         &self,
-        deployment: &DeploymentRecord,
+        deployment: &RuntimeDeployment,
+        runtime_ref: &str,
         environment: Vec<String>,
         routes: Vec<IngressRoute>,
     ) -> Result<bool> {
         match &deployment.spec {
             ServiceSpec::Image { .. } => {
                 self.image
-                    .reconcile_routes(deployment, environment, routes)
+                    .reconcile_routes(deployment, runtime_ref, environment, routes)
                     .await
             }
             ServiceSpec::Compose { .. } => {
                 self.compose
-                    .reconcile_routes(deployment, environment, routes)
+                    .reconcile_routes(deployment, runtime_ref, environment, routes)
                     .await
             }
         }
@@ -772,7 +843,8 @@ where
             DeploymentState::Queued => {}
             DeploymentState::Preparing | DeploymentState::Running => {
                 if let Some(runtime_ref) = deployment.runtime_ref.as_deref() {
-                    let observation = runtime.inspect(&deployment, runtime_ref).await?;
+                    let runtime_deployment = RuntimeDeployment::from(&deployment);
+                    let observation = runtime.inspect(&runtime_deployment, runtime_ref).await?;
                     let became_healthy = advance_observed_deployment(
                         deployments,
                         runtime,
@@ -852,12 +924,13 @@ where
     publisher
         .publish_events(deployments, deployment.id.as_str())
         .await;
-    let predicted_runtime_ref = runtime.runtime_ref(&deployment);
+    let runtime_deployment = RuntimeDeployment::from(&deployment);
+    let predicted_runtime_ref = runtime.runtime_ref(&runtime_deployment);
     deployments
         .record_runtime_ref(deployment.id.as_str(), &predicted_runtime_ref)
         .await?;
     let environment = decrypt_deployment_environment(cipher, &deployment.variables_ciphertext)?;
-    let runtime_ref = match runtime.start(&deployment, environment).await {
+    let runtime_ref = match runtime.start(&runtime_deployment, environment).await {
         Ok(runtime_ref) => {
             deployments
                 .replace_runtime_ref(deployment.id.as_str(), &runtime_ref)
@@ -883,7 +956,7 @@ where
             predicted_runtime_ref
         }
     };
-    let observation = match runtime.inspect(&deployment, &runtime_ref).await {
+    let observation = match runtime.inspect(&runtime_deployment, &runtime_ref).await {
         Ok(observation) => observation,
         Err(error) => {
             tracing::warn!(deployment_id = %deployment.id, error = %error, "deployment runtime inspection uncertain");
@@ -934,7 +1007,15 @@ where
         .latest_log_since(deployment.id.as_str())
         .await?
         .unwrap_or(0);
-    let logs = redact_logs(runtime.logs(runtime_ref, since).await?, &values);
+    let logs = redact_logs(
+        runtime
+            .logs(runtime_ref, since)
+            .await?
+            .into_iter()
+            .map(ignitify_db::NewDeploymentLog::from)
+            .collect(),
+        &values,
+    );
     let inserted = deployments
         .append_logs(deployment.id.as_str(), &logs)
         .await?;
@@ -964,8 +1045,12 @@ where
         routes.push(ingress.route(&deployment.service_id, &domain.id, &domain.hostname, port)?);
     }
     let environment = decrypt_deployment_environment(cipher, &deployment.variables_ciphertext)?;
+    let runtime_deployment = RuntimeDeployment::from(deployment);
+    let Some(runtime_ref) = deployment.runtime_ref.as_deref() else {
+        return Ok(());
+    };
     let applied = runtime
-        .reconcile_routes(deployment, environment, routes)
+        .reconcile_routes(&runtime_deployment, runtime_ref, environment, routes)
         .await?;
     for domain in domain_records {
         domains
@@ -1384,13 +1469,13 @@ mod tests {
     }
 
     impl ImageRuntime for FakeRuntime {
-        fn runtime_ref(&self, deployment: &ignitify_db::DeploymentRecord) -> String {
+        fn runtime_ref(&self, deployment: &super::RuntimeDeployment) -> String {
             format!("runtime-{}", deployment.id)
         }
 
         async fn start(
             &self,
-            deployment: &ignitify_db::DeploymentRecord,
+            deployment: &super::RuntimeDeployment,
             _environment: Vec<String>,
         ) -> super::Result<String> {
             self.calls.lock().unwrap().push(deployment.id.to_string());
@@ -1399,7 +1484,7 @@ mod tests {
 
         async fn inspect(
             &self,
-            _deployment: &ignitify_db::DeploymentRecord,
+            _deployment: &super::RuntimeDeployment,
             _runtime_ref: &str,
         ) -> super::Result<super::RuntimeObservation> {
             Ok(super::RuntimeObservation {
@@ -1423,7 +1508,7 @@ mod tests {
             &self,
             _runtime_ref: &str,
             _since: i64,
-        ) -> super::Result<Vec<ignitify_db::NewDeploymentLog>> {
+        ) -> super::Result<Vec<super::RuntimeLog>> {
             Ok(vec![])
         }
     }
@@ -1446,8 +1531,14 @@ mod tests {
             .create(&actor_id, ProjectInput::new("Platform").unwrap())
             .await
             .unwrap();
-        let input =
-            ServiceInput::image("web", "nginx@sha256:deadbeef", Some(8080), None, vec![]).unwrap();
+        let input = ServiceInput::image(
+            "web",
+            "nginx@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            Some(8080),
+            None,
+            vec![],
+        )
+        .unwrap();
         let service = database
             .services()
             .create(

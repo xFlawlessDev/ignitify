@@ -1,5 +1,5 @@
 services:
   web:
-    image: nginx@sha256:deadbeef
+    image: nginx@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
     labels:
       traefik.enable: "true"

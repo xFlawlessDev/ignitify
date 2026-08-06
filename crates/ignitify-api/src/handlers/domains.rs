@@ -77,7 +77,7 @@ pub(crate) async fn create(
     require_same_origin_request(&state, &headers)?;
     let hostname = DomainName::new(input.hostname)?;
     let service = state
-        .services
+        .services()?
         .get(
             ignitify_db::ServiceActor {
                 id: &actor.id,
@@ -106,7 +106,7 @@ pub(crate) async fn create(
             return Err(ApiError::BadRequest("invalid domain operation"));
         }
     };
-    let _ = state.control.wake_worker();
+    let _ = state.control()?.wake_worker();
     Ok((axum::http::StatusCode::ACCEPTED, Json(record.into())))
 }
 
@@ -131,7 +131,7 @@ pub(crate) async fn remove(
             return Err(ApiError::BadRequest("invalid domain operation"));
         }
     };
-    let _ = state.control.wake_worker();
+    let _ = state.control()?.wake_worker();
     Ok((axum::http::StatusCode::ACCEPTED, Json(record.into())))
 }
 

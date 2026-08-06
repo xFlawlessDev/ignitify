@@ -6,7 +6,6 @@ license.workspace = true
 
 [dependencies]
 ignitify-control-plane = { path = "../ignitify-control-plane" }
-ignitify-db = { path = "../ignitify-db" }
 ignitify-domain = { path = "../ignitify-domain" }
 serde_json.workspace = true
 thiserror.workspace = true

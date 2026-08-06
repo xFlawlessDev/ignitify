@@ -16,14 +16,6 @@ pub enum DatabaseError {
     ProjectNameConflict,
     #[error("service name already exists")]
     ServiceNameConflict,
-    #[error("registry name already exists")]
-    RegistryNameConflict,
-    #[error("webhook name already exists in project")]
-    WebhookNameConflict,
-    #[error("registry removal confirmation does not match name")]
-    RegistryConfirmationMismatch,
-    #[error("webhook removal confirmation does not match name")]
-    WebhookConfirmationMismatch,
     #[error("invalid service kind: {0}")]
     InvalidServiceKind(String),
     #[error("invalid stored service specification: {0}")]

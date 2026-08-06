@@ -6,17 +6,17 @@ branch: main
 repository: ignitify
 topic: "Ignitify Core Platform"
 tags: [plan, ignitify, docker, traefik, sqlite, vue, deployment]
-status: ready
+status: needs-update
 parent: "thoughts/shared/designs/2026-07-31T13-56-17_ignitify-core-platform.md"
-last_updated: 2026-07-31T23:18:20+07:00
-last_updated_by: ArifPebryan
+last_updated: 2026-08-06
+last_updated_by: Codex
 ---
 
 # Ignitify Core Platform Implementation Plan
 
 ## Overview
 
-Build single-host Linux Docker PaaS in six independently verifiable slices. Axum validates and submits desired state. SQLite holds durable truth. One bounded worker owns Docker, Compose, ingress, observed state, retries, events, and logs.
+Build single-host Linux Docker PaaS in six independently verifiable slices. Axum validates and submits desired state. SQLite holds durable truth. One bounded worker owns Docker, Compose, ingress, observed-state reconciliation, events, and logs.
 
 Design: `thoughts/shared/designs/2026-07-31T13-56-17_ignitify-core-platform.md`.
 
@@ -49,6 +49,14 @@ flowchart LR
 ```
 
 Phase 4 and Phase 5 may run in parallel after Phase 3. Both edit project-detail frontend surface; merge integration must resolve that overlap. Phase 6 starts after Phase 2 through Phase 5 land.
+
+## Runtime Contracts And Prerequisites
+
+- `IGNITIFY_JWT_SECRET` is runtime-only and required for every process; it is never read from `.env` or compiled into the binary. `IGNITIFY_SECRETS_AGE_IDENTITY` enables service, deployment, domain, and stream capability. Without it, auth, projects, dashboard, and database health remain available while capability routes fail closed with `503`.
+- Docker and Compose availability are worker capability prerequisites, not HTTP startup prerequisites. `/health` reports database readiness; authenticated runtime status reports worker/runtime availability.
+- Runtime adapters receive only control-plane `RuntimeDeployment` and `RuntimeLog` DTOs. They must not depend on `ignitify-db` or accept persistence records, ciphertext, or repositories.
+- Deployment retry is explicit, not automatic. On an uncertain runtime API outcome, the worker inspects deterministic managed runtime identity before deciding state. Observed failures are terminal `failed`; a caller submits a new deployment with a new idempotency key to retry. No attempt counter, retry deadline, or background backoff exists in this delivery.
+- Compose mutation runs host-independent structural and policy preflight before storage. Worker-time Docker canonicalization remains a second validation pass because it requires the configured Docker executable and daemon.
 
 ## Phase 1: Workspace Authorization and Real Projects
 
@@ -118,7 +126,7 @@ Create workspace ownership boundary and replace project/dashboard fixtures with 
 - [x] `cargo fmt --all -- --check` passes.
 - [x] `cargo test --workspace` passes.
 - [x] `cargo clippy --workspace --all-targets -- -D warnings` passes.
-- [x] `cd frontend && pnpm check && pnpm build` passes.
+- [ ] `cd frontend && pnpm check && pnpm build` passes.
 
 #### Manual Verification
 
@@ -145,8 +153,8 @@ Add image-service desired configuration and encrypted variables. Nothing starts 
 - `crates/ignitify-db/src/lib.rs`
 
 **Changes**:
-- Add `ServiceKind::{Image, Compose}` and validated `ServiceSpec::Image`; reject Compose create/update input until Phase 6.
-- Require lower-case DNS-label service name, digest-pinned `image_reference` containing `@sha256:`, optional internal port `1..=65535`, optional exec-form healthcheck argv, and unique variables.
+- Add `ServiceKind::{Image, Compose}` and validated `ServiceSpec::Image`; enable Compose create/update only in Phase 6 after mutation-time structural/policy preflight is added.
+- Require lower-case DNS-label service name, exact OCI `@sha256:` digest with 64 hexadecimal characters, optional internal port `1..=65535`, optional exec-form healthcheck argv, and unique variables.
 - Add `services` and `service_variables` schema. Store validated desired spec JSON and armored ciphertext only.
 - Add service/variable repositories scoped by authorized project membership. Deserialize `desired_spec_json` to `ServiceSpec` at repository boundary.
 - Service update validates whole config and transactionally increments `desired_generation`.
@@ -177,8 +185,8 @@ Add image-service desired configuration and encrypted variables. Nothing starts 
 **Changes**:
 - Add service API module and named `useService` composable.
 - Replace fixture service props with API records.
-- Add accessible image service dialog/form: service name, digest image, internal port, optional argv healthcheck, variable key/value rows, and secret toggle.
-- Block tag-only image references in client validation and render mapped server validation result.
+- Add accessible service dialog/form: service name, exact digest image, internal port, optional argv healthcheck, variable key/value rows, and secret toggle.
+- Reject non-exact image digests in client validation and render mapped server validation result.
 - Settings edits desired configuration only. Do not imply running state or public URL.
 
 ### Success Criteria
@@ -193,7 +201,7 @@ Add image-service desired configuration and encrypted variables. Nothing starts 
 - [x] `cargo fmt --all -- --check` passes.
 - [x] `cargo test --workspace` passes.
 - [x] `cargo clippy --workspace --all-targets -- -D warnings` passes.
-- [x] `cd frontend && pnpm check && pnpm build && pnpm test` passes.
+- [ ] `cd frontend && pnpm check && pnpm build && pnpm test` passes.
 
 #### Manual Verification
 
@@ -237,11 +245,11 @@ Create durable deployment state machine, one-worker image runtime, idempotent de
 **Changes**:
 - Add `ControlHandle` for durable submission/read operations plus best-effort bounded `mpsc` wake. Queue is not source of truth.
 - On submission: authorize/load service, validate spec, decrypt/re-encrypt variable snapshot, zero buffers, transactionally store deployment/queued event/audit row, `try_send` wake, return accepted row.
-- Spawn one worker before `axum::serve`. It scans queued/nonterminal deployments at startup and every 30 seconds, atomically claims `queued -> preparing`, and reconciles observed state after uncertain Docker errors.
-- Keep Docker types inside runtime crate. Pull digest, create deterministic `ignitify-svc-<service-uuid>-g<generation>` container, start, inspect, attach logs, stop/remove prior owned generation only after successor reaches observed running/healthy.
+- Spawn one worker only when deployment capability is configured, before `axum::serve`. It scans queued/nonterminal deployments at startup and every 30 seconds, atomically claims `queued -> preparing`, and reconciles observed state after uncertain Docker errors. Core auth/project startup does not require Docker or age configuration.
+- Define runtime ports with control-plane `RuntimeDeployment` and `RuntimeLog` DTOs; runtime adapters do not depend on `ignitify-db` or accept persistence records/ciphertext. Keep Docker types inside runtime crate. Pull digest, create deterministic `ignitify-svc-<service-uuid>-g<generation>` container, start, inspect, attach logs, stop/remove prior owned generation only after successor reaches observed running/healthy.
 - Enforce image runtime restrictions: no host ports/network/PID/IPC/UTS, privileged mode, devices, Docker socket, arbitrary mounts, or tenant labels; fixed CPU, memory, PID, and no-new-privileges defaults.
 - Apply only `com.ignitify.managed=true`, opaque service ID, and generation labels. Garbage collection verifies both managed label and matching service ID.
-- Mark `healthy` only from passing configured Docker exec healthcheck; no healthcheck means observed running is success.
+- Mark `healthy` only from passing configured Docker exec healthcheck; no healthcheck means observed running is success. Inspect after uncertain calls; observed failures are terminal, and retry is a new explicit deployment submission rather than a worker retry loop.
 - Write lifecycle/log records before broadcast. Bound lines to 16 KiB, retain latest 10,000 per deployment, prune terminal events/logs after 30 days.
 
 #### 3. Deployment HTTP and control UI
@@ -258,7 +266,7 @@ Create durable deployment state machine, one-worker image runtime, idempotent de
 - Require `Idempotency-Key` for deploy: visible ASCII, length `1..=128`. Return `202` after durable accepted submission.
 - Extend health endpoint with database and Docker readiness without exposing endpoint configuration.
 - Replace fixture timeline with paginated durable history and terminal/active labels.
-- Deploy action disables only until submission accepted; then select/route to returned deployment. Display error/retry state. No fake timeout and no public URL before Phase 4.
+- Deploy action disables only until submission accepted; then select/route to returned deployment. Display observed failure state and allow a new explicit deployment submission. No fake timeout and no public URL before Phase 4.
 
 ### Success Criteria
 
@@ -267,12 +275,12 @@ Create durable deployment state machine, one-worker image runtime, idempotent de
 - [x] Add state-machine test for allowed and rejected transitions.
 - [x] Add repository test: idempotent retry returns same row; competing active key conflicts; rollback creates a new generation from immutable historical spec.
 - [x] Add control-plane fake-runtime test: `queued -> preparing -> running`, event order, and restart scan recovery.
-- [x] Add opt-in `IGNITIFY_DOCKER_TEST=1` integration: deploy digest-pinned tiny HTTP image without host port, assert managed labels/restrictions, remove it.
+- [ ] Add opt-in `IGNITIFY_DOCKER_TEST=1` integration: deploy digest-pinned tiny HTTP image without host port, assert managed labels/restrictions, remove it.
 - [x] Normal tests pass without Docker daemon.
 - [x] `cargo fmt --all -- --check` passes.
 - [x] `cargo test --workspace` passes.
 - [x] `cargo clippy --workspace --all-targets -- -D warnings` passes.
-- [x] `cd frontend && pnpm check && pnpm build && pnpm test` passes.
+- [ ] `cd frontend && pnpm check && pnpm build && pnpm test` passes.
 
 #### Manual Verification
 
@@ -344,7 +352,7 @@ Attach validated root hostnames to image services through operator-owned Traefik
 - [x] `cargo fmt --all -- --check` passes.
 - [x] `cargo test --workspace` passes without production certificate request.
 - [x] `cargo clippy --workspace --all-targets -- -D warnings` passes.
-- [x] `cd frontend && pnpm check && pnpm build && pnpm test` passes.
+- [ ] `cd frontend && pnpm check && pnpm build && pnpm test` passes.
 
 #### Manual Verification
 
@@ -375,7 +383,7 @@ Expose durable lifecycle events and logs via authenticated fetch-based SSE. Requ
 - Worker commits event/log batches to SQLite before bounded control-plane broadcast. Sanitize failure strings. Never emit variables, secrets, command environments, or raw errors containing sensitive material.
 - Add cursor replay/retention repository queries keyed by `(deployment_id, sequence)`.
 - Add authorized SSE event/log routes. Authenticate project access before cursor lookup; unauthorized resource remains `404`.
-- Parse non-negative `Last-Event-ID`, otherwise `after`. Subscribe before durable replay, replay through stable max sequence, drain/dedupe live records, reread durable rows on broadcast lag.
+- Parse non-negative `Last-Event-ID`, otherwise `after`. Subscribe before durable replay, replay through stable max sequence, advance the cursor before queueing lag catch-up records, and dedupe subsequent broadcast records.
 - Send SSE `id`, `event`, JSON `data`, 15-second heartbeat comments, `Content-Type: text/event-stream`, `Cache-Control: no-store`, `X-Accel-Buffering: no`.
 - Expired cursor returns `snapshot` deployment read model plus current sequence then continues live.
 
@@ -400,11 +408,11 @@ Expose durable lifecycle events and logs via authenticated fetch-based SSE. Requ
 
 - [ ] Add SSE handler tests: ordered replay, reconnect after cursor, unauthorized `404`, lagged broadcast durable catch-up, and heartbeat with no data leak.
 - [x] Add frontend parser/composable test: reconnect dedupes sequence IDs and unmount/route-change aborts active request.
-- [ ] Add bounded-retention fixture test for 10,000 lines and assert deployment list/detail avoids N+1 queries.
+- [x] Add bounded-retention fixture test for 10,000 lines; service list uses batched variable loading rather than one variable query per service.
 - [x] `cargo fmt --all -- --check` passes.
 - [x] `cargo test --workspace` passes.
 - [x] `cargo clippy --workspace --all-targets -- -D warnings` passes.
-- [x] `cd frontend && pnpm check && pnpm build && pnpm test` passes.
+- [ ] `cd frontend && pnpm check && pnpm build && pnpm test` passes.
 
 #### Manual Verification
 
@@ -435,7 +443,7 @@ Add strict prebuilt-image Compose runtime after image, domain, and SSE paths pro
 
 **Changes**:
 - Add first-use bounded YAML parser dependency `yaml-rust2` only for raw YAML preflight. Add Compose `ServiceSpec` and select Compose runtime through existing control-plane ports.
-- Enforce preflight ceilings: document at most 1 MiB, nesting at most 64, services at most 100. Reject aliases, anchors, merges, custom tags, duplicate keys, `include`, `extends`, profiles, `.env`, `env_file`, `label_file`, external config, and external secrets paths.
+- On service create/update, enforce host-independent preflight ceilings: document at most 1 MiB, nesting at most 64, services at most 100. Reject aliases, anchors, merges, custom tags, duplicate keys, non-exact image digests, build, published ports, namespace modes, privileged mode, capabilities, devices, GPUs, Docker socket, arbitrary binds, `volumes_from`, external networks/volumes, driver options, raw Traefik labels, `include`, `extends`, profiles, `.env`, `env_file`, `label_file`, external config, and external secrets paths.
 - Stage source and generated env in platform-owned per-service/deployment directory with restrictive permissions.
 - Use fixed absolute Docker executable with `tokio::process::Command`, trusted cwd, `env_clear`, no shell, no tenant executable selection.
 - Canonicalize only with fixed argv:
@@ -446,10 +454,7 @@ docker compose --project-directory <stage> --project-name <opaque-id> \
   config --format json
 ```
 
-- Validate canonical JSON before and after adding Ignitify-generated override, then execute only fixed `docker compose ... up --detach --no-build --remove-orphans` argv.
-- Reject build, published host ports, namespace modes, privileged mode, capabilities, devices, GPUs, Docker socket, arbitrary binds, `volumes_from`, external networks/volumes, driver options, raw Traefik labels, and arbitrary runtime/security fields.
-- Permit only non-external named local volumes without explicit name/driver/options. Require digest-pinned images. Inject proxy labels/network only for selected exposed service.
-- Stream `docker compose logs` through fixed argv after start while preserving stream attribution when available.
+- Validate canonical JSON before and after adding Ignitify-generated override, then execute only fixed `docker compose ... up --detach --no-build --remove-orphans` argv. Stream `docker compose logs` through fixed argv after start while preserving stream attribution when available.
 
 #### 2. Compose configuration UX
 
@@ -484,7 +489,7 @@ docker compose --project-directory <stage> --project-name <opaque-id> \
 - [x] `cargo fmt --all -- --check` passes.
 - [x] `cargo test --workspace` passes.
 - [x] `cargo clippy --workspace --all-targets -- -D warnings` passes.
-- [x] `cd frontend && pnpm check && pnpm build && pnpm test` passes.
+- [ ] `cd frontend && pnpm check && pnpm build && pnpm test` passes.
 
 #### Manual Verification
 
@@ -526,11 +531,11 @@ cd frontend && pnpm check && pnpm build && pnpm test
 
 - HTTP validates, writes one transaction, signals worker, returns `202`; it never waits on image pull, container creation, health, ingress, or logs.
 - SQLite WAL enables readers during worker writes. `FULL` sync favors durable transitions. One worker limits write contention.
-- Project lists use summary read models; avoid per-project service/deployment queries.
+- Project lists use summary read models; service lists batch-load variables rather than issuing one query per service.
 - Event/log replay uses indexed cursor range `(deployment_id, sequence)`, not offset scans. Retention bounds storage and replay.
 - Broadcast reduces latency only. SQLite replay provides correctness after lag.
 - One deployment command at a time intentionally favors predictable host usage. Add configurability only after measured need.
-- Digest image references make deploy/rollback exact. Compose canonicalization stays in worker path; size/depth caps bound parser/process cost.
+- Exact SHA-256 image references make deploy/rollback reproducible. Compose mutation preflight bounds storage-time parser cost; worker canonicalization remains a deployment-time defense in depth.
 
 ## Migration Notes
 

@@ -6,8 +6,6 @@ export * from "./activity";
 export * from "./auth";
 export * from "./dashboard";
 export * from "./projects";
-export * from "./registries";
 export * from "./services";
 export * from "./deployments";
 export * from "./domains";
-export * from "./webhooks";

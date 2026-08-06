@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 axum.workspace = true
+dotenvy.workspace = true
 ignitify-api = { path = "../ignitify-api" }
 ignitify-auth = { path = "../ignitify-auth" }
 ignitify-control-plane = { path = "../ignitify-control-plane" }

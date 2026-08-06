@@ -1,4 +1,4 @@
-import type { DashboardSummary, RuntimeStatus, TerminalCapability } from "../types";
+import type { DashboardSummary, RuntimeContainerInventory, RuntimeStatus } from "../types";
 import type { ApiResult } from "./core";
 import { apiFetch } from "./core";
 
@@ -10,10 +10,6 @@ export function apiGetRuntimeStatus(): Promise<ApiResult<RuntimeStatus>> {
   return apiFetch<RuntimeStatus>("/runtime/status");
 }
 
-export function apiGetTerminalCapability(
-  serviceId: string,
-): Promise<ApiResult<TerminalCapability>> {
-  return apiFetch<TerminalCapability>(
-    `/services/${encodeURIComponent(serviceId)}/terminal/capability`,
-  );
+export function apiGetRuntimeContainers(): Promise<ApiResult<RuntimeContainerInventory>> {
+  return apiFetch<RuntimeContainerInventory>("/runtime/containers");
 }

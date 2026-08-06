@@ -17,11 +17,12 @@ pub(crate) async fn health(
         .ping()
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    if !state.runtime_health.ready().await || !state.worker_health.ready().await {
-        return Err(StatusCode::SERVICE_UNAVAILABLE);
-    }
     Ok(Json(HealthResponse {
         database: "ready",
-        docker: "ready",
+        docker: if state.runtime_health.ready().await && state.worker_health.ready().await {
+            "ready"
+        } else {
+            "unavailable"
+        },
     }))
 }

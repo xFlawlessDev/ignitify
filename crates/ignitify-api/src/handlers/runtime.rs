@@ -20,6 +20,64 @@ pub(crate) struct RuntimeMetricsResponse {
     memory_bytes: i64,
 }
 
+#[derive(Debug, Serialize)]
+pub(crate) struct RuntimeContainersResponse {
+    containers: Option<Vec<RuntimeContainerResponse>>,
+}
+
+#[derive(Debug, Serialize)]
+struct RuntimePortResponse {
+    container_port: u16,
+    host_ip: Option<String>,
+    host_port: Option<u16>,
+    protocol: String,
+}
+#[derive(Debug, Serialize)]
+struct RuntimeContainerResponse {
+    id: String,
+    name: String,
+    image: String,
+    state: String,
+    status: String,
+    health: Option<String>,
+    ports: Vec<RuntimePortResponse>,
+    restart_count: i64,
+    cpu_percentage: Option<f64>,
+    memory_usage_bytes: Option<i64>,
+    cpu_limit_nano_cpus: Option<i64>,
+    memory_limit_bytes: Option<i64>,
+    managed: bool,
+}
+
+impl From<ignitify_control_plane::RuntimeContainer> for RuntimeContainerResponse {
+    fn from(container: ignitify_control_plane::RuntimeContainer) -> Self {
+        Self {
+            id: container.id,
+            name: container.name,
+            image: container.image,
+            state: container.state,
+            status: container.status,
+            ports: container
+                .ports
+                .into_iter()
+                .map(|port| RuntimePortResponse {
+                    container_port: port.container_port,
+                    host_ip: port.host_ip,
+                    host_port: port.host_port,
+                    protocol: port.protocol,
+                })
+                .collect(),
+            health: container.health,
+            restart_count: container.restart_count,
+            cpu_percentage: container.cpu_percentage,
+            memory_usage_bytes: container.memory_usage_bytes,
+            cpu_limit_nano_cpus: container.cpu_limit_nano_cpus,
+            memory_limit_bytes: container.memory_limit_bytes,
+            managed: container.managed,
+        }
+    }
+}
+
 pub(crate) async fn status(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -48,5 +106,20 @@ pub(crate) async fn status(
             cpus: metrics.cpus,
             memory_bytes: metrics.memory_bytes,
         }),
+    }))
+}
+
+pub(crate) async fn containers(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<RuntimeContainersResponse>, ApiError> {
+    require_actor(&state, &headers).await?;
+
+    Ok(Json(RuntimeContainersResponse {
+        containers: state
+            .runtime_health
+            .container_inventory()
+            .await
+            .map(|containers| containers.into_iter().map(Into::into).collect()),
     }))
 }

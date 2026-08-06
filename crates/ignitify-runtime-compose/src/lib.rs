@@ -6,9 +6,9 @@ use std::{
 };
 
 use ignitify_control_plane::{
-    Error as ControlError, ImageRuntime, IngressRoute, RuntimeHealth, RuntimeObservation,
+    Error as ControlError, ImageRuntime, IngressRoute, RuntimeDeployment, RuntimeHealth,
+    RuntimeLog, RuntimeObservation,
 };
-use ignitify_db::{DeploymentRecord, NewDeploymentLog};
 use ignitify_domain::ServiceSpec;
 use serde_json::Value;
 use tokio::{fs, process::Command};
@@ -65,14 +65,14 @@ impl ComposeRuntime {
             .is_ok_and(|output| output.status.success())
     }
 
-    fn project_name(deployment: &DeploymentRecord) -> String {
+    fn project_name(deployment: &RuntimeDeployment) -> String {
         format!(
             "ignitify-{}-g{}",
             deployment.service_id, deployment.generation
         )
     }
 
-    fn stage(&self, deployment: &DeploymentRecord) -> PathBuf {
+    fn stage(&self, deployment: &RuntimeDeployment) -> PathBuf {
         self.root
             .join(deployment.service_id.to_string())
             .join(deployment.generation.to_string())
@@ -96,7 +96,7 @@ impl ComposeRuntime {
 
     async fn prepare_stage(
         &self,
-        deployment: &DeploymentRecord,
+        deployment: &RuntimeDeployment,
         yaml: &str,
         environment: &[String],
     ) -> Result<PathBuf> {
@@ -234,7 +234,7 @@ impl ComposeRuntime {
     async fn write_override(
         &self,
         stage: &Path,
-        deployment: &DeploymentRecord,
+        deployment: &RuntimeDeployment,
         routes: &[IngressRoute],
     ) -> Result<()> {
         let ServiceSpec::Compose {
@@ -294,13 +294,13 @@ impl RuntimeHealth for ComposeRuntime {
 }
 
 impl ImageRuntime for ComposeRuntime {
-    fn runtime_ref(&self, deployment: &DeploymentRecord) -> String {
+    fn runtime_ref(&self, deployment: &RuntimeDeployment) -> String {
         Self::project_name(deployment)
     }
 
     async fn start(
         &self,
-        deployment: &DeploymentRecord,
+        deployment: &RuntimeDeployment,
         environment: Vec<String>,
     ) -> std::result::Result<String, ControlError> {
         let ServiceSpec::Compose {
@@ -336,7 +336,7 @@ impl ImageRuntime for ComposeRuntime {
 
     async fn inspect(
         &self,
-        deployment: &DeploymentRecord,
+        deployment: &RuntimeDeployment,
         runtime_ref: &str,
     ) -> std::result::Result<RuntimeObservation, ControlError> {
         if runtime_ref != Self::project_name(deployment) {
@@ -416,7 +416,7 @@ impl ImageRuntime for ComposeRuntime {
         &self,
         runtime_ref: &str,
         since: i64,
-    ) -> std::result::Result<Vec<NewDeploymentLog>, ControlError> {
+    ) -> std::result::Result<Vec<RuntimeLog>, ControlError> {
         let Some((service, generation)) = runtime_ref
             .strip_prefix("ignitify-")
             .and_then(|value| value.rsplit_once("-g"))
@@ -451,7 +451,8 @@ impl ImageRuntime for ComposeRuntime {
 
     async fn reconcile_routes(
         &self,
-        deployment: &DeploymentRecord,
+        deployment: &RuntimeDeployment,
+        _runtime_ref: &str,
         environment: Vec<String>,
         routes: Vec<IngressRoute>,
     ) -> std::result::Result<bool, ControlError> {
@@ -489,10 +490,10 @@ fn control_error(error: Error) -> ControlError {
     }
 }
 
-fn output_logs(output: &std::process::Output) -> Vec<NewDeploymentLog> {
+fn output_logs(output: &std::process::Output) -> Vec<RuntimeLog> {
     let mut logs = String::from_utf8_lossy(&output.stdout)
         .lines()
-        .map(|line| NewDeploymentLog {
+        .map(|line| RuntimeLog {
             stream: "stdout".to_owned(),
             line: line.to_owned(),
         })
@@ -500,7 +501,7 @@ fn output_logs(output: &std::process::Output) -> Vec<NewDeploymentLog> {
     logs.extend(
         String::from_utf8_lossy(&output.stderr)
             .lines()
-            .map(|line| NewDeploymentLog {
+            .map(|line| RuntimeLog {
                 stream: "stderr".to_owned(),
                 line: line.to_owned(),
             }),
@@ -543,6 +544,14 @@ async fn write_restricted(path: &Path, bytes: &[u8]) -> Result<()> {
             .map_err(Error::Io)?;
     }
     Ok(())
+}
+
+/// Performs host-independent Compose validation before desired configuration is persisted.
+pub fn validate_submission_yaml(source: &str) -> std::result::Result<(), &'static str> {
+    preflight_yaml(source).map_err(|error| match error {
+        Error::Policy(message) => message,
+        _ => "invalid YAML",
+    })
 }
 
 fn preflight_yaml(source: &str) -> Result<()> {
@@ -677,7 +686,22 @@ fn inspect_yaml(value: &Yaml, depth: usize, services: &mut usize) -> Result<()> 
                 }
                 if matches!(
                     key.as_str(),
-                    "include"
+                    "build"
+                        | "ports"
+                        | "network_mode"
+                        | "pid"
+                        | "ipc"
+                        | "uts"
+                        | "privileged"
+                        | "cap_add"
+                        | "cap_drop"
+                        | "devices"
+                        | "gpus"
+                        | "volumes_from"
+                        | "runtime"
+                        | "security_opt"
+                        | "sysctls"
+                        | "include"
                         | "extends"
                         | "profiles"
                         | "env_file"
@@ -686,29 +710,31 @@ fn inspect_yaml(value: &Yaml, depth: usize, services: &mut usize) -> Result<()> 
                         | "driver"
                         | "driver_opts"
                 ) {
-                    return Err(Error::Policy("unsupported Compose key"));
+                    return Err(Error::Policy("unsupported or unsafe Compose field"));
+                }
+                if key == "image" && !matches!(child, Yaml::String(image) if is_digest_image(image))
+                {
+                    return Err(Error::Policy("every Compose image must use digest"));
                 }
                 if key == "volumes"
                     && let Yaml::Hash(volumes) = child
+                    && volumes.values().any(|volume| {
+                        matches!(volume, Yaml::Hash(options) if options.keys().any(|option| {
+                            matches!(option, Yaml::String(name) if matches!(name.as_str(), "external" | "name" | "driver" | "driver_opts"))
+                        }))
+                    })
                 {
-                    for volume in volumes.values() {
-                        if let Yaml::Hash(options) = volume
-                            && options.keys().any(|option| {
-                                matches!(
-                                    option,
-                                    Yaml::String(name)
-                                        if matches!(
-                                            name.as_str(),
-                                            "external" | "name" | "driver" | "driver_opts"
-                                        )
-                                )
-                            })
-                        {
-                            return Err(Error::Policy(
-                                "external, named, or configured volumes are forbidden",
-                            ));
-                        }
-                    }
+                    return Err(Error::Policy(
+                        "external, named, or configured volumes are forbidden",
+                    ));
+                }
+                if key == "volumes"
+                    && let Yaml::Array(volumes) = child
+                    && volumes.iter().any(|volume| {
+                        matches!(volume, Yaml::String(value) if value.split_once(':').map_or(value.as_str(), |(source, _)| source).contains('/') || value.split_once(':').map_or(value.as_str(), |(source, _)| source).starts_with('.'))
+                    })
+                {
+                    return Err(Error::Policy("bind mounts are forbidden"));
                 }
                 inspect_yaml(child, depth + 1, services)?;
             }
@@ -878,9 +904,7 @@ fn ensure_exposed_service(value: &Value, service: &str) -> Result<()> {
 }
 
 fn is_digest_image(value: &str) -> bool {
-    value.split_once("@sha256:").is_some_and(|(_, digest)| {
-        !digest.is_empty() && digest.bytes().all(|byte| byte.is_ascii_hexdigit())
-    })
+    ignitify_domain::is_digest_image_reference(value)
 }
 
 fn yaml_quote(value: &str) -> String {
@@ -928,33 +952,23 @@ mod tests {
 
     #[cfg(unix)]
     use {
-        ignitify_control_plane::ImageRuntime,
-        ignitify_db::DeploymentRecord,
+        ignitify_control_plane::{ImageRuntime, RuntimeDeployment},
         ignitify_domain::{DeploymentId, ServiceId, ServiceSpec},
         std::{fs, os::unix::fs::PermissionsExt},
     };
 
     #[cfg(unix)]
-    fn deployment() -> DeploymentRecord {
-        DeploymentRecord {
+    fn deployment() -> RuntimeDeployment {
+        RuntimeDeployment {
             id: DeploymentId::new("00000000-0000-0000-0000-000000000001").unwrap(),
             service_id: ServiceId::new("00000000-0000-0000-0000-000000000002").unwrap(),
             generation: 1,
-            idempotency_key: "key".to_owned(),
-            requested_by_user_id: "00000000-0000-0000-0000-000000000003".to_owned(),
             spec: ServiceSpec::compose(
-                "services:\n  web:\n    image: nginx@sha256:deadbeef\n",
+                "services:\n  web:\n    image: nginx@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n",
                 "web",
                 Some(8080),
             )
             .unwrap(),
-            variables_ciphertext: "ciphertext".to_owned(),
-            runtime_ref: None,
-            state: ignitify_domain::DeploymentState::Preparing,
-            failure_reason: None,
-            created_at: "2026-08-01T00:00:00Z".to_owned(),
-            started_at: None,
-            finished_at: None,
         }
     }
 
@@ -963,7 +977,7 @@ mod tests {
         let executable = temp.path().join("fake-docker");
         fs::write(
             &executable,
-            "#!/bin/sh\nprintf 'cwd=<%s> ' \"$PWD\" >> \"$0.log\"\nprintf 'args=' >> \"$0.log\"\nfor argument in \"$@\"; do printf '<%s>' \"$argument\" >> \"$0.log\"; done\nprintf '\\n' >> \"$0.log\"\nenv | sort > \"$0.env\"\nfor argument in \"$@\"; do\n  if [ \"$argument\" = logs ]; then\n    printf 'stdout log\\n'\n    printf 'stderr log\\n' >&2\n    exit 0\n  fi\n  if [ \"$argument\" = up ] && [ -f \"$0.fail-up\" ]; then\n    printf 'up failed\\n' >&2\n    exit 1\n  fi\ndone\nfor argument in \"$@\"; do\n  if [ \"$argument\" = config ]; then\n    printf '{\"services\":{\"web\":{\"image\":\"nginx@sha256:deadbeef\"}}}'\n    exit 0\n  fi\ndone\n",
+            "#!/bin/sh\nprintf 'cwd=<%s> ' \"$PWD\" >> \"$0.log\"\nprintf 'args=' >> \"$0.log\"\nfor argument in \"$@\"; do printf '<%s>' \"$argument\" >> \"$0.log\"; done\nprintf '\\n' >> \"$0.log\"\nenv | sort > \"$0.env\"\nfor argument in \"$@\"; do\n  if [ \"$argument\" = logs ]; then\n    printf 'stdout log\\n'\n    printf 'stderr log\\n' >&2\n    exit 0\n  fi\n  if [ \"$argument\" = up ] && [ -f \"$0.fail-up\" ]; then\n    printf 'up failed\\n' >&2\n    exit 1\n  fi\ndone\nfor argument in \"$@\"; do\n  if [ \"$argument\" = config ]; then\n    printf '{\"services\":{\"web\":{\"image\":\"nginx@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}}}'\n    exit 0\n  fi\ndone\n",
         )
         .unwrap();
         fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).unwrap();
@@ -1049,7 +1063,7 @@ mod tests {
             ],
         );
 
-        let failed_deployment = DeploymentRecord {
+        let failed_deployment = RuntimeDeployment {
             generation: 2,
             ..deployment
         };
@@ -1074,25 +1088,16 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let runtime = super::ComposeRuntime::new(&docker, temp.path()).unwrap();
         let service_id = ServiceId::new(uuid::Uuid::new_v4().to_string()).unwrap();
-        let deployment = DeploymentRecord {
+        let deployment = RuntimeDeployment {
             id: DeploymentId::new(uuid::Uuid::new_v4().to_string()).unwrap(),
             service_id,
             generation: 1,
-            idempotency_key: "compose-integration".to_owned(),
-            requested_by_user_id: uuid::Uuid::new_v4().to_string(),
             spec: ServiceSpec::compose(
                 "services:\n  web:\n    image: caddy:2.11.4-alpine@sha256:98eb57d882ccd5213d1688764db10c1ca2c58a1ca3a6717a3411ad798f7a423a\n",
                 "web",
                 Some(80),
             )
             .unwrap(),
-            variables_ciphertext: "unused".to_owned(),
-            runtime_ref: None,
-            state: ignitify_domain::DeploymentState::Queued,
-            failure_reason: None,
-            created_at: "2026-08-01T00:00:00Z".to_owned(),
-            started_at: None,
-            finished_at: None,
         };
         let network = super::PROXY_NETWORK;
         let created_network = !tokio::process::Command::new(&docker)
@@ -1126,6 +1131,7 @@ mod tests {
             runtime
                 .reconcile_routes(
                     &deployment,
+                    &runtime_ref,
                     vec![],
                     vec![ignitify_control_plane::IngressRoute {
                         labels,
@@ -1182,9 +1188,10 @@ mod tests {
 
     #[test]
     fn accepts_safe_digest_compose() {
-        preflight_yaml("services:\n  web:\n    image: nginx@sha256:deadbeef\n    volumes:\n      - data:/data\nvolumes:\n  data: {}\n").unwrap();
+        let yaml = "services:\n  web:\n    image: nginx@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n    volumes:\n      - data:/data\nvolumes:\n  data: {}\n";
+        preflight_yaml(yaml).unwrap();
         validate_canonical(
-            &json!({"services":{"web":{"image":"nginx@sha256:deadbeef"}}}),
+            &json!({"services":{"web":{"image":"nginx@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}}),
             false,
         )
         .unwrap();
@@ -1195,7 +1202,7 @@ mod tests {
         let value = json!({
             "services": {
                 "web": {
-                    "image": "nginx@sha256:deadbeef",
+                    "image": "nginx@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
                     "labels": { "traefik.enable": "true" }
                 }
             }
@@ -1220,12 +1227,12 @@ mod tests {
             "gpus",
             "volumes_from",
         ] {
-            let value = json!({"services":{"web":{"image":"nginx@sha256:deadbeef", key: []}}});
+            let value = json!({"services":{"web":{"image":"nginx@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", key: []}}});
             assert!(validate_canonical(&value, false).is_err(), "{key}");
         }
-        assert!(validate_canonical(&json!({"services":{"web":{"image":"nginx@sha256:deadbeef", "labels":{"traefik.enable":"true"}}}}), false).is_err());
-        assert!(validate_canonical(&json!({"services":{"web":{"image":"nginx@sha256:deadbeef", "volumes":["/tmp:/data"]}}}), false).is_err());
-        assert!(validate_canonical(&json!({"services":{"web":{"image":"nginx@sha256:deadbeef"}}, "volumes":{"data":{"external":true}}}), false).is_err());
+        assert!(validate_canonical(&json!({"services":{"web":{"image":"nginx@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "labels":{"traefik.enable":"true"}}}}), false).is_err());
+        assert!(validate_canonical(&json!({"services":{"web":{"image":"nginx@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "volumes":["/tmp:/data"]}}}), false).is_err());
+        assert!(validate_canonical(&json!({"services":{"web":{"image":"nginx@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}, "volumes":{"data":{"external":true}}}), false).is_err());
     }
 
     #[test]
@@ -1251,7 +1258,7 @@ mod tests {
     #[test]
     fn rejects_aliases_and_deep_documents() {
         assert!(
-            preflight_yaml("services:\n  web: &web\n    image: nginx@sha256:deadbeef\n").is_err()
+            preflight_yaml("services:\n  web: &web\n    image: nginx@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n").is_err()
         );
         let mut value = String::from("x:");
         for _ in 0..=MAX_DEPTH {

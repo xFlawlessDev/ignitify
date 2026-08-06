@@ -284,14 +284,7 @@ impl ServiceSpec {
                 internal_port,
                 healthcheck,
             } => {
-                let digest_valid =
-                    image_reference
-                        .split_once("@sha256:")
-                        .is_some_and(|(_, digest)| {
-                            !digest.is_empty()
-                                && digest.bytes().all(|byte| byte.is_ascii_hexdigit())
-                        });
-                if !digest_valid {
+                if !is_digest_image_reference(image_reference) {
                     return Err(InputError::ImageMustUseDigest);
                 }
                 if internal_port.is_some_and(|port| !(1..=65_535).contains(&port)) {
@@ -325,6 +318,19 @@ impl ServiceSpec {
             }
         }
     }
+}
+
+/// Validates an OCI image reference pinned to an exact SHA-256 digest.
+pub fn is_digest_image_reference(value: &str) -> bool {
+    let Some((name, digest)) = value.split_once("@sha256:") else {
+        return false;
+    };
+    !name.is_empty()
+        && !name
+            .chars()
+            .any(|character| character.is_whitespace() || character.is_control())
+        && digest.len() == 64
+        && digest.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -559,7 +565,7 @@ pub type Result<T> = std::result::Result<T, InputError>;
 mod tests {
     use super::{
         DeploymentState, DomainName, ProjectId, ProjectInput, ServiceInput, ServiceSpec,
-        ServiceVariableInput,
+        ServiceVariableInput, is_digest_image_reference,
     };
 
     #[test]
@@ -605,6 +611,21 @@ mod tests {
         assert!(DeploymentState::Healthy.can_transition_to(DeploymentState::Stopping));
         assert!(!DeploymentState::Queued.can_transition_to(DeploymentState::Running));
         assert!(!DeploymentState::Stopped.can_transition_to(DeploymentState::Running));
+    }
+
+    #[test]
+    fn image_digest_requires_exact_sha256_grammar() {
+        let digest = "a".repeat(64);
+        assert!(is_digest_image_reference(&format!("nginx@sha256:{digest}")));
+        for value in [
+            "nginx:latest",
+            "nginx@sha256:deadbeef",
+            "nginx@sha512:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "nginx@sha256:gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg",
+        ] {
+            assert!(!is_digest_image_reference(value), "{value}");
+        }
     }
 
     #[test]
