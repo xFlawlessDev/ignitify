@@ -6,12 +6,13 @@ mod handlers;
 mod routes;
 mod state;
 
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use axum::Router;
 use ignitify_auth::AuthService;
 use ignitify_control_plane::{
-    ControlHandle, RuntimeHealth, ServiceControl, StaticSystemMetrics, SystemMetricsProvider,
+    AgeCipher, ControlHandle, RuntimeHealth, ServiceControl, StaticSystemMetrics,
+    SystemMetricsProvider,
 };
 use ignitify_db::Database;
 use ignitify_runtime_docker::DockerRuntime;
@@ -97,6 +98,41 @@ pub fn router_with_system_metrics_and_docker(
     secure_cookies: bool,
     trusted_origins: Arc<[String]>,
 ) -> Router {
+    router_with_system_metrics_and_docker_and_provider_cipher(
+        auth,
+        database,
+        services,
+        control,
+        runtime_health,
+        worker_health,
+        system_metrics,
+        docker_runtime,
+        terminal,
+        secure_cookies,
+        trusted_origins,
+        None,
+    )
+}
+
+/// Builds all Ignitify HTTP routes with provider credential encryption enabled.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "router composes independent runtime dependencies"
+)]
+pub fn router_with_system_metrics_and_docker_and_provider_cipher(
+    auth: Arc<AuthService>,
+    database: Database,
+    services: Option<ServiceControl>,
+    control: Option<ControlHandle>,
+    runtime_health: Arc<dyn RuntimeHealth>,
+    worker_health: Arc<dyn RuntimeHealth>,
+    system_metrics: Arc<dyn SystemMetricsProvider>,
+    docker_runtime: Option<DockerRuntime>,
+    terminal: ignitify_terminal::TerminalService,
+    secure_cookies: bool,
+    trusted_origins: Arc<[String]>,
+    provider_cipher: Option<Arc<AgeCipher>>,
+) -> Router {
     routes::router(AppState {
         auth,
         database,
@@ -109,6 +145,8 @@ pub fn router_with_system_metrics_and_docker(
         terminal,
         secure_cookies,
         trusted_origins,
+        provider_cipher,
+        github_manifest_states: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
     })
 }
 

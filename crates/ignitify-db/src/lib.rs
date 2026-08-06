@@ -15,10 +15,11 @@ pub use repositories::{
     DashboardServiceRecord, DeploymentActor, DeploymentEventRecord, DeploymentLogRecord,
     DeploymentRecord, DeploymentVariableRecord, DeploymentsRepository, DomainActor,
     DomainMutationOutcome, DomainRecord, DomainsRepository, EnvironmentsRepository, NewDeployment,
-    NewDeploymentLog, NewProjectVariable, NewServiceVariable, ProjectActor, ProjectUpdateOutcome,
-    ProjectVariableRecord, ProjectVariablesMutationOutcome, ProjectsRepository,
-    RefreshTokensRepository, SequenceCursor, ServiceActor, ServiceMutationOutcome,
-    ServiceVariableRecord, ServicesRepository, UsersRepository,
+    NewDeploymentLog, NewProjectVariable, NewProvider, NewServiceVariable, ProjectActor,
+    ProjectUpdateOutcome, ProjectVariableRecord, ProjectVariablesMutationOutcome,
+    ProjectsRepository, ProviderAuthMode, ProviderKind, ProviderMutationOutcome, ProviderRecord,
+    ProviderUpdate, ProvidersRepository, RefreshTokensRepository, SequenceCursor, ServiceActor,
+    ServiceMutationOutcome, ServiceVariableRecord, ServicesRepository, UsersRepository,
 };
 
 #[cfg(test)]

@@ -36,6 +36,10 @@ pub(crate) enum ApiError {
     CapabilityUnavailable,
     #[error("Docker runtime unavailable")]
     DockerCapabilityUnavailable,
+    #[error("provider secret storage unavailable")]
+    ProviderCapabilityUnavailable,
+    #[error("provider remote request failed")]
+    ProviderRemote(#[from] reqwest::Error),
 }
 
 impl IntoResponse for ApiError {
@@ -55,6 +59,10 @@ impl IntoResponse for ApiError {
             Self::Database(DatabaseError::ProjectNameConflict) => (
                 StatusCode::CONFLICT,
                 "project name already exists".to_owned(),
+            ),
+            Self::Database(DatabaseError::ProviderNameConflict) => (
+                StatusCode::CONFLICT,
+                "provider name already exists".to_owned(),
             ),
             Self::Database(DatabaseError::ServiceNameConflict)
             | Self::Control(ignitify_control_plane::Error::Database(
@@ -96,6 +104,14 @@ impl IntoResponse for ApiError {
             Self::DockerCapabilityUnavailable => (
                 StatusCode::SERVICE_UNAVAILABLE,
                 "Docker runtime is unavailable".to_owned(),
+            ),
+            Self::ProviderCapabilityUnavailable => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "provider capability is unavailable".to_owned(),
+            ),
+            Self::ProviderRemote(_) => (
+                StatusCode::BAD_GATEWAY,
+                "provider integration request failed".to_owned(),
             ),
             Self::Terminal(_) => (
                 StatusCode::SERVICE_UNAVAILABLE,

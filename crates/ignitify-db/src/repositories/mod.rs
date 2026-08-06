@@ -4,6 +4,7 @@ mod deployments;
 mod domains;
 mod environments;
 mod projects;
+mod providers;
 mod refresh_tokens;
 mod services;
 mod users;
@@ -23,6 +24,10 @@ pub use environments::EnvironmentsRepository;
 pub use projects::{
     AuthorizedProjectVariables, NewProjectVariable, ProjectActor, ProjectUpdateOutcome,
     ProjectVariableRecord, ProjectVariablesMutationOutcome, ProjectsRepository,
+};
+pub use providers::{
+    NewProvider, ProviderAuthMode, ProviderKind, ProviderMutationOutcome, ProviderRecord,
+    ProviderUpdate, ProvidersRepository,
 };
 pub use refresh_tokens::RefreshTokensRepository;
 pub use services::{

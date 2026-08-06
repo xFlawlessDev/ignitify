@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::{future::Future, sync::Arc};
 
 use age::secrecy::ExposeSecret;
@@ -13,7 +14,7 @@ use futures_util::StreamExt;
 use http_body_util::BodyExt;
 use ignitify_auth::AuthConfig;
 use ignitify_control_plane::{
-    ControlHandle, HostRuntimeMetrics, RuntimeContainer, RuntimePort, ServiceControl,
+    AgeCipher, ControlHandle, HostRuntimeMetrics, RuntimeContainer, RuntimePort, ServiceControl,
     StaticRuntimeHealth, StaticSystemMetrics, SystemMetricsSnapshot,
 };
 use ignitify_db::{DatabaseConfig, ProjectActor, UserRole as DatabaseUserRole};
@@ -57,6 +58,10 @@ async fn state() -> AppState {
         terminal: ignitify_terminal::TerminalService,
         secure_cookies: false,
         trusted_origins: Arc::from([]),
+        provider_cipher: Some(Arc::new(
+            AgeCipher::from_identity(identity.expose_secret()).unwrap(),
+        )),
+        github_manifest_states: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
     }
 }
 
@@ -124,6 +129,134 @@ async fn system_metrics_returns_provider_snapshot_for_authenticated_actor() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(json["cpu_usage_percentage"], 42.5);
     assert_eq!(json["docker_disk_total_bytes"], 5);
+}
+
+#[tokio::test]
+async fn provider_routes_encrypt_credentials_and_require_admin_mutations() {
+    let state = state().await;
+    let token = session_token(&state).await;
+    let app = crate::router_with_system_metrics_and_docker_and_provider_cipher(
+        state.auth.clone(),
+        state.database.clone(),
+        state.services.clone(),
+        state.control.clone(),
+        state.runtime_health.clone(),
+        state.worker_health.clone(),
+        state.system_metrics.clone(),
+        state.docker_runtime.clone(),
+        state.terminal,
+        state.secure_cookies,
+        state.trusted_origins.clone(),
+        state.provider_cipher.clone(),
+    );
+
+    let unauthenticated = app
+        .clone()
+        .oneshot(request("GET", "/api/v1/providers", None, ""))
+        .await
+        .unwrap();
+    assert_eq!(unauthenticated.status(), StatusCode::UNAUTHORIZED);
+
+    let manifest_start = app
+        .clone()
+        .oneshot(request(
+            "POST",
+            "/api/v1/providers/github/manifest",
+            Some(&token),
+            r#"{"name":"Ignitify Direct App"}"#,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(manifest_start.status(), StatusCode::OK);
+    let manifest_body = manifest_start
+        .into_body()
+        .collect()
+        .await
+        .unwrap()
+        .to_bytes();
+    let manifest: serde_json::Value = serde_json::from_slice(&manifest_body).unwrap();
+    assert!(
+        manifest["action_url"]
+            .as_str()
+            .unwrap()
+            .starts_with("https://github.com/settings/apps/new?state=")
+    );
+    assert_eq!(manifest["manifest"]["name"], "Ignitify Direct App");
+    assert_eq!(
+        manifest["manifest"]["default_permissions"]["contents"],
+        "read"
+    );
+    assert!(
+        manifest["manifest"]["redirect_url"]
+            .as_str()
+            .unwrap()
+            .ends_with("/api/v1/providers/github/manifest/callback")
+    );
+
+    let created = app
+        .clone()
+        .oneshot(request(
+            "POST",
+            "/api/v1/providers",
+            Some(&token),
+            r#"{"name":"Main GitLab","kind":"gitlab","auth_mode":"oauth","base_url":"https://gitlab.example.com/","redirect_uri":"https://ignitify.example.com/api/providers/gitlab/callback","client_id":"client-id","username":"deploy","client_secret":"provider-secret"}"#,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(created.status(), StatusCode::CREATED);
+    let body = created.into_body().collect().await.unwrap().to_bytes();
+    assert!(!String::from_utf8_lossy(&body).contains("provider-secret"));
+    let provider: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(provider["token_configured"], true);
+
+    let github_app = app
+        .clone()
+        .oneshot(request(
+            "POST",
+            "/api/v1/providers",
+            Some(&token),
+            r#"{"name":"Ignitify GitHub App","kind":"github","auth_mode":"github_app","base_url":"https://github.com","application_id":"12345","installation_id":"67890","private_key":"-----BEGIN PRIVATE KEY-----\nsecret\n-----END PRIVATE KEY-----"}"#,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(github_app.status(), StatusCode::CREATED);
+    let github_body = github_app.into_body().collect().await.unwrap().to_bytes();
+    let github_provider: serde_json::Value = serde_json::from_slice(&github_body).unwrap();
+    assert_eq!(github_provider["kind"], "github");
+    assert_eq!(github_provider["auth_mode"], "github_app");
+    assert!(!String::from_utf8_lossy(&github_body).contains("BEGIN PRIVATE KEY"));
+
+    let stored = state
+        .database
+        .providers()
+        .get(provider["id"].as_str().unwrap())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_ne!(stored.credentials_ciphertext, "provider-secret");
+
+    let duplicate = app
+        .clone()
+        .oneshot(request(
+            "POST",
+            "/api/v1/providers",
+            Some(&token),
+            r#"{"name":"Main GitLab","kind":"gitlab","auth_mode":"oauth","base_url":"https://gitlab.example.com","redirect_uri":"https://ignitify.example.com/api/providers/gitlab/callback","client_id":"client-id","client_secret":"provider-secret"}"#,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(duplicate.status(), StatusCode::CONFLICT);
+
+    let removed = app
+        .oneshot(request(
+            "DELETE",
+            &format!("/api/v1/providers/{}", provider["id"].as_str().unwrap()),
+            Some(&token),
+            "",
+        ))
+        .await
+        .unwrap();
+    assert_eq!(removed.status(), StatusCode::NO_CONTENT);
 }
 
 async fn session_token(state: &AppState) -> String {

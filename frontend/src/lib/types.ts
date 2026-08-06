@@ -42,6 +42,55 @@ export interface ProjectInput {
   name: string;
 }
 
+export type ProviderKind = "git" | "gitea" | "gitlab" | "github";
+export type ProviderAuthMode = "token" | "oauth" | "github_app";
+
+export interface ProviderSummary {
+  id: string;
+  name: string;
+  kind: ProviderKind;
+  auth_mode: ProviderAuthMode;
+  base_url: string;
+  internal_url: string | null;
+  redirect_uri: string | null;
+  client_id: string | null;
+  application_id: string | null;
+  installation_id: string | null;
+  group_names: string | null;
+  username: string | null;
+  token_configured: boolean;
+  created_at: string;
+  updated_at: string;
+  last_verified_at: string | null;
+}
+
+export interface ProviderInput {
+  name: string;
+  kind: ProviderKind;
+  auth_mode: ProviderAuthMode;
+  base_url: string;
+  internal_url?: string;
+  redirect_uri?: string;
+  client_id?: string;
+  client_secret?: string;
+  application_id?: string;
+  installation_id?: string;
+  private_key?: string;
+  group_names?: string;
+  username?: string;
+  token?: string;
+}
+
+export interface GithubManifestInput {
+  name: string;
+  base_url?: string;
+}
+
+export interface GithubManifestStart {
+  action_url: string;
+  manifest: Record<string, unknown>;
+}
+
 export interface ProjectEnvironmentVariable {
   key: string;
   is_secret: boolean;

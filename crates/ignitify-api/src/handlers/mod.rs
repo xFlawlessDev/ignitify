@@ -6,6 +6,7 @@ pub(crate) mod domains;
 pub(crate) mod health;
 pub(crate) mod project_environment;
 pub(crate) mod projects;
+pub(crate) mod providers;
 pub(crate) mod runtime;
 pub(crate) mod services;
 pub(crate) mod streams;

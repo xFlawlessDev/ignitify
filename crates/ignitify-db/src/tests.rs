@@ -5,8 +5,8 @@ use ignitify_domain::{
 use uuid::Uuid;
 
 use crate::{
-    Database, DatabaseConfig, NewServiceVariable, ProjectActor, ProjectUpdateOutcome, ServiceActor,
-    ServiceMutationOutcome,
+    Database, DatabaseConfig, NewProvider, NewServiceVariable, ProjectActor, ProjectUpdateOutcome,
+    ProviderAuthMode, ProviderKind, ServiceActor, ServiceMutationOutcome,
 };
 
 async fn database() -> Database {
@@ -36,6 +36,64 @@ async fn migrations_create_auth_storage() {
     let database = database().await;
 
     assert_eq!(database.users().count().await.unwrap(), 0);
+}
+
+#[tokio::test]
+async fn provider_repository_stores_encrypted_metadata_and_handles_conflicts() {
+    let database = database().await;
+    let actor_id = user_id(&database, "owner").await;
+    let provider = database
+        .providers()
+        .create(
+            &actor_id,
+            NewProvider {
+                name: "GitLab Cloud".to_owned(),
+                kind: ProviderKind::Gitlab,
+                auth_mode: ProviderAuthMode::OAuth,
+                base_url: "https://gitlab.com".to_owned(),
+                internal_url: None,
+                redirect_uri: Some(
+                    "https://ignitify.example.com/api/providers/gitlab/callback".to_owned(),
+                ),
+                client_id: Some("client-id".to_owned()),
+                application_id: None,
+                installation_id: None,
+                group_names: None,
+                username: Some("deploy".to_owned()),
+                credentials_ciphertext: "age-encrypted-credentials".to_owned(),
+            },
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(database.providers().list().await.unwrap().len(), 1);
+    assert_eq!(provider.kind, ProviderKind::Gitlab);
+    assert!(matches!(
+        database
+            .providers()
+            .create(
+                &actor_id,
+                NewProvider {
+                    name: "GitLab Cloud".to_owned(),
+                    kind: ProviderKind::Git,
+                    auth_mode: ProviderAuthMode::Token,
+                    base_url: "https://git.example.com".to_owned(),
+                    internal_url: None,
+                    redirect_uri: None,
+                    client_id: None,
+                    application_id: None,
+                    installation_id: None,
+                    group_names: None,
+                    username: None,
+                    credentials_ciphertext: "another-token".to_owned(),
+                },
+            )
+            .await,
+        Err(crate::DatabaseError::ProviderNameConflict)
+    ));
+
+    assert!(database.providers().delete(&provider.id).await.unwrap());
+    assert!(!database.providers().delete(&provider.id).await.unwrap());
 }
 
 #[tokio::test]

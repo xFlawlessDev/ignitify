@@ -5,7 +5,7 @@ use std::{env, sync::Arc};
 
 use ignitify_auth::{AuthConfig, AuthService};
 use ignitify_control_plane::{
-    ControlHandle, RuntimeSelector, ServiceControl, SystemMetricsProvider, WorkerHealth,
+    AgeCipher, ControlHandle, RuntimeSelector, ServiceControl, SystemMetricsProvider, WorkerHealth,
     spawn_worker,
 };
 use ignitify_db::{Database, DatabaseConfig};
@@ -63,6 +63,9 @@ async fn main() -> Result<()> {
         },
     )
     .shared();
+    let provider_cipher = env_value("IGNITIFY_SECRETS_AGE_IDENTITY")
+        .map(AgeCipher::from_identity)
+        .transpose()?;
     let (services, control, runtime_health, worker_health, docker_runtime): RuntimeCapabilities =
         if let Some(secrets_identity) = env_value("IGNITIFY_SECRETS_AGE_IDENTITY") {
             let services =
@@ -104,7 +107,7 @@ async fn main() -> Result<()> {
     let system_metrics: Arc<dyn SystemMetricsProvider> = Arc::new(
         system_metrics::SystemMetricsCollector::new(docker_runtime.clone()),
     );
-    let app = ignitify_api::router_with_system_metrics_and_docker(
+    let app = ignitify_api::router_with_system_metrics_and_docker_and_provider_cipher(
         auth,
         database,
         services,
@@ -116,6 +119,7 @@ async fn main() -> Result<()> {
         ignitify_terminal::TerminalService,
         env_value("IGNITIFY_SECURE_COOKIES").is_some_and(|value| value == "true"),
         trusted_origins(),
+        provider_cipher.map(Arc::new),
     );
     let listener = TcpListener::bind("127.0.0.1:5656").await?;
 

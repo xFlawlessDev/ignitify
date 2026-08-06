@@ -6,6 +6,7 @@ export * from "./activity";
 export * from "./auth";
 export * from "./dashboard";
 export * from "./projects";
+export * from "./providers";
 export * from "./services";
 export * from "./deployments";
 export * from "./domains";

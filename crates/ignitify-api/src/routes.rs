@@ -18,6 +18,22 @@ pub(crate) fn router(state: AppState) -> Router {
         .route("/api/v1/auth/logout", post(handlers::auth::logout))
         .route("/api/v1/auth/me", get(handlers::auth::me))
         .route("/api/v1/dashboard", get(handlers::dashboard::get))
+        .route(
+            "/api/v1/providers",
+            get(handlers::providers::list).post(handlers::providers::create),
+        )
+        .route(
+            "/api/v1/providers/github/manifest",
+            axum::routing::post(handlers::providers::start_github_manifest),
+        )
+        .route(
+            "/api/v1/providers/github/manifest/callback",
+            get(handlers::providers::github_manifest_callback),
+        )
+        .route(
+            "/api/v1/providers/{provider_id}",
+            axum::routing::delete(handlers::providers::remove).patch(handlers::providers::update),
+        )
         .route("/api/v1/runtime/status", get(handlers::runtime::status))
         .route(
             "/api/v1/runtime/containers",

@@ -28,6 +28,12 @@ pub enum DatabaseError {
     DomainConfirmationMismatch,
     #[error("invalid stored domain status: {0}")]
     InvalidDomainStatus(String),
+    #[error("provider name already exists")]
+    ProviderNameConflict,
+    #[error("invalid stored provider kind: {0}")]
+    InvalidProviderKind(String),
+    #[error("invalid stored provider auth mode: {0}")]
+    InvalidProviderAuthMode(String),
 }
 
 pub type Result<T> = std::result::Result<T, DatabaseError>;
