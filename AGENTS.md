@@ -32,6 +32,11 @@ Keep future deployment handlers separate from Docker or ingress execution. HTTP 
 
 ## Development Commands
 
+Do not start the backend or frontend development servers during agent work. In
+particular, do not run `cargo run -p ignitify-core` or `pnpm run dev`; use
+non-server checks, tests, formatting, and builds instead unless the user
+explicitly requests a dev server.
+
 Run Rust commands from repository root:
 
 ```sh
