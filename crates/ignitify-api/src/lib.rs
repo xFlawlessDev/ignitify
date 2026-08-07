@@ -133,6 +133,43 @@ pub fn router_with_system_metrics_and_docker_and_provider_cipher(
     trusted_origins: Arc<[String]>,
     provider_cipher: Option<Arc<AgeCipher>>,
 ) -> Router {
+    router_with_system_metrics_and_docker_and_provider_cipher_and_ingress(
+        auth,
+        database,
+        services,
+        control,
+        runtime_health,
+        worker_health,
+        system_metrics,
+        docker_runtime,
+        terminal,
+        secure_cookies,
+        trusted_origins,
+        provider_cipher,
+        Arc::new(ignitify_control_plane::StaticRuntimeHealth(false)),
+    )
+}
+
+/// Builds all Ignitify HTTP routes with live ingress readiness reporting.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "router composes independent runtime dependencies"
+)]
+pub fn router_with_system_metrics_and_docker_and_provider_cipher_and_ingress(
+    auth: Arc<AuthService>,
+    database: Database,
+    services: Option<ServiceControl>,
+    control: Option<ControlHandle>,
+    runtime_health: Arc<dyn RuntimeHealth>,
+    worker_health: Arc<dyn RuntimeHealth>,
+    system_metrics: Arc<dyn SystemMetricsProvider>,
+    docker_runtime: Option<DockerRuntime>,
+    terminal: ignitify_terminal::TerminalService,
+    secure_cookies: bool,
+    trusted_origins: Arc<[String]>,
+    provider_cipher: Option<Arc<AgeCipher>>,
+    ingress_health: Arc<dyn RuntimeHealth>,
+) -> Router {
     routes::router(AppState {
         auth,
         database,
@@ -140,6 +177,7 @@ pub fn router_with_system_metrics_and_docker_and_provider_cipher(
         control,
         runtime_health,
         worker_health,
+        ingress_health,
         system_metrics,
         docker_runtime,
         terminal,

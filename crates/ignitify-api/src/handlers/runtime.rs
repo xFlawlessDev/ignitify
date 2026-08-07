@@ -21,6 +21,7 @@ pub(crate) struct RuntimeStatusResponse {
     database: &'static str,
     runtime: &'static str,
     worker: &'static str,
+    ingress: &'static str,
     metrics: Option<RuntimeMetricsResponse>,
 }
 
@@ -241,10 +242,11 @@ pub(crate) async fn status(
 ) -> Result<Json<RuntimeStatusResponse>, ApiError> {
     require_actor(&state, &headers).await?;
 
-    let (database, runtime, worker, metrics) = tokio::join!(
+    let (database, runtime, worker, ingress, metrics) = tokio::join!(
         state.database.ping(),
         state.runtime_health.ready(),
         state.worker_health.ready(),
+        state.ingress_health.ready(),
         state.runtime_health.host_metrics(),
     );
 
@@ -256,6 +258,7 @@ pub(crate) async fn status(
         },
         runtime: if runtime { "ready" } else { "unavailable" },
         worker: if worker { "ready" } else { "unavailable" },
+        ingress: if ingress { "ready" } else { "unavailable" },
         metrics: metrics.map(|metrics| RuntimeMetricsResponse {
             containers: metrics.containers,
             containers_running: metrics.containers_running,

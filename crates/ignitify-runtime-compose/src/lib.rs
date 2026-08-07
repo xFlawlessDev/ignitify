@@ -42,8 +42,8 @@ impl ComposeRuntime {
 
     pub fn from_paths(docker: Option<PathBuf>, root: Option<PathBuf>) -> Result<Self> {
         Self::new(
-            docker.unwrap_or_else(|| PathBuf::from("/usr/bin/docker")),
-            root.unwrap_or_else(|| PathBuf::from("/var/lib/ignitify/compose")),
+            docker.unwrap_or_else(default_docker_binary),
+            root.unwrap_or_else(|| PathBuf::from("data/compose")),
         )
     }
 
@@ -237,30 +237,7 @@ impl ComposeRuntime {
         deployment: &RuntimeDeployment,
         routes: &[IngressRoute],
     ) -> Result<()> {
-        let ServiceSpec::Compose {
-            exposed_service, ..
-        } = &deployment.spec
-        else {
-            return Err(Error::UnsupportedSpec);
-        };
-        let mut labels = vec![
-            format!("      {MANAGED_LABEL}: \"true\""),
-            format!("      {SERVICE_LABEL}: \"{}\"", deployment.service_id),
-            format!("      {GENERATION_LABEL}: \"{}\"", deployment.generation),
-        ];
-        for route in routes {
-            for (key, value) in &route.labels {
-                labels.push(format!(
-                    "      {}: \"{}\"",
-                    yaml_quote(key),
-                    yaml_quote(value)
-                ));
-            }
-        }
-        let content = format!(
-            "services:\n  {exposed_service}:\n    networks:\n      - {PROXY_NETWORK}\n    labels:\n{}networks:\n  {PROXY_NETWORK}:\n    external: true\n",
-            labels.join("\n"),
-        );
+        let content = render_override(deployment, routes)?;
         write_restricted(&stage.join("ignitify.override.yaml"), content.as_bytes()).await
     }
 
@@ -285,6 +262,55 @@ impl ComposeRuntime {
         }
         Ok(String::from_utf8_lossy(&output.stdout).into_owned())
     }
+}
+
+fn default_docker_binary() -> PathBuf {
+    #[cfg(windows)]
+    {
+        std::env::var_os("ProgramFiles")
+            .map(PathBuf::from)
+            .map(|path| path.join("Docker\\Docker\\resources\\bin\\docker.exe"))
+            .unwrap_or_else(|| {
+                PathBuf::from("C:/Program Files/Docker/Docker/resources/bin/docker.exe")
+            })
+    }
+    #[cfg(not(windows))]
+    {
+        PathBuf::from("/usr/bin/docker")
+    }
+}
+
+fn render_override(deployment: &RuntimeDeployment, routes: &[IngressRoute]) -> Result<String> {
+    let ServiceSpec::Compose {
+        exposed_service, ..
+    } = &deployment.spec
+    else {
+        return Err(Error::UnsupportedSpec);
+    };
+    let mut labels = vec![
+        format!("      {MANAGED_LABEL}: \"true\""),
+        format!("      {SERVICE_LABEL}: \"{}\"", deployment.service_id),
+        format!("      {GENERATION_LABEL}: \"{}\"", deployment.generation),
+    ];
+    for route in routes {
+        for (key, value) in &route.labels {
+            labels.push(format!(
+                "      {}: \"{}\"",
+                yaml_quote(key),
+                yaml_quote(value)
+            ));
+        }
+    }
+    let networks = (!routes.is_empty()).then(|| {
+        format!(
+            "    networks:\n      - {PROXY_NETWORK}\nnetworks:\n  {PROXY_NETWORK}:\n    external: true\n"
+        )
+    });
+    Ok(format!(
+        "services:\n  {exposed_service}:\n{}    labels:\n{}\n",
+        networks.unwrap_or_default(),
+        labels.join("\n"),
+    ))
 }
 
 impl RuntimeHealth for ComposeRuntime {
@@ -712,9 +738,12 @@ fn inspect_yaml(value: &Yaml, depth: usize, services: &mut usize) -> Result<()> 
                 ) {
                     return Err(Error::Policy("unsupported or unsafe Compose field"));
                 }
-                if key == "image" && !matches!(child, Yaml::String(image) if is_digest_image(image))
+                if key == "image"
+                    && !matches!(child, Yaml::String(image) if is_compose_image(image))
                 {
-                    return Err(Error::Policy("every Compose image must use digest"));
+                    return Err(Error::Policy(
+                        "every Compose image must use an explicit tag or digest",
+                    ));
                 }
                 if key == "volumes"
                     && let Yaml::Hash(volumes) = child
@@ -831,8 +860,10 @@ fn validate_canonical(value: &Value, generated: bool) -> Result<()> {
             .get("image")
             .and_then(Value::as_str)
             .ok_or(Error::Policy("every service needs image"))?;
-        if !is_digest_image(image) {
-            return Err(Error::Policy("every Compose image must use digest"));
+        if !is_compose_image(image) {
+            return Err(Error::Policy(
+                "every Compose image must use an explicit tag or digest",
+            ));
         }
     }
     Ok(())
@@ -903,8 +934,24 @@ fn ensure_exposed_service(value: &Value, service: &str) -> Result<()> {
     }
 }
 
-fn is_digest_image(value: &str) -> bool {
-    ignitify_domain::is_digest_image_reference(value)
+fn is_compose_image(value: &str) -> bool {
+    if ignitify_domain::is_digest_image_reference(value) {
+        return true;
+    }
+
+    let Some((repository, tag)) = value.rsplit_once(':') else {
+        return false;
+    };
+    !repository.is_empty()
+        && !repository.ends_with('/')
+        && repository.bytes().all(|byte| {
+            byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-' | b'/' | b':')
+        })
+        && !tag.is_empty()
+        && tag.len() <= 128
+        && tag
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
 }
 
 fn yaml_quote(value: &str) -> String {
@@ -969,6 +1016,7 @@ mod tests {
                 Some(8080),
             )
             .unwrap(),
+            local_image_id: None,
         }
     }
 
@@ -1005,6 +1053,15 @@ mod tests {
                 stage.join("ignitify.env").display().to_string(),
             ]
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn override_without_routes_keeps_compose_service_off_proxy_network() {
+        let content = super::render_override(&deployment(), &[]).unwrap();
+
+        assert!(!content.contains(super::PROXY_NETWORK));
+        assert!(content.contains(super::MANAGED_LABEL));
     }
 
     #[cfg(unix)]
@@ -1098,6 +1155,7 @@ mod tests {
                 Some(80),
             )
             .unwrap(),
+            local_image_id: None,
         };
         let network = super::PROXY_NETWORK;
         let created_network = !tokio::process::Command::new(&docker)
@@ -1195,6 +1253,18 @@ mod tests {
             false,
         )
         .unwrap();
+    }
+
+    #[test]
+    fn accepts_compose_images_with_explicit_tags() {
+        let yaml = "services:\n  router:\n    image: decolua/9router:0.5.40\n  headroom:\n    image: ghcr.io/chopratejas/headroom:0.6.7\n";
+        preflight_yaml(yaml).unwrap();
+        validate_canonical(
+            &json!({"services":{"router":{"image":"decolua/9router:0.5.40"}}}),
+            false,
+        )
+        .unwrap();
+        assert!(!super::is_compose_image("decolua/9router"));
     }
 
     #[test]

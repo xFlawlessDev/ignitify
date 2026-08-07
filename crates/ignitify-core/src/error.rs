@@ -2,8 +2,8 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum CoreError {
-    #[error("missing required environment variable: {0}")]
-    MissingEnvironment(&'static str),
+    #[error(transparent)]
+    RuntimeSecrets(#[from] crate::runtime_secrets::Error),
     #[error(transparent)]
     Database(#[from] ignitify_db::DatabaseError),
     #[error(transparent)]

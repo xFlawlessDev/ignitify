@@ -33,6 +33,7 @@ pub(crate) struct AppState {
     pub(crate) control: Option<ControlHandle>,
     pub(crate) runtime_health: Arc<dyn RuntimeHealth>,
     pub(crate) worker_health: Arc<dyn RuntimeHealth>,
+    pub(crate) ingress_health: Arc<dyn RuntimeHealth>,
     pub(crate) system_metrics: Arc<dyn SystemMetricsProvider>,
     pub(crate) docker_runtime: Option<DockerRuntime>,
     pub(crate) terminal: TerminalService,

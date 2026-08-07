@@ -1,7 +1,9 @@
 use std::collections::BTreeMap;
 
 use chrono::Utc;
-use ignitify_domain::{DeploymentId, DeploymentState, ProjectMemberRole, ServiceId, ServiceSpec};
+use ignitify_domain::{
+    DeploymentId, DeploymentState, ProjectMemberRole, ServiceId, ServiceSourceConfig, ServiceSpec,
+};
 use serde_json::json;
 use sqlx::{FromRow, SqlitePool};
 use uuid::Uuid;
@@ -23,6 +25,7 @@ pub struct AuthorizedDeploymentService {
     pub role: ProjectMemberRole,
     pub desired_generation: i64,
     pub spec: ServiceSpec,
+    pub source_config: Option<ServiceSourceConfig>,
     pub variables: Vec<DeploymentVariableRecord>,
 }
 
@@ -37,6 +40,8 @@ pub struct NewDeployment {
     pub idempotency_key: String,
     pub requested_by_user_id: String,
     pub spec: ServiceSpec,
+    pub source_config: Option<ServiceSourceConfig>,
+    pub source_revision: Option<String>,
     pub variables_ciphertext: String,
 }
 
@@ -48,6 +53,9 @@ pub struct DeploymentRecord {
     pub idempotency_key: String,
     pub requested_by_user_id: String,
     pub spec: ServiceSpec,
+    pub source_config: Option<ServiceSourceConfig>,
+    pub source_revision: Option<String>,
+    pub local_image_id: Option<String>,
     pub variables_ciphertext: String,
     pub runtime_ref: Option<String>,
     pub state: DeploymentState,
@@ -112,7 +120,7 @@ impl DeploymentsRepository {
         service_id: &str,
     ) -> Result<Option<AuthorizedDeploymentService>> {
         let row = sqlx::query_as::<_, ServiceRow>(
-            "SELECT s.id, e.project_id, s.desired_generation, s.desired_spec_json
+            "SELECT s.id, e.project_id, s.desired_generation, s.desired_spec_json, s.source_config_json
              FROM services s JOIN environments e ON e.id = s.environment_id
              WHERE s.id = ?",
         )
@@ -126,6 +134,7 @@ impl DeploymentsRepository {
             return Ok(None);
         };
         let spec = decode_spec(&row.desired_spec_json)?;
+        let source_config = decode_source_config(row.source_config_json)?;
         let project_variables = sqlx::query_as::<_, ProjectVariableRow>(
             "SELECT key, ciphertext
              FROM project_variables
@@ -156,6 +165,7 @@ impl DeploymentsRepository {
             role,
             desired_generation: row.desired_generation,
             spec,
+            source_config,
             variables,
         }))
     }
@@ -194,11 +204,18 @@ impl DeploymentsRepository {
         let now = Utc::now().to_rfc3339();
         let spec_json = serde_json::to_string(&deployment.spec)
             .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
+        let source_config_json = deployment
+            .source_config
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()
+            .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
+        let source_revision = deployment.source_revision.as_deref();
         let inserted = sqlx::query(
             "INSERT INTO deployments (
                 id, service_id, generation, idempotency_key, requested_by_user_id, spec_json,
-                variables_ciphertext, status, created_at
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?)
+                source_config_json, source_revision, variables_ciphertext, status, created_at
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?)
              ON CONFLICT(service_id, idempotency_key) DO NOTHING
              ON CONFLICT(service_id) WHERE status IN ('queued', 'preparing', 'running') DO NOTHING",
         )
@@ -208,6 +225,8 @@ impl DeploymentsRepository {
         .bind(&deployment.idempotency_key)
         .bind(&deployment.requested_by_user_id)
         .bind(spec_json)
+        .bind(source_config_json)
+        .bind(source_revision)
         .bind(&deployment.variables_ciphertext)
         .bind(&now)
         .execute(&mut *tx)
@@ -247,7 +266,8 @@ impl DeploymentsRepository {
     ) -> Result<Option<DeploymentRecord>> {
         let row = sqlx::query_as::<_, DeploymentWithProjectRow>(
             "SELECT d.id, d.service_id, d.generation, d.idempotency_key, d.requested_by_user_id,
-                    d.spec_json, d.variables_ciphertext, d.runtime_ref, d.status, d.failure_reason,
+                    d.spec_json, d.source_config_json, d.source_revision, d.local_image_id,
+                    d.variables_ciphertext, d.runtime_ref, d.status, d.failure_reason,
                     d.created_at, d.started_at, d.finished_at, e.project_id
              FROM deployments d
              JOIN services s ON s.id = d.service_id
@@ -282,7 +302,8 @@ impl DeploymentsRepository {
         }
         let rows = sqlx::query_as::<_, DeploymentRow>(
             "SELECT id, service_id, generation, idempotency_key, requested_by_user_id, spec_json,
-                    variables_ciphertext, runtime_ref, status, failure_reason, created_at, started_at, finished_at
+                    source_config_json, source_revision, local_image_id, variables_ciphertext, runtime_ref,
+                    status, failure_reason, created_at, started_at, finished_at
              FROM deployments
              WHERE service_id = ? AND (? IS NULL OR created_at < ?)
              ORDER BY created_at DESC LIMIT ?",
@@ -311,7 +332,8 @@ impl DeploymentsRepository {
         }
         let rows = sqlx::query_as::<_, DeploymentRow>(
             "SELECT d.id, d.service_id, d.generation, d.idempotency_key, d.requested_by_user_id,
-                    d.spec_json, d.variables_ciphertext, d.runtime_ref, d.status, d.failure_reason,
+                    d.spec_json, d.source_config_json, d.source_revision, d.local_image_id,
+                    d.variables_ciphertext, d.runtime_ref, d.status, d.failure_reason,
                     d.created_at, d.started_at, d.finished_at
              FROM deployments d
              JOIN services s ON s.id = d.service_id
@@ -345,7 +367,8 @@ impl DeploymentsRepository {
         }
         let row = sqlx::query_as::<_, DeploymentRow>(
             "SELECT id, service_id, generation, idempotency_key, requested_by_user_id, spec_json,
-                    variables_ciphertext, runtime_ref, status, failure_reason, created_at, started_at, finished_at
+                    source_config_json, source_revision, local_image_id, variables_ciphertext, runtime_ref,
+                    status, failure_reason, created_at, started_at, finished_at
              FROM deployments
              WHERE service_id = ? AND status IN ('running', 'healthy')
              ORDER BY created_at DESC LIMIT 1",
@@ -413,6 +436,44 @@ impl DeploymentsRepository {
         Ok(changed == 1)
     }
 
+    pub async fn record_source_build(
+        &self,
+        deployment_id: &str,
+        source_revision: &str,
+        local_image_id: &str,
+    ) -> Result<bool> {
+        let changed = sqlx::query(
+            "UPDATE deployments
+             SET source_revision = COALESCE(source_revision, ?), local_image_id = ?
+             WHERE id = ? AND status = 'preparing' AND runtime_ref IS NULL",
+        )
+        .bind(source_revision)
+        .bind(local_image_id)
+        .bind(deployment_id)
+        .execute(&self.pool)
+        .await?
+        .rows_affected();
+        Ok(changed == 1)
+    }
+
+    pub async fn record_source_revision(
+        &self,
+        deployment_id: &str,
+        source_revision: &str,
+    ) -> Result<bool> {
+        let changed = sqlx::query(
+            "UPDATE deployments
+             SET source_revision = COALESCE(source_revision, ?)
+             WHERE id = ? AND status = 'preparing' AND runtime_ref IS NULL",
+        )
+        .bind(source_revision)
+        .bind(deployment_id)
+        .execute(&self.pool)
+        .await?
+        .rows_affected();
+        Ok(changed == 1)
+    }
+
     pub async fn replace_runtime_ref(
         &self,
         deployment_id: &str,
@@ -436,7 +497,8 @@ impl DeploymentsRepository {
     ) -> Result<Vec<DeploymentRecord>> {
         let rows = sqlx::query_as::<_, DeploymentRow>(
             "SELECT id, service_id, generation, idempotency_key, requested_by_user_id, spec_json,
-                    variables_ciphertext, runtime_ref, status, failure_reason, created_at, started_at, finished_at
+                    source_config_json, source_revision, local_image_id, variables_ciphertext, runtime_ref,
+                    status, failure_reason, created_at, started_at, finished_at
              FROM deployments
              WHERE service_id = ? AND id != ? AND status = 'healthy'",
         )
@@ -536,7 +598,8 @@ impl DeploymentsRepository {
     pub async fn routable(&self) -> Result<Vec<DeploymentRecord>> {
         let rows = sqlx::query_as::<_, DeploymentRow>(
             "SELECT id, service_id, generation, idempotency_key, requested_by_user_id, spec_json,
-                    variables_ciphertext, runtime_ref, status, failure_reason, created_at, started_at, finished_at
+                    source_config_json, source_revision, local_image_id, variables_ciphertext, runtime_ref,
+                    status, failure_reason, created_at, started_at, finished_at
              FROM deployments WHERE status IN ('running', 'healthy') AND runtime_ref IS NOT NULL",
         )
         .fetch_all(&self.pool)
@@ -547,7 +610,8 @@ impl DeploymentsRepository {
     pub async fn nonterminal(&self) -> Result<Vec<DeploymentRecord>> {
         let rows = sqlx::query_as::<_, DeploymentRow>(
             "SELECT id, service_id, generation, idempotency_key, requested_by_user_id, spec_json,
-                    variables_ciphertext, runtime_ref, status, failure_reason, created_at, started_at, finished_at
+                    source_config_json, source_revision, local_image_id, variables_ciphertext, runtime_ref,
+                    status, failure_reason, created_at, started_at, finished_at
              FROM deployments
              WHERE status IN ('queued', 'preparing', 'running', 'stopping')
              ORDER BY created_at",
@@ -745,6 +809,8 @@ impl DeploymentsRepository {
                 idempotency_key: idempotency_key.to_owned(),
                 requested_by_user_id: actor.id.to_owned(),
                 spec: source.spec,
+                source_config: source.source_config,
+                source_revision: source.source_revision,
                 variables_ciphertext: source.variables_ciphertext,
             },
         )
@@ -799,7 +865,8 @@ async fn fetch_by_service_key(
 ) -> Result<Option<DeploymentRecord>> {
     let row = sqlx::query_as::<_, DeploymentRow>(
         "SELECT id, service_id, generation, idempotency_key, requested_by_user_id, spec_json,
-                variables_ciphertext, runtime_ref, status, failure_reason, created_at, started_at, finished_at
+                source_config_json, source_revision, local_image_id, variables_ciphertext, runtime_ref,
+                status, failure_reason, created_at, started_at, finished_at
          FROM deployments WHERE service_id = ? AND idempotency_key = ?",
     )
     .bind(service_id)
@@ -815,7 +882,8 @@ async fn fetch_deployment(
 ) -> Result<Option<DeploymentRecord>> {
     let row = sqlx::query_as::<_, DeploymentRow>(
         "SELECT id, service_id, generation, idempotency_key, requested_by_user_id, spec_json,
-                variables_ciphertext, runtime_ref, status, failure_reason, created_at, started_at, finished_at
+                source_config_json, source_revision, local_image_id, variables_ciphertext, runtime_ref,
+                status, failure_reason, created_at, started_at, finished_at
          FROM deployments WHERE id = ?",
     )
     .bind(deployment_id)
@@ -886,6 +954,19 @@ fn decode_spec(value: &str) -> Result<ServiceSpec> {
     Ok(spec)
 }
 
+fn decode_source_config(value: Option<String>) -> Result<Option<ServiceSourceConfig>> {
+    value
+        .map(|json| {
+            let config = serde_json::from_str::<ServiceSourceConfig>(&json)
+                .map_err(|error| DatabaseError::InvalidServiceSourceConfig(error.to_string()))?;
+            config
+                .validate()
+                .map_err(|error| DatabaseError::InvalidServiceSourceConfig(error.to_string()))?;
+            Ok(config)
+        })
+        .transpose()
+}
+
 fn deployment_from_row(row: DeploymentRow) -> Result<DeploymentRecord> {
     Ok(DeploymentRecord {
         id: DeploymentId::new(row.id)
@@ -895,6 +976,9 @@ fn deployment_from_row(row: DeploymentRow) -> Result<DeploymentRecord> {
         idempotency_key: row.idempotency_key,
         requested_by_user_id: row.requested_by_user_id,
         spec: decode_spec(&row.spec_json)?,
+        source_config: decode_source_config(row.source_config_json)?,
+        source_revision: row.source_revision,
+        local_image_id: row.local_image_id,
         variables_ciphertext: row.variables_ciphertext,
         runtime_ref: row.runtime_ref,
         state: DeploymentState::try_from(row.status.as_str())
@@ -917,6 +1001,7 @@ struct ServiceRow {
     project_id: String,
     desired_generation: i64,
     desired_spec_json: String,
+    source_config_json: Option<String>,
 }
 
 #[derive(Debug, FromRow)]
@@ -957,6 +1042,9 @@ struct DeploymentRow {
     idempotency_key: String,
     requested_by_user_id: String,
     spec_json: String,
+    source_config_json: Option<String>,
+    source_revision: Option<String>,
+    local_image_id: Option<String>,
     variables_ciphertext: String,
     runtime_ref: Option<String>,
     status: String,
@@ -974,6 +1062,9 @@ struct DeploymentWithProjectRow {
     idempotency_key: String,
     requested_by_user_id: String,
     spec_json: String,
+    source_config_json: Option<String>,
+    source_revision: Option<String>,
+    local_image_id: Option<String>,
     variables_ciphertext: String,
     runtime_ref: Option<String>,
     status: String,
@@ -993,6 +1084,9 @@ impl From<DeploymentWithProjectRow> for DeploymentRow {
             idempotency_key: row.idempotency_key,
             requested_by_user_id: row.requested_by_user_id,
             spec_json: row.spec_json,
+            source_config_json: row.source_config_json,
+            source_revision: row.source_revision,
+            local_image_id: row.local_image_id,
             variables_ciphertext: row.variables_ciphertext,
             runtime_ref: row.runtime_ref,
             status: row.status,

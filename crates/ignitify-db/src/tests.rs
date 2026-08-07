@@ -1,12 +1,13 @@
 use chrono::Utc;
 use ignitify_domain::{
-    DomainName, ProjectInput, ProjectMemberRole, ServiceInput, ServiceVariableInput,
+    ApplicationBuilder, DomainName, ProjectInput, ProjectMemberRole, ServiceInput,
+    ServiceSourceConfig, ServiceVariableInput,
 };
 use uuid::Uuid;
 
 use crate::{
-    Database, DatabaseConfig, NewProvider, NewServiceVariable, ProjectActor, ProjectUpdateOutcome,
-    ProviderAuthMode, ProviderKind, ServiceActor, ServiceMutationOutcome,
+    ActivityActor, Database, DatabaseConfig, NewProvider, NewServiceVariable, ProjectActor,
+    ProjectUpdateOutcome, ProviderAuthMode, ProviderKind, ServiceActor, ServiceMutationOutcome,
 };
 
 async fn database() -> Database {
@@ -68,6 +69,13 @@ async fn provider_repository_stores_encrypted_metadata_and_handles_conflicts() {
 
     assert_eq!(database.providers().list().await.unwrap().len(), 1);
     assert_eq!(provider.kind, ProviderKind::Gitlab);
+    let verified = database
+        .providers()
+        .mark_verified(&provider.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(verified.last_verified_at.is_some());
     assert!(matches!(
         database
             .providers()
@@ -129,6 +137,34 @@ async fn project_bootstrap_creates_owner_and_production_environment() {
         (owner_count, environment_count, default_name.as_deref()),
         (1, 1, Some("production"))
     );
+}
+
+#[tokio::test]
+async fn activity_list_for_project_accepts_project_scope_bindings() {
+    let database = database().await;
+    let owner_id = user_id(&database, "owner").await;
+    let project = database
+        .projects()
+        .create(&owner_id, ProjectInput::new("Control Plane").unwrap())
+        .await
+        .unwrap();
+
+    let activity = database
+        .activity()
+        .list_for_project(
+            ActivityActor {
+                id: &owner_id,
+                is_admin: false,
+            },
+            project.id.as_str(),
+            None,
+            None,
+        )
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert!(!activity.is_empty());
 }
 
 #[tokio::test]
@@ -235,6 +271,8 @@ async fn deployment_repository_enforces_idempotency_active_conflict_and_immutabl
                 idempotency_key: "deploy-1".to_owned(),
                 requested_by_user_id: actor_id.clone(),
                 spec: service.spec.clone(),
+                source_config: None,
+                source_revision: None,
                 variables_ciphertext: "ciphertext-1".to_owned(),
             },
         )
@@ -252,6 +290,8 @@ async fn deployment_repository_enforces_idempotency_active_conflict_and_immutabl
                 idempotency_key: "deploy-1".to_owned(),
                 requested_by_user_id: actor_id.clone(),
                 spec: service.spec.clone(),
+                source_config: None,
+                source_revision: None,
                 variables_ciphertext: "different-ciphertext".to_owned(),
             },
         )
@@ -270,6 +310,8 @@ async fn deployment_repository_enforces_idempotency_active_conflict_and_immutabl
                 idempotency_key: "deploy-2".to_owned(),
                 requested_by_user_id: actor_id.clone(),
                 spec: service.spec.clone(),
+                source_config: None,
+                source_revision: None,
                 variables_ciphertext: "ciphertext-2".to_owned(),
             },
         )
@@ -328,6 +370,151 @@ async fn deployment_repository_enforces_idempotency_active_conflict_and_immutabl
 }
 
 #[tokio::test]
+async fn service_repository_persists_source_configuration_separately_from_runtime_spec() {
+    let database = database().await;
+    let actor_id = user_id(&database, "source-owner").await;
+    let project = database
+        .projects()
+        .create(&actor_id, ProjectInput::new("Source project").unwrap())
+        .await
+        .unwrap();
+    let mut input = ServiceInput::image(
+        "web",
+        "nginx@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        Some(80),
+        None,
+        vec![],
+    )
+    .unwrap();
+    input.configuration.source_config = Some(ServiceSourceConfig {
+        source: "application".to_owned(),
+        template: None,
+        setup_required: None,
+        provider_id: Some("provider-1".to_owned()),
+        repository: Some("acme/site".to_owned()),
+        branch: Some("main".to_owned()),
+        builder: Some(ApplicationBuilder::Railpack),
+        dockerfile_path: None,
+        build_command: None,
+        output_directory: None,
+    });
+    let outcome = database
+        .services()
+        .create(
+            ServiceActor {
+                id: &actor_id,
+                is_admin: false,
+            },
+            project.id.as_str(),
+            input.configuration,
+            vec![],
+        )
+        .await
+        .unwrap();
+    let ServiceMutationOutcome::Created(service) = outcome else {
+        panic!("service must be created");
+    };
+    assert_eq!(
+        service
+            .source_config
+            .as_ref()
+            .and_then(|config| config.repository.as_deref()),
+        Some("acme/site")
+    );
+    assert_eq!(service.spec.kind().as_str(), "image");
+
+    let deployment = database
+        .deployments()
+        .create(
+            crate::DeploymentActor {
+                id: &actor_id,
+                is_admin: false,
+            },
+            service.id.as_str(),
+            crate::NewDeployment {
+                idempotency_key: "source-deploy".to_owned(),
+                requested_by_user_id: actor_id.clone(),
+                spec: service.spec.clone(),
+                source_config: service.source_config.clone(),
+                source_revision: None,
+                variables_ciphertext: "ciphertext".to_owned(),
+            },
+        )
+        .await
+        .unwrap();
+    let crate::CreateDeploymentOutcome::Created(deployment) = deployment else {
+        panic!("deployment must be created");
+    };
+    let claimed = database.deployments().claim_next().await.unwrap().unwrap();
+    assert!(
+        database
+            .deployments()
+            .record_source_revision(
+                claimed.id.as_str(),
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            )
+            .await
+            .unwrap()
+    );
+    database
+        .deployments()
+        .record_source_build(
+            claimed.id.as_str(),
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        )
+        .await
+        .unwrap();
+    let stored = database
+        .deployments()
+        .get(
+            crate::DeploymentActor {
+                id: &deployment.requested_by_user_id,
+                is_admin: false,
+            },
+            deployment.id.as_str(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(stored.source_config, service.source_config);
+    assert_eq!(
+        stored.source_revision.as_deref(),
+        Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+    );
+    assert_eq!(
+        stored.local_image_id.as_deref(),
+        Some("sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+    );
+    database
+        .deployments()
+        .transition(
+            stored.id.as_str(),
+            ignitify_domain::DeploymentState::Failed,
+            None,
+            Some("test failure"),
+        )
+        .await
+        .unwrap();
+    let rollback = database
+        .deployments()
+        .rollback(
+            crate::DeploymentActor {
+                id: &actor_id,
+                is_admin: false,
+            },
+            stored.id.as_str(),
+            "source-rollback",
+        )
+        .await
+        .unwrap();
+    let crate::CreateDeploymentOutcome::Created(rollback) = rollback else {
+        panic!("rollback must be created");
+    };
+    assert_eq!(rollback.source_revision, stored.source_revision);
+}
+
+#[tokio::test]
 async fn deployment_log_retention_keeps_newest_ten_thousand_rows() {
     let database = database().await;
     let actor_id = user_id(&database, "owner").await;
@@ -372,6 +559,8 @@ async fn deployment_log_retention_keeps_newest_ten_thousand_rows() {
                 idempotency_key: "retention".to_owned(),
                 requested_by_user_id: actor_id.clone(),
                 spec: service.spec,
+                source_config: None,
+                source_revision: None,
                 variables_ciphertext: "ciphertext".to_owned(),
             },
         )

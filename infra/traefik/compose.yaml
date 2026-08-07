@@ -28,9 +28,11 @@ services:
 
   traefik:
     image: traefik:v3.6.21@sha256:850b1b3484519b12353d9679ec3246e63a42df2cc640bf8e6fa50267d589f5a0
+    labels:
+      com.ignitify.ingress: traefik
     command:
       - --configFile=/etc/traefik/traefik.yaml
-      - --certificatesresolvers.le.acme.email=${IGNITIFY_ACME_EMAIL:?set IGNITIFY_ACME_EMAIL}
+      - --certificatesresolvers.le.acme.email=${IGNITIFY_ACME_EMAIL:-ops@example.com}
       - --certificatesresolvers.le.acme.storage=/letsencrypt/acme.json
       - --certificatesresolvers.le.acme.httpchallenge.entrypoint=web
       - --certificatesresolvers.le.acme.caserver=${IGNITIFY_ACME_CA_SERVER:-https://acme-staging-v02.api.letsencrypt.org/directory}
@@ -64,4 +66,3 @@ networks:
     internal: true
   ignitify-proxy:
     name: ignitify-proxy
-    external: true

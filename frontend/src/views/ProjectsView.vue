@@ -1,6 +1,16 @@
 <script setup lang="ts">
-import { Box, KeyRound, Plus, RefreshCw, Users } from "@lucide/vue";
-import { computed, onMounted, shallowRef } from "vue";
+import {
+  Box,
+  ChevronLeft,
+  ChevronRight,
+  KeyRound,
+  LayoutGrid,
+  List as ListIcon,
+  Plus,
+  RefreshCw,
+  Users,
+} from "@lucide/vue";
+import { computed, onMounted, shallowRef, watch } from "vue";
 import { useRouter } from "vue-router";
 import ProjectCreateDialog from "@/components/project/ProjectCreateDialog.vue";
 import ProjectList from "@/components/project/ProjectList.vue";
@@ -16,6 +26,41 @@ const ownerCount = computed(() => data.value.filter((project) => project.role ==
 const environmentCount = computed(
   () => data.value.filter((project) => project.default_environment.is_default).length,
 );
+const PROJECTS_PER_PAGE = 6;
+const currentPage = shallowRef(1);
+const viewMode = shallowRef<"list" | "catalog">("catalog");
+const pageCount = computed(() => Math.max(1, Math.ceil(projectCount.value / PROJECTS_PER_PAGE)));
+const visibleProjects = computed(() => {
+  const start = (currentPage.value - 1) * PROJECTS_PER_PAGE;
+  return data.value.slice(start, start + PROJECTS_PER_PAGE);
+});
+const firstVisibleProject = computed(() =>
+  projectCount.value === 0 ? 0 : (currentPage.value - 1) * PROJECTS_PER_PAGE + 1,
+);
+const lastVisibleProject = computed(() =>
+  Math.min(currentPage.value * PROJECTS_PER_PAGE, projectCount.value),
+);
+
+watch(
+  pageCount,
+  (count) => {
+    if (currentPage.value > count) currentPage.value = count;
+  },
+  { immediate: true },
+);
+
+function setViewMode(mode: "list" | "catalog") {
+  viewMode.value = mode;
+  currentPage.value = 1;
+}
+
+function goToPreviousPage() {
+  currentPage.value = Math.max(1, currentPage.value - 1);
+}
+
+function goToNextPage() {
+  currentPage.value = Math.min(pageCount.value, currentPage.value + 1);
+}
 
 async function createProject(name: string) {
   const project = await create({ name });
@@ -126,9 +171,79 @@ onMounted(load);
           <p class="ui-label">Workspace inventory</p>
           <h2 class="mt-2 text-base font-medium">Your projects</h2>
         </div>
-        <span class="font-mono text-[11px] text-muted-foreground">{{ projectCount }} total</span>
+        <div class="flex items-center gap-3">
+          <div
+            class="inline-flex items-center gap-0.5 rounded-sm border border-border bg-muted p-0.5"
+            role="group"
+            aria-label="Project view"
+          >
+            <button
+              class="grid size-7 place-items-center rounded-[2px] transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+              :class="
+                viewMode === 'list'
+                  ? 'bg-background text-foreground'
+                  : 'text-muted-foreground hover:bg-background/70 hover:text-foreground'
+              "
+              type="button"
+              aria-label="List view"
+              title="List view"
+              :aria-pressed="viewMode === 'list'"
+              @click="setViewMode('list')"
+            >
+              <ListIcon class="size-4" :stroke-width="1.5" />
+            </button>
+            <button
+              class="grid size-7 place-items-center rounded-[2px] transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+              :class="
+                viewMode === 'catalog'
+                  ? 'bg-background text-foreground'
+                  : 'text-muted-foreground hover:bg-background/70 hover:text-foreground'
+              "
+              type="button"
+              aria-label="Catalog view"
+              title="Catalog view"
+              :aria-pressed="viewMode === 'catalog'"
+              @click="setViewMode('catalog')"
+            >
+              <LayoutGrid class="size-4" :stroke-width="1.5" />
+            </button>
+          </div>
+          <span class="font-mono text-[11px] text-muted-foreground">{{ projectCount }} total</span>
+        </div>
       </div>
-      <ProjectList :projects="data" />
+      <ProjectList :projects="visibleProjects" :view="viewMode" />
+      <nav
+        v-if="pageCount > 1"
+        class="flex items-center justify-between gap-4 border border-border bg-card px-4 py-3 max-[640px]:items-start max-[640px]:flex-col"
+        aria-label="Project pagination"
+      >
+        <p class="text-xs text-muted-foreground" aria-live="polite">
+          Showing {{ firstVisibleProject }}–{{ lastVisibleProject }} of {{ projectCount }} projects
+        </p>
+        <div class="flex items-center gap-2">
+          <Button
+            size="icon-sm"
+            variant="outline"
+            :disabled="currentPage === 1"
+            aria-label="Previous page"
+            @click="goToPreviousPage"
+          >
+            <ChevronLeft class="size-4" :stroke-width="1.5" />
+          </Button>
+          <span class="min-w-20 text-center font-mono text-xs text-muted-foreground">
+            Page {{ currentPage }} of {{ pageCount }}
+          </span>
+          <Button
+            size="icon-sm"
+            variant="outline"
+            :disabled="currentPage === pageCount"
+            aria-label="Next page"
+            @click="goToNextPage"
+          >
+            <ChevronRight class="size-4" :stroke-width="1.5" />
+          </Button>
+        </div>
+      </nav>
     </section>
 
     <ProjectCreateDialog v-model:open="createOpen" :error="error" @create="createProject" />

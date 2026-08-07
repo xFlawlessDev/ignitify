@@ -1,0 +1,17 @@
+[package]
+name = "ignitify-source-git"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+base64.workspace = true
+ignitify-control-plane = { path = "../ignitify-control-plane" }
+ignitify-db = { path = "../ignitify-db" }
+ignitify-domain = { path = "../ignitify-domain" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+url.workspace = true

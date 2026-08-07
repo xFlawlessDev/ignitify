@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+age.workspace = true
 axum.workspace = true
 dotenvy.workspace = true
 ignitify-api = { path = "../ignitify-api" }
@@ -13,8 +14,15 @@ ignitify-control-plane = { path = "../ignitify-control-plane" }
 ignitify-ingress-traefik = { path = "../ignitify-ingress-traefik" }
 ignitify-db = { path = "../ignitify-db" }
 ignitify-runtime-docker = { path = "../ignitify-runtime-docker" }
+ignitify-source-git = { path = "../ignitify-source-git" }
 ignitify-terminal = { path = "../ignitify-terminal" }
 ignitify-runtime-compose = { path = "../ignitify-runtime-compose" }
+rand.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 sysinfo.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
+
+[dev-dependencies]
+uuid.workspace = true

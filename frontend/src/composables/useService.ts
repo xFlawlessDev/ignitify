@@ -1,5 +1,10 @@
 import { shallowRef } from "vue";
-import { apiCreateService, apiListServices, apiUpdateService } from "@/lib/api/services";
+import {
+  apiCreateService,
+  apiGetService,
+  apiListServices,
+  apiUpdateService,
+} from "@/lib/api/services";
 import type { ServiceInput, ServiceSummary } from "@/lib/types";
 
 export function useService() {
@@ -12,15 +17,22 @@ export function useService() {
     const generation = ++loadGeneration;
     loading.value = true;
     error.value = null;
-    const result = await apiListServices(projectId);
-    if (generation !== loadGeneration) return;
-    loading.value = false;
-    if (!result.success) {
+    try {
+      const result = await apiListServices(projectId);
+      if (generation !== loadGeneration) return;
+      if (!result.success) {
+        data.value = [];
+        error.value = result.error ?? "Could not load services";
+        return;
+      }
+      data.value = result.data;
+    } catch (cause) {
+      if (generation !== loadGeneration) return;
       data.value = [];
-      error.value = result.error ?? "Could not load services";
-      return;
+      error.value = cause instanceof Error ? cause.message : "Could not load services";
+    } finally {
+      if (generation === loadGeneration) loading.value = false;
     }
-    data.value = result.data;
   }
 
   async function create(projectId: string, input: ServiceInput): Promise<ServiceSummary | null> {
@@ -30,8 +42,30 @@ export function useService() {
       error.value = result.error ?? "Could not create service";
       return null;
     }
+    // A create result is newer than a pending list response, so ignore that stale response.
+    loadGeneration += 1;
+    loading.value = false;
     data.value = [result.data, ...data.value];
     return result.data;
+  }
+
+  async function get(serviceId: string): Promise<ServiceSummary | null> {
+    error.value = null;
+    try {
+      const result = await apiGetService(serviceId);
+      if (!result.success) {
+        error.value = result.error ?? "Could not load service";
+        return null;
+      }
+      const service = result.data;
+      data.value = data.value.some((item) => item.id === service.id)
+        ? data.value.map((item) => (item.id === service.id ? service : item))
+        : [service, ...data.value];
+      return service;
+    } catch (cause) {
+      error.value = cause instanceof Error ? cause.message : "Could not load service";
+      return null;
+    }
   }
 
   async function update(serviceId: string, input: ServiceInput): Promise<ServiceSummary | null> {
@@ -41,9 +75,9 @@ export function useService() {
       error.value = result.error ?? "Could not update service";
       return null;
     }
-    data.value = data.value.map((service) => (service.id === serviceId ? result.data : service));
+    data.value = data.value.map((item) => (item.id === serviceId ? result.data : item));
     return result.data;
   }
 
-  return { data, loading, error, load, create, update };
+  return { data, loading, error, load, get, create, update };
 }

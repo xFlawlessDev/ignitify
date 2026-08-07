@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use chrono::Utc;
 use ignitify_domain::{
     EnvironmentId, ProjectId, ProjectMemberRole, ServiceConfiguration, ServiceId, ServiceKind,
-    ServiceSpec,
+    ServiceSourceConfig, ServiceSpec,
 };
 use sqlx::{FromRow, SqlitePool};
 use uuid::Uuid;
@@ -32,6 +32,7 @@ pub struct AuthorizedService {
     pub name: String,
     pub kind: ServiceKind,
     pub spec: ServiceSpec,
+    pub source_config: Option<ServiceSourceConfig>,
     pub desired_generation: i64,
     pub desired_state: String,
     pub created_at: String,
@@ -74,6 +75,7 @@ impl ServicesRepository {
         };
         let rows = sqlx::query_as::<_, ServiceRow>(
             "SELECT s.id, e.project_id, s.environment_id, s.name, s.kind, s.desired_spec_json,
+                    s.source_config_json,
                     s.desired_generation, s.desired_state, s.created_at, s.updated_at
              FROM services s
              JOIN environments e ON e.id = s.environment_id
@@ -99,6 +101,7 @@ impl ServicesRepository {
     ) -> Result<Option<AuthorizedService>> {
         let row = sqlx::query_as::<_, ServiceRow>(
             "SELECT s.id, e.project_id, s.environment_id, s.name, s.kind, s.desired_spec_json,
+                    s.source_config_json,
                     s.desired_generation, s.desired_state, s.created_at, s.updated_at
              FROM services s
              JOIN environments e ON e.id = s.environment_id
@@ -141,16 +144,23 @@ impl ServicesRepository {
         let now = Utc::now().to_rfc3339();
         let spec_json = serde_json::to_string(&configuration.spec)
             .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
+        let source_config_json = configuration
+            .source_config
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()
+            .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
         let mut tx = self.pool.begin().await?;
         let insert = sqlx::query(
-            "INSERT INTO services (id, environment_id, name, kind, desired_spec_json, desired_generation, desired_state, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, 1, 'stopped', ?, ?)",
+            "INSERT INTO services (id, environment_id, name, kind, desired_spec_json, source_config_json, desired_generation, desired_state, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, 1, 'stopped', ?, ?)",
         )
         .bind(&service_id)
         .bind(&environment_id)
         .bind(&configuration.name)
         .bind(configuration.spec.kind().as_str())
         .bind(&spec_json)
+        .bind(source_config_json)
         .bind(&now)
         .bind(&now)
         .execute(&mut *tx)
@@ -188,16 +198,23 @@ impl ServicesRepository {
         }
         let spec_json = serde_json::to_string(&configuration.spec)
             .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
+        let source_config_json = configuration
+            .source_config
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()
+            .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
         let now = Utc::now().to_rfc3339();
         let mut tx = self.pool.begin().await?;
         let update = sqlx::query(
             "UPDATE services
-             SET name = ?, kind = ?, desired_spec_json = ?, desired_generation = desired_generation + 1, updated_at = ?
+             SET name = ?, kind = ?, desired_spec_json = ?, source_config_json = ?, desired_generation = desired_generation + 1, updated_at = ?
              WHERE id = ?",
         )
         .bind(&configuration.name)
         .bind(configuration.spec.kind().as_str())
         .bind(&spec_json)
+        .bind(source_config_json)
         .bind(&now)
         .bind(service_id)
         .execute(&mut *tx)
@@ -301,6 +318,13 @@ impl ServicesRepository {
                 "service kind does not match desired specification".to_owned(),
             ));
         }
+        let source_config = row
+            .source_config_json
+            .map(|json| {
+                serde_json::from_str::<ServiceSourceConfig>(&json)
+                    .map_err(|error| DatabaseError::InvalidServiceSourceConfig(error.to_string()))
+            })
+            .transpose()?;
         Ok(AuthorizedService {
             id: ServiceId::new(row.id)
                 .map_err(|_| sqlx::Error::Protocol("stored service id is invalid".into()))?,
@@ -312,6 +336,7 @@ impl ServicesRepository {
             name: row.name,
             kind,
             spec,
+            source_config,
             desired_generation: row.desired_generation,
             desired_state: row.desired_state,
             created_at: row.created_at,
@@ -389,6 +414,7 @@ struct ServiceRow {
     name: String,
     kind: String,
     desired_spec_json: String,
+    source_config_json: Option<String>,
     desired_generation: i64,
     desired_state: String,
     created_at: String,

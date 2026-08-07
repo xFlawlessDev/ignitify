@@ -1,15 +1,127 @@
-use std::collections::BTreeMap;
+use std::{
+    collections::BTreeMap,
+    env,
+    path::{Path, PathBuf},
+    process::Stdio,
+};
 
-use ignitify_control_plane::{Ingress, IngressRoute, Result as ControlResult};
+use ignitify_control_plane::{Ingress, IngressRoute, Result as ControlResult, RuntimeHealth};
 use ignitify_domain::{DomainId, DomainName, ServiceId};
+use ignitify_runtime_docker::DockerRuntime;
 use thiserror::Error;
+use tokio::process::Command;
 
 pub const PROXY_NETWORK: &str = "ignitify-proxy";
 pub const ENTRYPOINT: &str = "websecure";
 pub const CERT_RESOLVER: &str = "le";
+pub const INGRESS_LABEL: &str = "com.ignitify.ingress=traefik";
 
-#[derive(Debug, Clone, Default)]
-pub struct TraefikIngress;
+#[derive(Clone)]
+pub struct TraefikIngress {
+    runtime: DockerRuntime,
+    operator: OperatorConfig,
+}
+
+impl TraefikIngress {
+    pub fn new(runtime: DockerRuntime) -> Self {
+        Self {
+            runtime,
+            operator: OperatorConfig::from_environment(),
+        }
+    }
+
+    pub async fn ready(&self) -> bool {
+        let network = self.runtime.network_exists(PROXY_NETWORK).await;
+        let ingress = self
+            .runtime
+            .has_running_container_with_label(INGRESS_LABEL)
+            .await;
+        matches!(network, Ok(true)) && matches!(ingress, Ok(true))
+    }
+
+    pub async fn ensure_started(&self) -> bool {
+        if self.ready().await {
+            return true;
+        }
+        if !self.operator.auto_start {
+            return false;
+        }
+        if let Err(error) = self.operator.start().await {
+            tracing::warn!(error = %error, "could not start the Traefik operator stack");
+            return false;
+        }
+        self.ready().await
+    }
+}
+
+#[derive(Clone)]
+struct OperatorConfig {
+    auto_start: bool,
+    docker_bin: String,
+    compose_file: PathBuf,
+}
+
+impl OperatorConfig {
+    fn from_environment() -> Self {
+        Self {
+            auto_start: env::var("IGNITIFY_AUTO_START_INGRESS")
+                .map(|value| value.trim() != "false")
+                .unwrap_or(true),
+            docker_bin: env::var("IGNITIFY_DOCKER_BIN")
+                .ok()
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or_else(|| "docker".to_owned()),
+            compose_file: env::var("IGNITIFY_TRAEFIK_COMPOSE_FILE")
+                .ok()
+                .filter(|value| !value.trim().is_empty())
+                .map(PathBuf::from)
+                .unwrap_or_else(|| PathBuf::from("infra/traefik/compose.yaml")),
+        }
+    }
+
+    async fn start(&self) -> std::result::Result<(), OperatorError> {
+        let compose_file = self
+            .compose_file
+            .file_name()
+            .ok_or(OperatorError::InvalidComposePath)?;
+        let working_dir = self
+            .compose_file
+            .parent()
+            .filter(|path| !path.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
+        if !self.compose_file.is_file() {
+            return Err(OperatorError::ComposeFileMissing(self.compose_file.clone()));
+        }
+        let status = Command::new(&self.docker_bin)
+            .args(["compose", "-f"])
+            .arg(compose_file)
+            .args(["up", "-d"])
+            .current_dir(working_dir)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .await
+            .map_err(OperatorError::Command)?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(OperatorError::CommandFailed)
+        }
+    }
+}
+
+#[derive(Debug, Error)]
+enum OperatorError {
+    #[error("Traefik compose path is invalid")]
+    InvalidComposePath,
+    #[error("Traefik compose file is missing: {0}")]
+    ComposeFileMissing(PathBuf),
+    #[error("could not execute Docker Compose")]
+    Command(#[source] std::io::Error),
+    #[error("Docker Compose returned a failure status")]
+    CommandFailed,
+}
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum Error {
@@ -59,6 +171,12 @@ impl Ingress for TraefikIngress {
         port: u32,
     ) -> ControlResult<IngressRoute> {
         render_route(domain_id, hostname, port).map_err(|_| ignitify_control_plane::Error::Runtime)
+    }
+}
+
+impl RuntimeHealth for TraefikIngress {
+    fn ready(&self) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + '_>> {
+        Box::pin(async move { self.ready().await })
     }
 }
 

@@ -279,6 +279,7 @@ impl ServiceControl {
             name: service.name,
             kind: service.kind.as_str().to_owned(),
             spec: service.spec,
+            source_config: service.source_config,
             desired_generation: service.desired_generation,
             desired_state: service.desired_state,
             created_at: service.created_at,
@@ -364,6 +365,7 @@ impl ControlHandle {
         }
         let variables_ciphertext = self.snapshot_variables(&service)?;
         let spec = service.spec.clone();
+        let source_config = service.source_config.clone();
         let outcome = self
             .deployments
             .create(
@@ -373,6 +375,8 @@ impl ControlHandle {
                     idempotency_key: idempotency_key.to_owned(),
                     requested_by_user_id: actor.id.to_owned(),
                     spec,
+                    source_config,
+                    source_revision: None,
                     variables_ciphertext,
                 },
             )
@@ -643,6 +647,7 @@ pub struct RuntimeDeployment {
     pub service_id: ServiceId,
     pub generation: i64,
     pub spec: ServiceSpec,
+    pub local_image_id: Option<String>,
 }
 
 impl From<&DeploymentRecord> for RuntimeDeployment {
@@ -652,6 +657,7 @@ impl From<&DeploymentRecord> for RuntimeDeployment {
             service_id: deployment.service_id.clone(),
             generation: deployment.generation,
             spec: deployment.spec.clone(),
+            local_image_id: deployment.local_image_id.clone(),
         }
     }
 }
@@ -829,6 +835,51 @@ pub trait ImageRuntime: Send + Sync + 'static {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceBuildOutput {
+    pub source_revision: String,
+    pub local_image_id: Option<String>,
+    pub runtime_spec: Option<ServiceSpec>,
+}
+
+pub trait SourceBuild: Send + Sync + 'static {
+    fn build(
+        &self,
+        deployment: &DeploymentRecord,
+    ) -> impl Future<Output = Result<Option<SourceBuildOutput>>> + Send;
+}
+
+#[derive(Clone, Copy, Default)]
+pub struct NoopSourceBuild;
+
+impl SourceBuild for NoopSourceBuild {
+    async fn build(&self, deployment: &DeploymentRecord) -> Result<Option<SourceBuildOutput>> {
+        if deployment.source_config.as_ref().is_some_and(|source| {
+            source.source == "application"
+                || (source.source == "compose" && source.provider_id.is_some())
+        }) {
+            return Err(Error::Policy("source builds are unavailable"));
+        }
+        Ok(None)
+    }
+}
+
+pub struct WorkerDependencies<R, I, S> {
+    runtime: R,
+    ingress: I,
+    source_build: S,
+}
+
+impl<R, I, S> WorkerDependencies<R, I, S> {
+    pub fn new(runtime: R, ingress: I, source_build: S) -> Self {
+        Self {
+            runtime,
+            ingress,
+            source_build,
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct RuntimeSelector<I, C> {
     image: I,
@@ -942,12 +993,40 @@ pub fn spawn_worker<R, I>(
     runtime: R,
     ingress: I,
     publisher: StreamPublisher,
-    mut wake: mpsc::Receiver<()>,
+    wake: mpsc::Receiver<()>,
 ) -> (tokio::task::JoinHandle<()>, Arc<AtomicBool>)
 where
     R: ImageRuntime,
     I: Ingress,
 {
+    spawn_worker_with_source(
+        deployments,
+        domains,
+        cipher,
+        WorkerDependencies::new(runtime, ingress, NoopSourceBuild),
+        publisher,
+        wake,
+    )
+}
+
+pub fn spawn_worker_with_source<R, I, S>(
+    deployments: DeploymentsRepository,
+    domains: DomainsRepository,
+    cipher: Arc<AgeCipher>,
+    dependencies: WorkerDependencies<R, I, S>,
+    publisher: StreamPublisher,
+    mut wake: mpsc::Receiver<()>,
+) -> (tokio::task::JoinHandle<()>, Arc<AtomicBool>)
+where
+    R: ImageRuntime,
+    I: Ingress,
+    S: SourceBuild,
+{
+    let WorkerDependencies {
+        runtime,
+        ingress,
+        source_build,
+    } = dependencies;
     let ready = Arc::new(AtomicBool::new(false));
     let worker_ready = ready.clone();
     let handle = tokio::spawn(async move {
@@ -962,12 +1041,13 @@ where
         let _liveness = Liveness(worker_ready.clone());
         let mut interval = tokio::time::interval(Duration::from_secs(30));
         loop {
-            match reconcile_once(
+            match reconcile_once_with_source(
                 &deployments,
                 &domains,
                 &cipher,
                 &runtime,
                 &ingress,
+                &source_build,
                 &publisher,
             )
             .await
@@ -1005,6 +1085,32 @@ pub async fn reconcile_once<R, I>(
 where
     R: ImageRuntime,
     I: Ingress,
+{
+    reconcile_once_with_source(
+        deployments,
+        domains,
+        cipher,
+        runtime,
+        ingress,
+        &NoopSourceBuild,
+        publisher,
+    )
+    .await
+}
+
+pub async fn reconcile_once_with_source<R, I, S>(
+    deployments: &DeploymentsRepository,
+    domains: &DomainsRepository,
+    cipher: &AgeCipher,
+    runtime: &R,
+    ingress: &I,
+    source_build: &S,
+    publisher: &StreamPublisher,
+) -> Result<()>
+where
+    R: ImageRuntime,
+    I: Ingress,
+    S: SourceBuild,
 {
     for deployment in deployments.nonterminal().await? {
         match deployment.state {
@@ -1092,7 +1198,45 @@ where
     publisher
         .publish_events(deployments, deployment.id.as_str())
         .await;
-    let runtime_deployment = RuntimeDeployment::from(&deployment);
+    let runtime_deployment = match source_build.build(&deployment).await {
+        Ok(Some(output)) => {
+            if let Some(local_image_id) = output.local_image_id.as_deref() {
+                deployments
+                    .record_source_build(
+                        deployment.id.as_str(),
+                        &output.source_revision,
+                        local_image_id,
+                    )
+                    .await?;
+            } else {
+                deployments
+                    .record_source_revision(deployment.id.as_str(), &output.source_revision)
+                    .await?;
+            }
+            let mut runtime_deployment = RuntimeDeployment::from(&deployment);
+            runtime_deployment.local_image_id = output.local_image_id;
+            if let Some(spec) = output.runtime_spec {
+                runtime_deployment.spec = spec;
+            }
+            runtime_deployment
+        }
+        Ok(None) => RuntimeDeployment::from(&deployment),
+        Err(error) => {
+            tracing::warn!(deployment_id = %deployment.id, error = %error, "deployment source build failed");
+            deployments
+                .transition(
+                    deployment.id.as_str(),
+                    DeploymentState::Failed,
+                    None,
+                    Some("source build failed"),
+                )
+                .await?;
+            publisher
+                .publish_events(deployments, deployment.id.as_str())
+                .await;
+            return Ok(());
+        }
+    };
     let predicted_runtime_ref = runtime.runtime_ref(&runtime_deployment);
     deployments
         .record_runtime_ref(deployment.id.as_str(), &predicted_runtime_ref)
@@ -1217,20 +1361,50 @@ where
     let Some(runtime_ref) = deployment.runtime_ref.as_deref() else {
         return Ok(());
     };
-    let applied = runtime
+    match runtime
         .reconcile_routes(&runtime_deployment, runtime_ref, environment, routes)
-        .await?;
+        .await
+    {
+        Ok(true) => {
+            set_domain_statuses(
+                domains,
+                &domain_records,
+                ignitify_domain::DomainStatus::Active,
+                None,
+            )
+            .await
+        }
+        Ok(false) => {
+            set_domain_statuses(
+                domains,
+                &domain_records,
+                ignitify_domain::DomainStatus::Failed,
+                Some("route reconciliation failed"),
+            )
+            .await
+        }
+        Err(error) => {
+            set_domain_statuses(
+                domains,
+                &domain_records,
+                ignitify_domain::DomainStatus::Failed,
+                Some("route reconciliation failed"),
+            )
+            .await?;
+            Err(error)
+        }
+    }
+}
+
+async fn set_domain_statuses(
+    domains: &DomainsRepository,
+    domain_records: &[ignitify_db::DomainRecord],
+    status: ignitify_domain::DomainStatus,
+    last_error: Option<&str>,
+) -> Result<()> {
     for domain in domain_records {
         domains
-            .set_status(
-                domain.id.as_str(),
-                if applied {
-                    ignitify_domain::DomainStatus::Active
-                } else {
-                    ignitify_domain::DomainStatus::Failed
-                },
-                (!applied).then_some("route reconciliation failed"),
-            )
+            .set_status(domain.id.as_str(), status, last_error)
             .await?;
     }
     Ok(())
@@ -1487,6 +1661,7 @@ pub struct ServiceReadModel {
     pub name: String,
     pub kind: String,
     pub spec: ignitify_domain::ServiceSpec,
+    pub source_config: Option<ignitify_domain::ServiceSourceConfig>,
     pub desired_generation: i64,
     pub desired_state: String,
     pub created_at: String,
@@ -1579,7 +1754,9 @@ mod tests {
         Database, DatabaseConfig, DeploymentActor, NewServiceVariable, ProjectActor, ServiceActor,
         UserRole as DatabaseUserRole,
     };
-    use ignitify_domain::{ProjectInput, ServiceInput, ServiceVariableInput};
+    use ignitify_domain::{
+        DomainName, DomainStatus, ProjectInput, ServiceInput, ServiceVariableInput,
+    };
 
     use super::{
         AgeCipher, ControlHandle, ImageRuntime, Ingress, IngressRoute,
@@ -1667,6 +1844,7 @@ mod tests {
 
     struct FakeRuntime {
         calls: Arc<Mutex<Vec<String>>>,
+        routes_fail: bool,
     }
 
     impl ImageRuntime for FakeRuntime {
@@ -1711,6 +1889,19 @@ mod tests {
             _since: i64,
         ) -> super::Result<Vec<super::RuntimeLog>> {
             Ok(vec![])
+        }
+
+        async fn reconcile_routes(
+            &self,
+            _deployment: &super::RuntimeDeployment,
+            _runtime_ref: &str,
+            _environment: Vec<String>,
+            _routes: Vec<IngressRoute>,
+        ) -> super::Result<bool> {
+            if self.routes_fail {
+                return Err(super::Error::Runtime);
+            }
+            Ok(true)
         }
     }
 
@@ -1771,6 +1962,8 @@ mod tests {
                     idempotency_key: "deploy-1".to_owned(),
                     requested_by_user_id: actor_id.clone(),
                     spec: service.spec,
+                    source_config: None,
+                    source_revision: None,
                     variables_ciphertext,
                 },
             )
@@ -1787,6 +1980,7 @@ mod tests {
             .unwrap();
         let runtime = FakeRuntime {
             calls: Arc::new(Mutex::new(vec![])),
+            routes_fail: false,
         };
         let (publisher, _) = tokio::sync::broadcast::channel(16);
         reconcile_once(
@@ -1818,6 +2012,128 @@ mod tests {
             ]
         );
         assert!(runtime.calls.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn reconcile_marks_domains_failed_when_route_application_fails() {
+        let database = Database::connect(&DatabaseConfig {
+            url: "sqlite::memory:".to_owned(),
+        })
+        .await
+        .unwrap();
+        let actor_id = database
+            .users()
+            .create("owner", "hash", DatabaseUserRole::User)
+            .await
+            .unwrap()
+            .id;
+        let project = database
+            .projects()
+            .create(&actor_id, ProjectInput::new("Platform").unwrap())
+            .await
+            .unwrap();
+        let service = database
+            .services()
+            .create(
+                ServiceActor {
+                    id: &actor_id,
+                    is_admin: false,
+                },
+                project.id.as_str(),
+                ServiceInput::image(
+                    "web",
+                    "nginx@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    Some(8080),
+                    None,
+                    vec![],
+                )
+                .unwrap()
+                .configuration,
+                Vec::<NewServiceVariable>::new(),
+            )
+            .await
+            .unwrap();
+        let ignitify_db::ServiceMutationOutcome::Created(service) = service else {
+            panic!("service must exist");
+        };
+        database
+            .domains()
+            .create(
+                ignitify_db::DomainActor {
+                    id: &actor_id,
+                    is_admin: false,
+                },
+                service.id.as_str(),
+                DomainName::new("app.example.com").unwrap(),
+            )
+            .await
+            .unwrap();
+        let identity = age::x25519::Identity::generate().to_string();
+        let cipher = AgeCipher::from_identity(identity.expose_secret()).unwrap();
+        let deployment = database
+            .deployments()
+            .create(
+                DeploymentActor {
+                    id: &actor_id,
+                    is_admin: false,
+                },
+                service.id.as_str(),
+                ignitify_db::NewDeployment {
+                    idempotency_key: "deploy-1".to_owned(),
+                    requested_by_user_id: actor_id.clone(),
+                    spec: service.spec,
+                    source_config: None,
+                    source_revision: None,
+                    variables_ciphertext: cipher.encrypt(b"{}").unwrap(),
+                },
+            )
+            .await
+            .unwrap();
+        let ignitify_db::CreateDeploymentOutcome::Created(_) = deployment else {
+            panic!("deployment must be created");
+        };
+        let claimed = database.deployments().claim_next().await.unwrap().unwrap();
+        database
+            .deployments()
+            .record_runtime_ref(claimed.id.as_str(), &format!("runtime-{}", claimed.id))
+            .await
+            .unwrap();
+        let runtime = FakeRuntime {
+            calls: Arc::new(Mutex::new(vec![])),
+            routes_fail: true,
+        };
+        let (publisher, _) = tokio::sync::broadcast::channel(16);
+
+        assert!(
+            reconcile_once(
+                &database.deployments(),
+                &database.domains(),
+                &cipher,
+                &runtime,
+                &FakeIngress,
+                &super::StreamPublisher::new(publisher),
+            )
+            .await
+            .is_err()
+        );
+
+        let domains = database
+            .domains()
+            .list(
+                ignitify_db::DomainActor {
+                    id: &actor_id,
+                    is_admin: false,
+                },
+                service.id.as_str(),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(domains[0].status, DomainStatus::Failed);
+        assert_eq!(
+            domains[0].last_error.as_deref(),
+            Some("route reconciliation failed")
+        );
     }
 
     #[tokio::test]

@@ -96,6 +96,32 @@ export interface ProviderConnectionResult {
   checked_at: string;
 }
 
+export interface ProviderRepository {
+  name: string;
+  path: string;
+  default_branch: string | null;
+}
+
+export interface ProviderBranch {
+  name: string;
+}
+
+export interface TemplateLinks {
+  github?: string;
+  website?: string;
+  docs?: string;
+}
+
+export interface TemplateSummary {
+  id: string;
+  name: string;
+  version?: string;
+  description?: string;
+  logo?: string;
+  links?: TemplateLinks;
+  tags?: string[];
+}
+
 export interface ProjectEnvironmentVariable {
   key: string;
   is_secret: boolean;
@@ -126,6 +152,7 @@ export type ApplicationBuilder = "static" | "spa" | "dockerfile" | "railpack";
 export interface ServiceSourceConfig {
   source: ServiceSource;
   template?: string;
+  setup_required?: boolean;
   provider_id?: string;
   repository?: string;
   branch?: string;

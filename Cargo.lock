@@ -1396,6 +1396,7 @@ dependencies = [
 name = "ignitify-core"
 version = "0.1.0"
 dependencies = [
+ "age",
  "axum",
  "dotenvy",
  "ignitify-api",
@@ -1405,10 +1406,15 @@ dependencies = [
  "ignitify-ingress-traefik",
  "ignitify-runtime-compose",
  "ignitify-runtime-docker",
+ "ignitify-source-git",
  "ignitify-terminal",
+ "rand 0.8.7",
+ "serde",
+ "serde_json",
  "sysinfo",
  "thiserror 2.0.19",
  "tokio",
+ "uuid",
 ]
 
 [[package]]
@@ -1439,7 +1445,10 @@ version = "0.1.0"
 dependencies = [
  "ignitify-control-plane",
  "ignitify-domain",
+ "ignitify-runtime-docker",
  "thiserror 2.0.19",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -1467,6 +1476,22 @@ dependencies = [
  "thiserror 2.0.19",
  "tokio",
  "uuid",
+]
+
+[[package]]
+name = "ignitify-source-git"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "ignitify-control-plane",
+ "ignitify-db",
+ "ignitify-domain",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.19",
+ "tokio",
+ "tracing",
+ "url",
 ]
 
 [[package]]

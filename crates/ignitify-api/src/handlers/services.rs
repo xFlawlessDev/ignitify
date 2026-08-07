@@ -7,7 +7,9 @@ use ignitify_control_plane::{
     ServiceMutationOutcomeModel, ServiceReadModel, ServiceVariableReadModel,
 };
 use ignitify_db::ServiceActor;
-use ignitify_domain::{ServiceInput, ServiceSpec, ServiceVariableInput};
+use ignitify_domain::{
+    ApplicationBuilder, ServiceInput, ServiceSourceConfig, ServiceSpec, ServiceVariableInput,
+};
 use ignitify_runtime_compose::validate_submission_yaml;
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
@@ -28,6 +30,7 @@ pub(crate) struct ServiceRequest {
     internal_port: Option<u32>,
     healthcheck: Option<Vec<String>>,
     variables: Vec<ServiceVariableRequest>,
+    source_config: Option<ServiceSourceConfig>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -54,6 +57,8 @@ pub(crate) struct ServiceResponse {
     internal_port: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     healthcheck: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source_config: Option<ServiceSourceConfig>,
     desired_generation: i64,
     desired_state: String,
     created_at: String,
@@ -103,6 +108,7 @@ impl From<ServiceReadModel> for ServiceResponse {
             exposed_service,
             internal_port,
             healthcheck,
+            source_config: service.source_config,
             desired_generation: service.desired_generation,
             desired_state: service.desired_state,
             created_at: service.created_at,
@@ -152,9 +158,11 @@ pub(crate) async fn create(
 ) -> Result<(StatusCode, Json<ServiceResponse>), ApiError> {
     let actor = require_actor(&state, &headers).await?;
     require_same_origin_request(&state, &headers)?;
+    let input = input(request)?;
+    ensure_source_provider(&state, input.configuration.source_config.as_ref()).await?;
     match state
         .services()?
-        .create(service_actor(&actor), &project_id, input(request)?)
+        .create(service_actor(&actor), &project_id, input)
         .await?
     {
         ServiceMutationOutcomeModel::Created(service) => {
@@ -188,9 +196,11 @@ pub(crate) async fn update(
 ) -> Result<Json<ServiceResponse>, ApiError> {
     let actor = require_actor(&state, &headers).await?;
     require_same_origin_request(&state, &headers)?;
+    let input = input(request)?;
+    ensure_source_provider(&state, input.configuration.source_config.as_ref()).await?;
     match state
         .services()?
-        .update(service_actor(&actor), &service_id, input(request)?)
+        .update(service_actor(&actor), &service_id, input)
         .await?
     {
         ServiceMutationOutcomeModel::Updated(service) => Ok(Json(service.into())),
@@ -200,7 +210,25 @@ pub(crate) async fn update(
     }
 }
 
-fn input(request: ServiceRequest) -> Result<ServiceInput, ignitify_domain::InputError> {
+fn input(request: ServiceRequest) -> Result<ServiceInput, ApiError> {
+    let source_config = request.source_config;
+    let git_compose_source = source_config
+        .as_ref()
+        .is_some_and(|source| source.source == "compose" && source.provider_id.is_some());
+    let compose_yaml = request
+        .compose_yaml
+        .filter(|yaml| !yaml.trim().is_empty())
+        .unwrap_or_else(|| {
+            let exposed_service = request.exposed_service.as_deref().unwrap_or("web");
+            if git_compose_source {
+                format!(
+                    "services:\n  {exposed_service}:\n    image: ignitify-source-placeholder@sha256:{}\n",
+                    "0".repeat(64)
+                )
+            } else {
+                String::new()
+            }
+        });
     let variables = request
         .variables
         .into_iter()
@@ -210,7 +238,7 @@ fn input(request: ServiceRequest) -> Result<ServiceInput, ignitify_domain::Input
             is_secret: variable.is_secret,
         })
         .collect();
-    let input = match request.kind.as_deref().unwrap_or("image") {
+    let mut input = match request.kind.as_deref().unwrap_or("image") {
         "image" => ServiceInput::image(
             request.name,
             request.image_reference.unwrap_or_default(),
@@ -220,16 +248,32 @@ fn input(request: ServiceRequest) -> Result<ServiceInput, ignitify_domain::Input
         ),
         "compose" => ServiceInput::compose(
             request.name,
-            request.compose_yaml.unwrap_or_default(),
+            compose_yaml,
             request.exposed_service.unwrap_or_default(),
             request.internal_port,
             variables,
         ),
         _ => Err(ignitify_domain::InputError::InvalidServiceKind),
     }?;
-    if let ServiceSpec::Compose { yaml, .. } = &input.configuration.spec {
-        validate_submission_yaml(yaml)
-            .map_err(|_| ignitify_domain::InputError::InvalidComposeYaml)?;
+    if let Some(source_config) = source_config {
+        source_config.validate()?;
+        if source_config.source == "compose"
+            && !matches!(&input.configuration.spec, ServiceSpec::Compose { .. })
+        {
+            return Err(ignitify_domain::InputError::InvalidServiceSourceConfig.into());
+        }
+        if source_config.source == "application"
+            && (!matches!(&input.configuration.spec, ServiceSpec::Image { .. })
+                || source_config.builder == Some(ApplicationBuilder::Spa)
+                || (source_config.builder == Some(ApplicationBuilder::Static)
+                    && input.configuration.spec.internal_port() != Some(80)))
+        {
+            return Err(ignitify_domain::InputError::InvalidServiceSourceConfig.into());
+        }
+        input.configuration.source_config = Some(source_config);
+    }
+    if !git_compose_source && let ServiceSpec::Compose { yaml, .. } = &input.configuration.spec {
+        validate_submission_yaml(yaml).map_err(ApiError::ComposePolicy)?;
     }
     Ok(input)
 }
@@ -241,9 +285,24 @@ fn service_actor(actor: &ignitify_auth::AuthenticatedUser) -> ServiceActor<'_> {
     }
 }
 
+async fn ensure_source_provider(
+    state: &AppState,
+    source_config: Option<&ServiceSourceConfig>,
+) -> Result<(), ApiError> {
+    let Some(provider_id) = source_config.and_then(|config| config.provider_id.as_deref()) else {
+        return Ok(());
+    };
+    if state.database.providers().get(provider_id).await?.is_none() {
+        return Err(ApiError::BadRequest("selected provider was not found"));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::{ServiceRequest, ServiceVariableReadModel, ServiceVariableResponse, input};
+    use crate::error::ApiError;
+    use ignitify_domain::{ApplicationBuilder, ServiceSourceConfig, ServiceSpec};
 
     #[test]
     fn secret_response_omits_value() {
@@ -272,12 +331,27 @@ mod tests {
             internal_port: Some(80),
             healthcheck: None,
             variables: vec![],
+            source_config: None,
         });
 
-        assert!(matches!(
-            result,
-            Err(ignitify_domain::InputError::InvalidComposeYaml)
-        ));
+        assert!(matches!(result, Err(ApiError::ComposePolicy(_))));
+    }
+
+    #[test]
+    fn compose_policy_accepts_tagged_images() {
+        let result = input(ServiceRequest {
+            name: "wordpress".to_owned(),
+            kind: Some("compose".to_owned()),
+            image_reference: None,
+            compose_yaml: Some("services:\n  wordpress:\n    image: wordpress:latest\n".to_owned()),
+            exposed_service: Some("wordpress".to_owned()),
+            internal_port: Some(80),
+            healthcheck: None,
+            variables: vec![],
+            source_config: None,
+        });
+
+        assert!(result.is_ok());
     }
 
     #[test]
@@ -294,8 +368,158 @@ mod tests {
             internal_port: Some(80),
             healthcheck: None,
             variables: vec![],
+            source_config: None,
         });
 
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn git_compose_source_uses_a_runtime_placeholder_until_checkout() {
+        let result = input(ServiceRequest {
+            name: "web".to_owned(),
+            kind: Some("compose".to_owned()),
+            image_reference: None,
+            compose_yaml: None,
+            exposed_service: Some("web".to_owned()),
+            internal_port: Some(80),
+            healthcheck: None,
+            variables: vec![],
+            source_config: Some(ServiceSourceConfig {
+                source: "compose".to_owned(),
+                template: None,
+                setup_required: None,
+                provider_id: Some("provider-1".to_owned()),
+                repository: Some("acme/stack".to_owned()),
+                branch: Some("main".to_owned()),
+                builder: None,
+                dockerfile_path: Some("deploy/compose.yaml".to_owned()),
+                build_command: None,
+                output_directory: None,
+            }),
+        })
+        .unwrap();
+
+        let ServiceSpec::Compose { yaml, .. } = result.configuration.spec else {
+            panic!("expected Compose service specification");
+        };
+        assert!(yaml.contains("ignitify-source-placeholder@sha256:"));
+    }
+
+    #[test]
+    fn git_compose_source_requires_a_compose_service() {
+        let result = input(ServiceRequest {
+            name: "web".to_owned(),
+            kind: Some("image".to_owned()),
+            image_reference: Some(
+                "nginx@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                    .to_owned(),
+            ),
+            compose_yaml: None,
+            exposed_service: None,
+            internal_port: Some(80),
+            healthcheck: None,
+            variables: vec![],
+            source_config: Some(ServiceSourceConfig {
+                source: "compose".to_owned(),
+                template: None,
+                setup_required: None,
+                provider_id: Some("provider-1".to_owned()),
+                repository: Some("acme/stack".to_owned()),
+                branch: Some("main".to_owned()),
+                builder: None,
+                dockerfile_path: None,
+                build_command: None,
+                output_directory: None,
+            }),
+        });
+
+        assert!(matches!(
+            result,
+            Err(ApiError::Domain(
+                ignitify_domain::InputError::InvalidServiceSourceConfig
+            ))
+        ));
+    }
+
+    #[test]
+    fn application_source_configuration_is_part_of_service_input() {
+        let result = input(ServiceRequest {
+            name: "web".to_owned(),
+            kind: Some("image".to_owned()),
+            image_reference: Some(
+                "nginx@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                    .to_owned(),
+            ),
+            compose_yaml: None,
+            exposed_service: None,
+            internal_port: Some(80),
+            healthcheck: None,
+            variables: vec![],
+            source_config: Some(ServiceSourceConfig {
+                source: "application".to_owned(),
+                template: None,
+                setup_required: None,
+                provider_id: Some("provider-1".to_owned()),
+                repository: Some("acme/site".to_owned()),
+                branch: Some("main".to_owned()),
+                builder: Some(ApplicationBuilder::Static),
+                dockerfile_path: None,
+                build_command: None,
+                output_directory: None,
+            }),
+        })
+        .unwrap();
+
+        assert_eq!(
+            result
+                .configuration
+                .source_config
+                .as_ref()
+                .and_then(|config| config.repository.as_deref()),
+            Some("acme/site")
+        );
+    }
+
+    #[test]
+    fn application_source_rejects_unsupported_builder_and_static_port_mismatch() {
+        let request = |builder, internal_port| ServiceRequest {
+            name: "web".to_owned(),
+            kind: Some("image".to_owned()),
+            image_reference: Some(
+                "nginx@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                    .to_owned(),
+            ),
+            compose_yaml: None,
+            exposed_service: None,
+            internal_port,
+            healthcheck: None,
+            variables: vec![],
+            source_config: Some(ServiceSourceConfig {
+                source: "application".to_owned(),
+                template: None,
+                setup_required: None,
+                provider_id: Some("provider-1".to_owned()),
+                repository: Some("acme/site".to_owned()),
+                branch: Some("main".to_owned()),
+                builder: Some(builder),
+                dockerfile_path: None,
+                build_command: None,
+                output_directory: None,
+            }),
+        };
+
+        assert!(matches!(
+            input(request(ApplicationBuilder::Spa, Some(80))),
+            Err(ApiError::Domain(
+                ignitify_domain::InputError::InvalidServiceSourceConfig
+            ))
+        ));
+        assert!(matches!(
+            input(request(ApplicationBuilder::Static, Some(3000))),
+            Err(ApiError::Domain(
+                ignitify_domain::InputError::InvalidServiceSourceConfig
+            ))
+        ));
     }
 }

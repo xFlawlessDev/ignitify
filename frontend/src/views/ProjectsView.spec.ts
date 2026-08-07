@@ -18,10 +18,10 @@ vi.mock("vue-router", () => ({
   useRouter: () => ({ push: mocks.push }),
 }));
 
-function project() {
+function project(index = 0) {
   return {
-    id: "0e4c6e6b-6612-4f43-b3e9-a69fdd780cd9",
-    name: "Platform",
+    id: `0e4c6e6b-6612-4f43-b3e9-a69fdd780cd${index}`,
+    name: index === 0 ? "Platform" : `Project ${index + 1}`,
     owner_id: "0e4c6e6b-6612-4f43-b3e9-a69fdd780cd9",
     role: "owner" as const,
     created_at: "2026-07-31T00:00:00Z",
@@ -104,6 +104,32 @@ describe("ProjectsView", () => {
     expect(mocks.push.mock.calls).toEqual([
       [{ name: "ProjectDetail", params: { projectId: project().id } }],
     ]);
+    app.unmount();
+  });
+
+  it("paginates projects and switches to catalog view", async () => {
+    mocks.state = state({ data: Array.from({ length: 7 }, (_, index) => project(index)) });
+    const { app, host } = await mount();
+
+    expect(host.textContent).toContain("Platform");
+    expect(host.textContent).not.toContain("Project 7");
+    expect(host.querySelector('[aria-label="Project catalog"]')).not.toBeNull();
+    expect(host.textContent).toContain("Page 1 of 2");
+
+    (host.querySelector('[aria-label="Next page"]') as HTMLButtonElement).click();
+    await nextTick();
+    expect(host.textContent).not.toContain("Platform");
+    expect(host.textContent).toContain("Project 7");
+
+    (host.querySelector('[aria-label="List view"]') as HTMLButtonElement).click();
+    await nextTick();
+    expect(host.querySelector('[aria-label="Projects"]')).not.toBeNull();
+
+    (host.querySelector('[aria-label="Catalog view"]') as HTMLButtonElement).click();
+    await nextTick();
+    expect(host.querySelector('[aria-label="Project catalog"]')).not.toBeNull();
+    expect(host.textContent).toContain("Platform");
+    expect(host.textContent).not.toContain("Project 7");
     app.unmount();
   });
 });

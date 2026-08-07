@@ -77,6 +77,26 @@ impl DockerRuntime {
         Ok(())
     }
 
+    pub async fn network_exists(&self, name: &str) -> Result<bool> {
+        match self.docker.inspect_network::<String>(name, None).await {
+            Ok(_) => Ok(true),
+            Err(error) if is_not_found(&error) => Ok(false),
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    pub async fn has_running_container_with_label(&self, label: &str) -> Result<bool> {
+        let filters = HashMap::from([("label".to_owned(), vec![label.to_owned()])]);
+        let containers = self
+            .docker
+            .list_containers(Some(ListContainersOptions::<String> {
+                filters,
+                ..Default::default()
+            }))
+            .await?;
+        Ok(!containers.is_empty())
+    }
+
     pub async fn metrics(&self) -> Result<RuntimeMetrics> {
         let info = self.docker.info().await?;
         Ok(RuntimeMetrics {
@@ -462,20 +482,26 @@ impl DockerRuntime {
         else {
             return Err(ControlError::Runtime);
         };
-        let mut pull = bollard.create_image(
-            Some(CreateImageOptions {
-                from_image: image_reference.as_str(),
-                ..Default::default()
-            }),
-            None,
-            None,
-        );
-        while pull
-            .try_next()
-            .await
-            .map_err(|_| ControlError::Runtime)?
-            .is_some()
-        {}
+        let runtime_image = deployment
+            .local_image_id
+            .as_deref()
+            .unwrap_or(image_reference);
+        if deployment.local_image_id.is_none() {
+            let mut pull = bollard.create_image(
+                Some(CreateImageOptions {
+                    from_image: image_reference.as_str(),
+                    ..Default::default()
+                }),
+                None,
+                None,
+            );
+            while pull
+                .try_next()
+                .await
+                .map_err(|_| ControlError::Runtime)?
+                .is_some()
+            {}
+        }
         let name = Self::container_name(deployment);
         let mut labels = HashMap::from([
             (MANAGED_LABEL.to_owned(), "true".to_owned()),
@@ -496,7 +522,7 @@ impl DockerRuntime {
                     platform: None,
                 }),
                 Config {
-                    image: Some(image_reference.clone()),
+                    image: Some(runtime_image.to_owned()),
                     env: (!environment.is_empty()).then_some(environment),
                     healthcheck: healthcheck.as_ref().map(|argv| HealthConfig {
                         test: Some(
@@ -748,6 +774,7 @@ mod tests {
                 None,
             )
             .unwrap(),
+            local_image_id: None,
         };
         let runtime_ref = runtime.start(&deployment, vec![]).await.unwrap();
         let result = async {

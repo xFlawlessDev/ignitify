@@ -30,6 +30,8 @@ pub(crate) enum ApiError {
     Forbidden,
     #[error("invalid request")]
     BadRequest(&'static str),
+    #[error("compose policy rejected input: {0}")]
+    ComposePolicy(&'static str),
     #[error("active deployment exists")]
     ActiveDeploymentConflict,
     #[error("deployment capability unavailable")]
@@ -84,6 +86,10 @@ impl IntoResponse for ApiError {
                 "invalid idempotency key".to_owned(),
             ),
             Self::Control(ControlError::Policy(message)) => (
+                StatusCode::BAD_REQUEST,
+                format!("compose policy rejected input: {message}"),
+            ),
+            Self::ComposePolicy(message) => (
                 StatusCode::BAD_REQUEST,
                 format!("compose policy rejected input: {message}"),
             ),

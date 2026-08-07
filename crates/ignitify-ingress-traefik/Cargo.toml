@@ -7,6 +7,9 @@ license.workspace = true
 [dependencies]
 ignitify-control-plane = { path = "../ignitify-control-plane" }
 ignitify-domain = { path = "../ignitify-domain" }
+ignitify-runtime-docker = { path = "../ignitify-runtime-docker" }
 thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
 
 [dev-dependencies]

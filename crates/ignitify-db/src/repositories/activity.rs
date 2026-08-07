@@ -55,11 +55,11 @@ impl ActivityRepository {
                     JOIN environments e ON e.id = s.environment_id
                     WHERE e.project_id = ?
              ))
+             )
              AND (? IS NULL OR a.created_at < ?)
              ORDER BY a.created_at DESC
              LIMIT ?",
         )
-        .bind(project_id)
         .bind(project_id)
         .bind(project_id)
         .bind(project_id)

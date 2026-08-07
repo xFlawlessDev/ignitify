@@ -38,6 +38,14 @@ pub(crate) fn router(state: AppState) -> Router {
             "/api/v1/providers/{provider_id}/test",
             axum::routing::post(handlers::provider_test::test),
         )
+        .route(
+            "/api/v1/providers/{provider_id}/repositories",
+            get(handlers::provider_test::repositories),
+        )
+        .route(
+            "/api/v1/providers/{provider_id}/branches",
+            get(handlers::provider_test::branches),
+        )
         .route("/api/v1/runtime/status", get(handlers::runtime::status))
         .route(
             "/api/v1/runtime/containers",

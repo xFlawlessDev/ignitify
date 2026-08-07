@@ -1,0 +1,322 @@
+// @vitest-environment happy-dom
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createApp, nextTick } from "vue";
+
+const providerApi = vi.hoisted(() => ({
+  repositories: vi.fn(),
+  branches: vi.fn(),
+}));
+
+const templateApi = vi.hoisted(() => ({
+  list: vi.fn(),
+}));
+
+vi.mock("@/lib/api/providers", () => ({
+  apiListProviderRepositories: providerApi.repositories,
+  apiListProviderBranches: providerApi.branches,
+}));
+
+vi.mock("@/lib/api/templates", () => ({
+  apiListTemplates: templateApi.list,
+  TEMPLATES_URL: "http://localhost:4545/api/templates",
+}));
+
+const service = {
+  id: "service-1",
+  project_id: "project-1",
+  environment_id: "environment-1",
+  role: "owner" as const,
+  name: "web",
+  kind: "image" as const,
+  image_reference:
+    "caddy:2.11.4-alpine@sha256:98eb57d882ccd5213d1688764db10c1ca2c58a1ca3a6717a3411ad798f7a423a",
+  internal_port: 80,
+  healthcheck: null,
+  desired_generation: 1,
+  desired_state: "stopped" as const,
+  created_at: "2026-08-01T00:00:00Z",
+  updated_at: "2026-08-01T00:00:00Z",
+  variables: [],
+};
+
+afterEach(() => {
+  document.body.replaceChildren();
+  providerApi.repositories.mockReset();
+  providerApi.branches.mockReset();
+  vi.unstubAllGlobals();
+  vi.resetModules();
+});
+
+beforeEach(() => {
+  templateApi.list.mockResolvedValue({ success: true, data: [] });
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ status: 404, ok: false }));
+});
+
+describe("ServiceConfigurationPanel", () => {
+  it("saves inline Compose YAML entered in the editor", async () => {
+    const component = (await import("./ServiceConfigurationPanel.vue")).default;
+    const onSave = vi.fn();
+    const host = document.createElement("div");
+    document.body.append(host);
+    const app = createApp(component, {
+      service,
+      providers: [],
+      inheritedVariables: [],
+      saving: false,
+      error: null,
+      onSave,
+    });
+    app.mount(host);
+    await nextTick();
+
+    const composeButton = [...host.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("Compose"),
+    ) as HTMLButtonElement;
+    composeButton.click();
+    await nextTick();
+    const yaml = host.querySelector("#service-config-compose-yaml") as HTMLTextAreaElement;
+    yaml.value = "services:\n  web:\n    image: nginx:1.27\n";
+    yaml.dispatchEvent(new Event("input", { bubbles: true }));
+    const exposedService = host.querySelector("#service-config-exposed") as HTMLInputElement;
+    exposedService.value = "web";
+    exposedService.dispatchEvent(new Event("input", { bubbles: true }));
+    await nextTick();
+    (host.querySelector("form") as HTMLFormElement).dispatchEvent(
+      new Event("submit", { bubbles: true, cancelable: true }),
+    );
+    await nextTick();
+
+    expect(onSave.mock.calls[0]?.[0]).toMatchObject({
+      kind: "compose",
+      compose_yaml: "services:\n  web:\n    image: nginx:1.27\n",
+      exposed_service: "web",
+      source_config: { source: "compose" },
+    });
+    app.unmount();
+  });
+
+  it("saves an application builder source inline", async () => {
+    providerApi.repositories.mockResolvedValue({
+      success: true,
+      data: [{ name: "site", path: "acme/site", default_branch: "main" }],
+    });
+    providerApi.branches.mockResolvedValue({
+      success: true,
+      data: [{ name: "main" }, { name: "production" }],
+    });
+    const component = (await import("./ServiceConfigurationPanel.vue")).default;
+    const onSave = vi.fn();
+    const host = document.createElement("div");
+    document.body.append(host);
+    const app = createApp(component, {
+      service,
+      providers: [{ id: "provider-1", name: "GitHub", kind: "github", token_configured: true }],
+      inheritedVariables: [],
+      saving: false,
+      error: null,
+      onSave,
+    });
+    app.mount(host);
+    await nextTick();
+
+    const applicationButton = [...host.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("Application"),
+    ) as HTMLButtonElement;
+    applicationButton.click();
+    await nextTick();
+    const provider = host.querySelector("#service-config-provider") as HTMLSelectElement;
+    provider.value = "provider-1";
+    provider.dispatchEvent(new Event("change", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await nextTick();
+    const repository = host.querySelector("#service-config-repository") as HTMLInputElement;
+    repository.value = "acme/site";
+    repository.dispatchEvent(new Event("change", { bubbles: true }));
+    await nextTick();
+    (host.querySelector("form") as HTMLFormElement).dispatchEvent(
+      new Event("submit", { bubbles: true, cancelable: true }),
+    );
+    await nextTick();
+
+    expect(onSave.mock.calls[0]?.[0]).toMatchObject({
+      source_config: {
+        source: "application",
+        provider_id: "provider-1",
+        repository: "acme/site",
+        branch: "main",
+        builder: "static",
+      },
+    });
+    app.unmount();
+  });
+
+  it("applies a remote template compose and saves its template source", async () => {
+    templateApi.list.mockResolvedValue({
+      success: true,
+      data: [
+        {
+          id: "wordpress",
+          name: "Wordpress",
+          version: "latest",
+          description: "A self-hosted CMS",
+          tags: ["cms"],
+        },
+      ],
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL) => {
+        const url = String(input);
+        if (url.endsWith("/docker-compose.yml")) {
+          return {
+            status: 200,
+            ok: true,
+            text: async () => "services:\n  wordpress:\n    image: wordpress:latest\n",
+          };
+        }
+        if (url.endsWith("/template.toml")) {
+          return {
+            status: 200,
+            ok: true,
+            text: async () => '[[config.domains]]\nserviceName = "wordpress"\nport = 80\n',
+          };
+        }
+        return { status: 404, ok: false, text: async () => "" };
+      }),
+    );
+    const component = (await import("./ServiceConfigurationPanel.vue")).default;
+    const onSave = vi.fn();
+    const host = document.createElement("div");
+    document.body.append(host);
+    const app = createApp(component, {
+      service,
+      inheritedVariables: [],
+      providers: [],
+      saving: false,
+      error: null,
+      onSave,
+    });
+    app.mount(host);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await nextTick();
+
+    expect(host.textContent).not.toContain("Wordpress");
+    const chooseTemplateButton = [...host.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("Choose template"),
+    ) as HTMLButtonElement;
+    expect(chooseTemplateButton).toBeDefined();
+    chooseTemplateButton.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await nextTick();
+
+    const wordpressButton = [...document.body.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("Wordpress"),
+    ) as HTMLButtonElement;
+    expect(wordpressButton).toBeDefined();
+    wordpressButton.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await nextTick();
+    const applyButton = [...document.body.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("Apply template"),
+    ) as HTMLButtonElement;
+    expect(applyButton).toBeDefined();
+    const backButton = [...document.body.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("Back to templates"),
+    ) as HTMLButtonElement;
+    expect(backButton).toBeDefined();
+    backButton.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await nextTick();
+    expect(document.body.textContent).toContain("Choose a template");
+    const wordpressAgainButton = [...document.body.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("Wordpress"),
+    ) as HTMLButtonElement;
+    wordpressAgainButton.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await nextTick();
+    const reopenedApplyButton = [...document.body.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("Apply template"),
+    ) as HTMLButtonElement;
+    expect(reopenedApplyButton).toBeDefined();
+    reopenedApplyButton.click();
+    await nextTick();
+    expect((host.querySelector("#service-config-compose-yaml") as HTMLTextAreaElement).value).toBe(
+      "services:\n  wordpress:\n    image: wordpress:latest\n",
+    );
+    (host.querySelector("form") as HTMLFormElement).dispatchEvent(
+      new Event("submit", { bubbles: true, cancelable: true }),
+    );
+    await nextTick();
+
+    expect(onSave.mock.calls[0]?.[0]).toMatchObject({
+      kind: "compose",
+      compose_yaml: "services:\n  wordpress:\n    image: wordpress:latest\n",
+      exposed_service: "wordpress",
+      internal_port: 80,
+      source_config: { source: "template", template: "wordpress" },
+    });
+    app.unmount();
+  });
+
+  it("saves a Git Compose source without inline YAML", async () => {
+    providerApi.repositories.mockResolvedValue({
+      success: true,
+      data: [{ name: "stack", path: "acme/stack", default_branch: "main" }],
+    });
+    providerApi.branches.mockResolvedValue({ success: true, data: [{ name: "main" }] });
+    const component = (await import("./ServiceConfigurationPanel.vue")).default;
+    const onSave = vi.fn();
+    const host = document.createElement("div");
+    document.body.append(host);
+    const app = createApp(component, {
+      service,
+      providers: [{ id: "provider-1", name: "GitHub", kind: "github", token_configured: true }],
+      inheritedVariables: [],
+      saving: false,
+      error: null,
+      onSave,
+    });
+    app.mount(host);
+    await nextTick();
+
+    const textButton = (label: string) =>
+      [...host.querySelectorAll("button")].find((button) => button.textContent?.includes(label));
+    (textButton("Compose") as HTMLButtonElement).click();
+    await nextTick();
+    (textButton("Provider repository") as HTMLButtonElement).click();
+    await nextTick();
+    const provider = host.querySelector("#service-config-compose-provider") as HTMLSelectElement;
+    provider.value = "provider-1";
+    provider.dispatchEvent(new Event("change", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await nextTick();
+    const repository = host.querySelector(
+      "#service-config-compose-repository",
+    ) as HTMLSelectElement;
+    repository.value = "acme/stack";
+    repository.dispatchEvent(new Event("change", { bubbles: true }));
+    const exposedService = host.querySelector("#service-config-exposed") as HTMLInputElement;
+    exposedService.value = "web";
+    exposedService.dispatchEvent(new Event("input", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await nextTick();
+    (host.querySelector("form") as HTMLFormElement).dispatchEvent(
+      new Event("submit", { bubbles: true, cancelable: true }),
+    );
+    await nextTick();
+
+    expect(onSave.mock.calls[0]?.[0]).toMatchObject({
+      kind: "compose",
+      compose_yaml: "",
+      exposed_service: "web",
+      source_config: {
+        source: "compose",
+        provider_id: "provider-1",
+        repository: "acme/stack",
+        branch: "main",
+        dockerfile_path: "docker-compose.yml",
+      },
+    });
+    app.unmount();
+  });
+});

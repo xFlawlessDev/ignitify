@@ -20,6 +20,8 @@ pub enum DatabaseError {
     InvalidServiceKind(String),
     #[error("invalid stored service specification: {0}")]
     InvalidServiceSpec(String),
+    #[error("invalid stored service source configuration: {0}")]
+    InvalidServiceSourceConfig(String),
     #[error("invalid stored deployment state: {0}")]
     InvalidDeploymentState(String),
     #[error("domain hostname already exists")]

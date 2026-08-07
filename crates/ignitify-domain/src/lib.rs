@@ -404,6 +404,82 @@ impl TryFrom<&str> for DeploymentState {
 pub struct ServiceConfiguration {
     pub name: String,
     pub spec: ServiceSpec,
+    pub source_config: Option<ServiceSourceConfig>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ServiceSourceConfig {
+    pub source: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub template: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub setup_required: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub repository: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub builder: Option<ApplicationBuilder>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dockerfile_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub build_command: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_directory: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ApplicationBuilder {
+    Static,
+    Spa,
+    Dockerfile,
+    Railpack,
+}
+
+impl ServiceSourceConfig {
+    pub fn validate(&self) -> Result<()> {
+        if !matches!(self.source.as_str(), "template" | "compose" | "application") {
+            return Err(InputError::InvalidServiceSourceConfig);
+        }
+        for value in [
+            Some(self.source.as_str()),
+            self.template.as_deref(),
+            self.provider_id.as_deref(),
+            self.repository.as_deref(),
+            self.branch.as_deref(),
+            self.dockerfile_path.as_deref(),
+            self.build_command.as_deref(),
+            self.output_directory.as_deref(),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            if value.is_empty() || value.len() > 1024 || value.chars().any(char::is_control) {
+                return Err(InputError::InvalidServiceSourceConfig);
+            }
+        }
+        if self.source == "application"
+            && (self.provider_id.is_none()
+                || self.repository.is_none()
+                || self.branch.is_none()
+                || self.builder.is_none())
+        {
+            return Err(InputError::InvalidServiceSourceConfig);
+        }
+        if self.source == "compose"
+            && self.provider_id.is_some()
+            && (self.repository.is_none() || self.branch.is_none())
+        {
+            return Err(InputError::InvalidServiceSourceConfig);
+        }
+        if self.source == "template" && self.template.is_none() {
+            return Err(InputError::InvalidServiceSourceConfig);
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -436,6 +512,7 @@ impl ServiceInput {
             configuration: ServiceConfiguration {
                 name: name.to_owned(),
                 spec: ServiceSpec::image(image_reference, internal_port, healthcheck)?,
+                source_config: None,
             },
             variables,
         })
@@ -457,6 +534,7 @@ impl ServiceInput {
             configuration: ServiceConfiguration {
                 name: name.to_owned(),
                 spec: ServiceSpec::compose(yaml, exposed_service, internal_port)?,
+                source_config: None,
             },
             variables,
         })
@@ -546,6 +624,8 @@ pub enum InputError {
     InvalidHealthcheck,
     #[error("invalid service kind")]
     InvalidServiceKind,
+    #[error("invalid service source configuration")]
+    InvalidServiceSourceConfig,
     #[error("compose YAML must be non-empty, at most 1 MiB, and contain no NUL")]
     InvalidComposeYaml,
     #[error("compose exposed service must be a lower-case DNS label")]

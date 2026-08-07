@@ -1,9 +1,13 @@
 <script setup lang="ts">
-import { ExternalLink, Globe2, Trash2 } from "@lucide/vue";
-import { shallowRef } from "vue";
+import { computed, onUnmounted, shallowRef, watch } from "vue";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import DomainConfigurationPanel, {
+  type CertificateProvider,
+  type DnsValidationState,
+} from "./DomainConfigurationPanel.vue";
+import DomainRouteList from "./DomainRouteList.vue";
 import type { DomainSummary, ServiceSummary } from "@/lib/types";
 
 const props = defineProps<{
@@ -24,11 +28,53 @@ const hostname = shallowRef("");
 const confirmHostname = shallowRef("");
 const serviceId = shallowRef("");
 const confirmation = shallowRef<DomainSummary | null>(null);
+const httpsEnabled = shallowRef(true);
+const automaticallyProvisionSsl = shallowRef(true);
+const certificateProvider = shallowRef<CertificateProvider>("lets-encrypt");
+const dnsStates = shallowRef<Record<string, DnsValidationState>>({});
+const dnsMessages = shallowRef<Record<string, string>>({});
+const dnsControllers = new Map<string, AbortController>();
+
+const routableServices = computed(() => props.services.filter((service) => service.internal_port));
+const domainError = computed(() => {
+  const value = hostname.value.trim();
+  if (!value) return "Server domain is required.";
+  if (
+    value.length > 253 ||
+    value.includes("..") ||
+    !/^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/i.test(value) ||
+    value
+      .split(".")
+      .some((label) => label.length > 63 || label.startsWith("-") || label.endsWith("-"))
+  ) {
+    return "Use a valid hostname without a protocol or path.";
+  }
+  return "";
+});
+const tlsError = computed(() => {
+  if (!httpsEnabled.value) return "";
+  if (automaticallyProvisionSsl.value && certificateProvider.value !== "lets-encrypt") {
+    return "Automatic SSL provisioning requires Let's Encrypt.";
+  }
+  return "";
+});
+
+watch(
+  routableServices,
+  (services) => {
+    if (!services.some((service) => service.id === serviceId.value)) {
+      serviceId.value = services[0]?.id ?? "";
+    }
+  },
+  { immediate: true },
+);
 
 function submit() {
-  if (!serviceId.value || !hostname.value.trim()) return;
+  if (!serviceId.value || domainError.value || tlsError.value) return;
   emit("create", serviceId.value, hostname.value.trim());
   hostname.value = "";
+  dnsStates.value = { ...dnsStates.value, draft: "idle" };
+  dnsMessages.value = { ...dnsMessages.value, draft: "" };
 }
 
 function requestRemove(domain: DomainSummary) {
@@ -43,116 +89,142 @@ function removeConfirmed() {
   confirmHostname.value = "";
 }
 
-function serviceName(id: string) {
-  return props.services.find((service) => service.id === id)?.name ?? "Unknown service";
+function updateHttpsEnabled(value: boolean) {
+  httpsEnabled.value = value;
+  if (!value) {
+    automaticallyProvisionSsl.value = false;
+    certificateProvider.value = "none";
+  }
 }
+
+function updateCertificateProvider(value: CertificateProvider) {
+  certificateProvider.value = value;
+  if (value !== "lets-encrypt") automaticallyProvisionSsl.value = false;
+}
+
+async function validateDns(hostnameValue: string, key: string) {
+  const value = hostnameValue.trim();
+  if (!value) {
+    dnsStates.value = { ...dnsStates.value, [key]: "missing" };
+    dnsMessages.value = { ...dnsMessages.value, [key]: "Enter a domain before checking DNS." };
+    return;
+  }
+
+  dnsControllers.get(key)?.abort();
+  const controller = new AbortController();
+  dnsControllers.set(key, controller);
+  dnsStates.value = { ...dnsStates.value, [key]: "checking" };
+  dnsMessages.value = { ...dnsMessages.value, [key]: "Checking DNS records..." };
+  try {
+    const response = await fetch(
+      "https://dns.google/resolve?name=" + encodeURIComponent(value) + "&type=A",
+      { headers: { Accept: "application/dns-json" }, signal: controller.signal },
+    );
+    if (!response.ok) throw new Error("DNS lookup failed");
+    const result = (await response.json()) as { Answer?: Array<{ type?: number }> };
+    const found = result.Answer?.some((record) => record.type === 1 || record.type === 5);
+    dnsStates.value = { ...dnsStates.value, [key]: found ? "valid" : "missing" };
+    dnsMessages.value = {
+      ...dnsMessages.value,
+      [key]: found ? "DNS record found." : "No A or CNAME record found.",
+    };
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") return;
+    dnsStates.value = { ...dnsStates.value, [key]: "unavailable" };
+    dnsMessages.value = {
+      ...dnsMessages.value,
+      [key]: "DNS provider unavailable. Try again later.",
+    };
+  } finally {
+    if (dnsControllers.get(key) === controller) dnsControllers.delete(key);
+  }
+}
+
+function validateDraftDns() {
+  if (domainError.value) return;
+  void validateDns(hostname.value, "draft");
+}
+
+function validateDomainDns(domain: DomainSummary) {
+  void validateDns(domain.hostname, domain.id);
+}
+
+onUnmounted(() => {
+  dnsControllers.forEach((controller) => controller.abort());
+});
 </script>
 
 <template>
-  <section class="border border-border bg-card">
-    <div class="flex items-end justify-between gap-4 border-b border-border px-5 pt-5 pb-4">
-      <div>
-        <p class="ui-label">Ingress</p>
-        <h2 class="mt-2 text-xl leading-none font-normal">Domains</h2>
-      </div>
-    </div>
-
-    <form
-      v-if="canManage && services.length"
-      class="grid gap-3 border-b border-border p-5 sm:grid-cols-[minmax(0,1fr)_180px_auto]"
-      @submit.prevent="submit"
-    >
-      <label class="grid gap-1 text-xs text-muted-foreground">
-        Hostname
-        <Input v-model="hostname" autocomplete="off" placeholder="app.example.com" />
-      </label>
-      <label class="grid gap-1 text-xs text-muted-foreground">
-        Service
-        <select v-model="serviceId" class="h-9 border border-input bg-background px-3 text-sm">
-          <option value="" disabled>Select service</option>
-          <option v-for="service in services" :key="service.id" :value="service.id">
-            {{ service.name }}
-          </option>
-        </select>
-      </label>
-      <Button class="self-end" size="sm" type="submit">Add domain</Button>
-    </form>
+  <div class="grid gap-4">
+    <DomainConfigurationPanel
+      v-if="canManage"
+      :services="services"
+      :server-domain="hostname"
+      :service-id="serviceId"
+      :https-enabled="httpsEnabled"
+      :automatically-provision-ssl="automaticallyProvisionSsl"
+      :certificate-provider="certificateProvider"
+      :domain-error="domainError"
+      :tls-error="tlsError"
+      :dns-state="dnsStates.draft ?? 'idle'"
+      :dns-message="dnsMessages.draft ?? ''"
+      @update:server-domain="hostname = $event"
+      @update:service-id="serviceId = $event"
+      @update:https-enabled="updateHttpsEnabled"
+      @update:automatically-provision-ssl="automaticallyProvisionSsl = $event"
+      @update:certificate-provider="updateCertificateProvider"
+      @validate-dns="validateDraftDns"
+      @create="submit"
+    />
 
     <div
       v-if="loading"
-      class="divide-y divide-border px-5"
+      class="border border-border bg-card px-5"
       role="status"
       aria-label="Loading domains"
     >
       <div
         v-for="index in 3"
         :key="index"
-        class="grid gap-3 py-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
+        class="grid gap-3 border-b border-border py-4 last:border-b-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
       >
         <div class="grid min-w-0 gap-2">
           <Skeleton class="h-3 w-40 max-w-full" />
           <Skeleton class="h-2.5 w-28 max-w-full" />
         </div>
-        <Skeleton class="size-8" />
+        <Skeleton class="h-8 w-24" />
       </div>
     </div>
-    <section v-else-if="error && !domains.length" class="px-5 py-5" role="alert">
+    <section
+      v-else-if="error && !domains.length"
+      class="border border-border bg-card px-5 py-5"
+      role="alert"
+    >
       <p class="text-sm text-destructive">{{ error }}</p>
       <Button class="mt-3" size="sm" variant="outline" @click="emit('retry')">Retry</Button>
     </section>
-    <div v-else-if="domains.length" class="divide-y divide-border">
-      <p v-if="error" class="px-5 py-3 text-xs text-destructive" role="alert">{{ error }}</p>
-      <div
-        v-for="domain in domains"
-        :key="domain.id"
-        class="grid gap-3 px-5 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
-      >
-        <div class="grid min-w-0 gap-1">
-          <span class="flex items-center gap-2 text-sm font-medium"
-            ><Globe2 class="size-4 text-muted-foreground" :stroke-width="1.5" />{{
-              domain.hostname
-            }}</span
-          >
-          <span class="text-xs text-muted-foreground"
-            >{{ serviceName(domain.service_id) }} · {{ domain.status }}</span
-          >
-          <span v-if="domain.last_error" class="text-xs text-destructive">{{
-            domain.last_error
-          }}</span>
-        </div>
-        <div class="flex shrink-0 items-center gap-2">
-          <a
-            v-if="domain.status === 'active'"
-            class="grid size-8 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
-            :href="`https://${domain.hostname}`"
-            :aria-label="`Open ${domain.hostname}`"
-            title="Open HTTPS URL"
-            target="_blank"
-            rel="noreferrer"
-            ><ExternalLink class="size-4" :stroke-width="1.5"
-          /></a>
-          <button
-            v-if="canManage"
-            class="grid size-8 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-destructive"
-            type="button"
-            :aria-label="`Remove ${domain.hostname}`"
-            title="Remove domain"
-            @click="requestRemove(domain)"
-          >
-            <Trash2 class="size-4" :stroke-width="1.5" />
-          </button>
-        </div>
-      </div>
-    </div>
-    <div v-else class="px-5 py-8">
-      <p class="text-sm font-medium">No managed domains</p>
-      <p class="mt-1 text-xs text-muted-foreground">
-        HTTPS appears after route reconciliation. Traefik details stay operator-only.
-      </p>
-    </div>
+    <p
+      v-else-if="error"
+      class="border border-destructive/40 bg-card px-5 py-3 text-xs text-destructive"
+      role="alert"
+    >
+      {{ error }}
+    </p>
+    <DomainRouteList
+      v-else-if="!error || domains.length"
+      :can-manage="canManage"
+      :domains="domains"
+      :services="services"
+      :https-enabled="httpsEnabled"
+      :dns-states="dnsStates"
+      :dns-messages="dnsMessages"
+      @validate-dns="validateDomainDns"
+      @remove="requestRemove"
+    />
+
     <div
       v-if="confirmation"
-      class="border-t border-border p-5"
+      class="border border-border bg-card p-5"
       role="alertdialog"
       aria-labelledby="domain-confirm-title"
     >
@@ -185,5 +257,5 @@ function serviceName(id: string) {
         >
       </div>
     </div>
-  </section>
+  </div>
 </template>

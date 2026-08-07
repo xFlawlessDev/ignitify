@@ -2,4 +2,7 @@
 /data/*.db
 /data/*.db-shm
 /data/*.db-wal
+/data/ignitify-secrets.json
+/data/builds/
+/data/compose/
 .env

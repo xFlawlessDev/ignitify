@@ -73,6 +73,16 @@ const router = createRouter({
         breadcrumbParent: { label: "navigation.projects", to: { name: "Projects" } },
       },
     },
+    {
+      path: "/projects/:projectId/services/:serviceId",
+      name: "ServiceDetail",
+      component: () => import("@/views/ServiceDetailView.vue"),
+      meta: {
+        requiresAuth: true,
+        breadcrumb: "Service",
+        breadcrumbParent: { label: "navigation.projects", to: { name: "Projects" } },
+      },
+    },
     { path: "/", redirect: "/dashboard" },
   ],
 });

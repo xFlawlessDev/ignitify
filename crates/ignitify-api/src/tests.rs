@@ -53,6 +53,7 @@ async fn state() -> AppState {
         control: Some(control),
         runtime_health: Arc::new(StaticRuntimeHealth(true)),
         worker_health: Arc::new(StaticRuntimeHealth(true)),
+        ingress_health: Arc::new(StaticRuntimeHealth(true)),
         system_metrics: Arc::new(StaticSystemMetrics(None)),
         docker_runtime: None,
         terminal: ignitify_terminal::TerminalService,
@@ -181,7 +182,9 @@ async fn provider_routes_encrypt_credentials_and_require_admin_mutations() {
             .unwrap()
             .starts_with("https://github.com/settings/apps/new?state=")
     );
-    assert_eq!(manifest["manifest"]["name"], "Ignitify Direct App");
+    let generated_name = manifest["manifest"]["name"].as_str().unwrap();
+    assert!(generated_name.starts_with("Ignitify Direct App-"));
+    assert!(generated_name.len() <= 34);
     assert_eq!(
         manifest["manifest"]["default_permissions"]["contents"],
         "read"
@@ -208,6 +211,21 @@ async fn provider_routes_encrypt_credentials_and_require_admin_mutations() {
     assert!(!String::from_utf8_lossy(&body).contains("provider-secret"));
     let provider: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(provider["token_configured"], true);
+
+    let connection_test = app
+        .clone()
+        .oneshot(request(
+            "POST",
+            &format!(
+                "/api/v1/providers/{}/test",
+                provider["id"].as_str().unwrap()
+            ),
+            Some(&token),
+            "",
+        ))
+        .await
+        .unwrap();
+    assert_eq!(connection_test.status(), StatusCode::BAD_REQUEST);
 
     let github_app = app
         .clone()
@@ -1017,16 +1035,22 @@ async fn service_and_deployment_routes_fail_closed_without_capability() {
 async fn runtime_status_requires_auth_and_reports_component_state() {
     let mut state = state().await;
     state.runtime_health = Arc::new(StaticRuntimeHealth(false));
+    state.ingress_health = Arc::new(StaticRuntimeHealth(false));
     let token = session_token(&state).await;
-    let app = router(
+    let app = crate::router_with_system_metrics_and_docker_and_provider_cipher_and_ingress(
         state.auth.clone(),
         state.database.clone(),
         state.services.clone(),
         state.control.clone(),
         state.runtime_health.clone(),
         state.worker_health.clone(),
+        state.system_metrics.clone(),
+        state.docker_runtime.clone(),
+        state.terminal,
         state.secure_cookies,
         state.trusted_origins.clone(),
+        state.provider_cipher.clone(),
+        state.ingress_health.clone(),
     );
 
     let unauthenticated = app
@@ -1046,6 +1070,7 @@ async fn runtime_status_requires_auth_and_reports_component_state() {
     assert_eq!(status["database"], "ready");
     assert_eq!(status["runtime"], "unavailable");
     assert_eq!(status["worker"], "ready");
+    assert_eq!(status["ingress"], "unavailable");
     assert!(status["metrics"].is_null());
 }
 
