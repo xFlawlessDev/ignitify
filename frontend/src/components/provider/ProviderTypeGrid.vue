@@ -48,12 +48,12 @@ const providerTypes: Array<{
       <button
         v-for="provider in providerTypes"
         :key="provider.kind"
-        class="group grid min-h-[112px] gap-4 border border-border bg-card p-4 text-left transition-colors hover:border-foreground/40 hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+        class="group grid min-h-[112px] gap-4 rounded-[10px] border border-border bg-card p-4 text-left transition-colors hover:border-foreground/40 hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
         type="button"
         @click="emit('select', provider.kind)"
       >
         <span class="flex items-center justify-between">
-          <span class="grid size-8 place-items-center border border-border bg-muted">
+          <span class="grid size-8 place-items-center rounded-[6px] border border-border bg-muted">
             <component
               :is="provider.icon"
               class="size-4 text-muted-foreground"

@@ -252,7 +252,7 @@ watch(open, (isOpen) => {
 <template>
   <Dialog v-model:open="open">
     <DialogContent
-      class="max-h-[calc(100vh-2rem)] w-[calc(100%-1rem)] overflow-y-auto rounded-md shadow-none sm:max-w-xl"
+      class="max-h-[calc(100vh-2rem)] w-[calc(100%-1rem)] overflow-y-auto rounded-[10px] shadow-none sm:max-w-xl"
     >
       <DialogHeader>
         <DialogTitle>{{ service ? "Edit service" : "New deployment service" }}</DialogTitle>
@@ -285,7 +285,7 @@ watch(open, (isOpen) => {
             <Label for="service-kind">Deployment source</Label>
             <div class="grid gap-2 sm:grid-cols-3" role="group" aria-label="Deployment source">
               <button
-                class="grid gap-1 border px-3 py-2 text-left transition-colors"
+                class="grid gap-1 rounded-[6px] border px-3 py-2 text-left transition-colors"
                 :class="
                   source === 'template'
                     ? 'border-[var(--status-live)] bg-muted'
@@ -303,7 +303,7 @@ watch(open, (isOpen) => {
                 <span class="text-[11px] text-muted-foreground">Start from a known shape</span>
               </button>
               <button
-                class="grid gap-1 border px-3 py-2 text-left transition-colors"
+                class="grid gap-1 rounded-[6px] border px-3 py-2 text-left transition-colors"
                 :class="
                   source === 'compose'
                     ? 'border-[var(--status-live)] bg-muted'
@@ -322,7 +322,7 @@ watch(open, (isOpen) => {
                 <span class="text-[11px] text-muted-foreground">Paste a hardened YAML file</span>
               </button>
               <button
-                class="grid gap-1 border px-3 py-2 text-left transition-colors"
+                class="grid gap-1 rounded-[6px] border px-3 py-2 text-left transition-colors"
                 :class="
                   source === 'application'
                     ? 'border-[var(--status-live)] bg-muted'
@@ -350,7 +350,7 @@ watch(open, (isOpen) => {
           </div>
           <section
             v-if="source === 'template'"
-            class="grid gap-3 border border-border bg-muted/30 p-3"
+            class="grid gap-3 rounded-[8px] border border-border bg-muted/30 p-4"
           >
             <div class="flex items-start gap-2">
               <Boxes class="mt-0.5 size-4 shrink-0 text-muted-foreground" :stroke-width="1.5" />
@@ -365,7 +365,7 @@ watch(open, (isOpen) => {
               <button
                 v-for="option in templateOptions"
                 :key="option.value"
-                class="grid gap-1 border px-3 py-2 text-left"
+                class="grid gap-1 rounded-[5px] border px-3 py-2 text-left"
                 :class="
                   template === option.value
                     ? 'border-[var(--status-live)] bg-background'
@@ -384,7 +384,7 @@ watch(open, (isOpen) => {
           </section>
           <section
             v-else-if="source === 'application'"
-            class="grid gap-4 border border-border bg-muted/30 p-3"
+            class="grid gap-4 rounded-[8px] border border-border bg-muted/30 p-4"
           >
             <div class="flex items-start gap-2">
               <GitBranch class="mt-0.5 size-4 shrink-0 text-muted-foreground" :stroke-width="1.5" />
@@ -401,7 +401,7 @@ watch(open, (isOpen) => {
               <select
                 id="service-provider"
                 v-model="providerId"
-                class="h-9 border border-input bg-background px-3 text-sm"
+                class="h-9 rounded-[3px] border border-input bg-background px-3 text-sm"
                 required
               >
                 <option value="" disabled>Select a connected provider</option>
@@ -422,7 +422,7 @@ watch(open, (isOpen) => {
                 >Repository<input
                   id="service-repository"
                   v-model="repository"
-                  class="h-9 border border-input bg-background px-3 text-sm text-foreground"
+                  class="h-9 rounded-[3px] border border-input bg-background px-3 text-sm text-foreground"
                   placeholder="owner/repository"
                   required
               /></label>
@@ -430,7 +430,7 @@ watch(open, (isOpen) => {
                 >Branch<input
                   id="service-branch"
                   v-model="branch"
-                  class="h-9 border border-input bg-background px-3 text-sm text-foreground"
+                  class="h-9 rounded-[3px] border border-input bg-background px-3 text-sm text-foreground"
                   placeholder="main"
               /></label>
             </div>
@@ -440,7 +440,7 @@ watch(open, (isOpen) => {
                 <button
                   v-for="option in builderOptions"
                   :key="option.value"
-                  class="grid gap-1 border px-3 py-2 text-left"
+                  class="grid gap-1 rounded-[5px] border px-3 py-2 text-left"
                   :class="
                     builder === option.value
                       ? 'border-[var(--status-live)] bg-background'
@@ -466,14 +466,14 @@ watch(open, (isOpen) => {
                 >Build command<input
                   id="service-build-command"
                   v-model="buildCommand"
-                  class="h-9 border border-input bg-background px-3 text-sm text-foreground"
+                  class="h-9 rounded-[3px] border border-input bg-background px-3 text-sm text-foreground"
                   placeholder="pnpm build"
               /></label>
               <label for="service-output-directory" class="grid gap-2 text-xs text-muted-foreground"
                 >Output directory<input
                   id="service-output-directory"
                   v-model="outputDirectory"
-                  class="h-9 border border-input bg-background px-3 text-sm text-foreground"
+                  class="h-9 rounded-[3px] border border-input bg-background px-3 text-sm text-foreground"
                   placeholder="dist"
               /></label>
             </div>
@@ -493,7 +493,7 @@ watch(open, (isOpen) => {
               <Label>Compose source</Label>
               <div class="grid gap-2 sm:grid-cols-2">
                 <button
-                  class="border px-3 py-2 text-left text-xs"
+                  class="rounded-[5px] border px-3 py-2 text-left text-xs"
                   :class="
                     composeMode === 'yaml'
                       ? 'border-[var(--status-live)] bg-muted'
@@ -506,7 +506,7 @@ watch(open, (isOpen) => {
                   Inline YAML
                 </button>
                 <button
-                  class="border px-3 py-2 text-left text-xs"
+                  class="rounded-[5px] border px-3 py-2 text-left text-xs"
                   :class="
                     composeMode === 'repository'
                       ? 'border-[var(--status-live)] bg-muted'
@@ -525,7 +525,7 @@ watch(open, (isOpen) => {
             </div>
             <div
               v-if="composeMode === 'repository'"
-              class="grid gap-3 border border-border bg-muted/30 p-3 sm:grid-cols-3"
+              class="grid gap-3 rounded-[8px] border border-border bg-muted/30 p-4 sm:grid-cols-3"
             >
               <label
                 class="grid gap-2 text-xs text-muted-foreground sm:col-span-1"
@@ -533,7 +533,7 @@ watch(open, (isOpen) => {
                 >Provider<select
                   id="service-provider"
                   v-model="providerId"
-                  class="h-9 border border-input bg-background px-3 text-sm text-foreground"
+                  class="h-9 rounded-[3px] border border-input bg-background px-3 text-sm text-foreground"
                   required
                 >
                   <option value="" disabled>Select provider</option>
@@ -552,7 +552,7 @@ watch(open, (isOpen) => {
                 >Repository<input
                   id="service-repository"
                   v-model="repository"
-                  class="h-9 border border-input bg-background px-3 text-sm text-foreground"
+                  class="h-9 rounded-[3px] border border-input bg-background px-3 text-sm text-foreground"
                   placeholder="owner/repository"
                   required
               /></label>
@@ -562,7 +562,7 @@ watch(open, (isOpen) => {
                 >Branch<input
                   id="service-branch"
                   v-model="branch"
-                  class="h-9 border border-input bg-background px-3 text-sm text-foreground"
+                  class="h-9 rounded-[3px] border border-input bg-background px-3 text-sm text-foreground"
                   placeholder="main"
               /></label>
               <label
@@ -571,7 +571,7 @@ watch(open, (isOpen) => {
                 >Compose file path<input
                   id="service-compose-path"
                   v-model="dockerfilePath"
-                  class="h-9 border border-input bg-background px-3 text-sm text-foreground"
+                  class="h-9 rounded-[3px] border border-input bg-background px-3 text-sm text-foreground"
                   placeholder="docker-compose.yml"
               /></label>
             </div>
@@ -665,7 +665,7 @@ watch(open, (isOpen) => {
                 />
               </label>
               <button
-                class="grid size-9 place-items-center rounded-md border border-border text-muted-foreground hover:bg-muted hover:text-foreground"
+                class="grid size-9 place-items-center rounded-[3px] border border-border text-muted-foreground hover:bg-muted hover:text-foreground"
                 type="button"
                 :aria-label="`Remove ${variable.key || 'variable'}`"
                 title="Remove variable"

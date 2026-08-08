@@ -32,7 +32,7 @@ const emit = defineEmits<{
             :value="query"
             type="search"
             placeholder="Search templates"
-            class="h-10 w-full rounded-md border border-input bg-background pr-3 pl-10 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30"
+            class="h-9 w-full rounded-[3px] border border-input bg-background pr-3 pl-10 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30"
             @input="emit('updateQuery', ($event.target as HTMLInputElement).value)"
           />
         </label>
@@ -45,7 +45,7 @@ const emit = defineEmits<{
           />
           <select
             :value="activeTag"
-            class="h-10 w-full appearance-none rounded-md border border-input bg-background pr-8 pl-10 text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30"
+            class="h-9 w-full appearance-none rounded-[3px] border border-input bg-background pr-8 pl-10 text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30"
             @change="emit('updateTag', ($event.target as HTMLSelectElement).value)"
           >
             <option value="all">All categories</option>

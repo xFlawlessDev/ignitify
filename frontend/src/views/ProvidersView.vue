@@ -127,14 +127,12 @@ onMounted(load);
 </script>
 
 <template>
-  <div class="w-full max-w-[1200px]">
-    <header
-      class="flex items-end justify-between gap-5 border-b border-border pb-[25px] max-[640px]:items-start max-[640px]:flex-col"
-    >
+  <div class="app-page">
+    <header class="app-page-header lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
       <div>
         <p class="ui-label">Workspace</p>
-        <h1 class="mt-2.5 text-[30px] leading-none font-medium">Providers</h1>
-        <p class="mt-2.5 max-w-[56ch] text-[13px] leading-5 text-muted-foreground">
+        <h1 class="mt-2 text-3xl leading-none font-normal">Providers</h1>
+        <p class="mt-2 max-w-[56ch] text-sm leading-5 text-muted-foreground">
           Connect source-control accounts once, then select their repositories when configuring an
           app.
         </p>
@@ -162,7 +160,7 @@ onMounted(load);
     </header>
 
     <section
-      class="mt-[22px] grid overflow-hidden divide-y divide-border border border-border bg-card sm:grid-cols-3 sm:divide-x sm:divide-y-0"
+      class="mt-6 app-surface grid divide-y divide-border sm:grid-cols-3 sm:divide-x sm:divide-y-0"
       aria-label="Provider summary"
     >
       <div class="flex min-h-[86px] items-center gap-3 px-5 py-4">
@@ -191,21 +189,16 @@ onMounted(load);
     <p v-if="error && !loading" class="mt-4 text-xs text-destructive" role="alert">{{ error }}</p>
     <p
       v-if="githubConnectionStatus"
-      class="mt-4 flex items-center gap-2 border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-300"
+      class="mt-4 flex items-center gap-2 rounded-[10px] border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-300"
       role="status"
     >
       <CircleCheck class="size-4 shrink-0" :stroke-width="1.5" />
       {{ githubConnectionStatus }}
     </p>
 
-    <ProviderTypeGrid v-if="auth.isAdmin" class="mt-[22px]" @select="openProvider" />
+    <ProviderTypeGrid v-if="auth.isAdmin" class="mt-6" @select="openProvider" />
 
-    <section
-      v-if="loading"
-      class="mt-[22px] border border-border bg-card"
-      role="status"
-      aria-label="Loading providers"
-    >
+    <section v-if="loading" class="mt-6 app-surface" role="status" aria-label="Loading providers">
       <div
         v-for="index in 3"
         :key="index"
@@ -220,10 +213,7 @@ onMounted(load);
       </div>
     </section>
 
-    <section
-      v-else-if="data.length === 0"
-      class="mt-[22px] border border-border bg-card px-5 py-10"
-    >
+    <section v-else-if="data.length === 0" class="mt-6 app-surface px-5 py-10">
       <div class="max-w-lg">
         <CircleCheck class="size-5 text-muted-foreground" :stroke-width="1.5" />
         <h2 class="mt-3 text-base font-medium">No providers connected</h2>
@@ -241,7 +231,7 @@ onMounted(load);
       </div>
     </section>
 
-    <div v-else class="mt-[22px] grid gap-6 lg:grid-cols-[minmax(0,1fr)_280px] lg:items-start">
+    <div v-else class="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_280px] lg:items-start">
       <section class="grid gap-3" aria-labelledby="connected-providers-title">
         <div class="flex items-end justify-between gap-4">
           <div>
@@ -262,7 +252,7 @@ onMounted(load);
         />
       </section>
 
-      <aside class="border border-border bg-card px-5 py-5" aria-labelledby="provider-access-title">
+      <aside class="app-surface px-5 py-5" aria-labelledby="provider-access-title">
         <p class="ui-label">Repository access</p>
         <h2 id="provider-access-title" class="mt-2 text-base font-medium">Ready for app setup</h2>
         <p class="mt-2 text-xs leading-5 text-muted-foreground">

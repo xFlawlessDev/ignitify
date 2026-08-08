@@ -121,7 +121,7 @@ function submit() {
 <template>
   <Dialog v-model:open="open">
     <DialogContent
-      class="max-h-[calc(100vh-2rem)] overflow-y-auto rounded-md shadow-none sm:max-w-xl"
+      class="max-h-[calc(100vh-2rem)] overflow-y-auto rounded-[10px] shadow-none sm:max-w-xl"
     >
       <DialogHeader>
         <div class="mb-1 flex size-9 items-center justify-center border border-border bg-muted">

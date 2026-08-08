@@ -177,12 +177,7 @@ onUnmounted(() => {
       @create="submit"
     />
 
-    <div
-      v-if="loading"
-      class="border border-border bg-card px-5"
-      role="status"
-      aria-label="Loading domains"
-    >
+    <div v-if="loading" class="app-surface px-5" role="status" aria-label="Loading domains">
       <div
         v-for="index in 3"
         :key="index"
@@ -195,17 +190,13 @@ onUnmounted(() => {
         <Skeleton class="h-8 w-24" />
       </div>
     </div>
-    <section
-      v-else-if="error && !domains.length"
-      class="border border-border bg-card px-5 py-5"
-      role="alert"
-    >
+    <section v-else-if="error && !domains.length" class="app-surface px-5 py-5" role="alert">
       <p class="text-sm text-destructive">{{ error }}</p>
       <Button class="mt-3" size="sm" variant="outline" @click="emit('retry')">Retry</Button>
     </section>
     <p
       v-else-if="error"
-      class="border border-destructive/40 bg-card px-5 py-3 text-xs text-destructive"
+      class="rounded-[10px] border border-destructive/40 bg-card px-5 py-3 text-xs text-destructive"
       role="alert"
     >
       {{ error }}
@@ -224,7 +215,7 @@ onUnmounted(() => {
 
     <div
       v-if="confirmation"
-      class="border border-border bg-card p-5"
+      class="app-surface p-5"
       role="alertdialog"
       aria-labelledby="domain-confirm-title"
     >

@@ -74,20 +74,18 @@ function updateRange(nextRange: MonitoringRange) {
 </script>
 
 <template>
-  <div class="w-full max-w-[1200px]">
-    <header
-      class="flex items-end justify-between gap-6 border-b border-border pb-[25px] max-[700px]:items-start max-[700px]:flex-col"
-    >
+  <div class="app-page">
+    <header class="app-page-header lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
       <div>
         <p class="ui-label">Operations</p>
-        <h1 class="mt-2.5 text-[30px] leading-none font-medium">Monitoring</h1>
-        <p class="mt-2.5 text-[13px] text-muted-foreground">
+        <h1 class="mt-2 text-3xl leading-none font-normal">Monitoring</h1>
+        <p class="mt-2 text-sm text-muted-foreground">
           Host resource utilization and I/O throughput across the control plane.
         </p>
       </div>
       <div class="flex w-full items-center gap-2 sm:w-auto">
         <div
-          class="flex min-w-0 overflow-hidden border border-border bg-card max-[560px]:flex-1"
+          class="flex min-w-0 overflow-hidden rounded-[4px] border border-border bg-card max-[560px]:flex-1"
           role="group"
           aria-label="Monitoring time range"
         >
@@ -156,7 +154,7 @@ function updateRange(nextRange: MonitoringRange) {
 
     <section
       v-if="error"
-      class="mt-[18px] flex items-center gap-2.5 border border-border px-3.5 py-3 text-[11px] text-signal-orange"
+      class="mt-4 flex items-center gap-2.5 rounded-[10px] border border-border px-3.5 py-3 text-[11px] text-signal-orange"
       role="alert"
     >
       <TriangleAlert class="size-4 shrink-0" :stroke-width="1.5" />
@@ -174,7 +172,7 @@ function updateRange(nextRange: MonitoringRange) {
 
     <section
       v-if="metrics.length"
-      class="mt-[18px] grid grid-cols-3 gap-3 max-[900px]:grid-cols-2 max-[560px]:grid-cols-1"
+      class="mt-6 grid grid-cols-3 gap-4 max-[900px]:grid-cols-2 max-[560px]:grid-cols-1"
       aria-label="System resource metrics"
     >
       <MonitoringMetricCard
@@ -193,15 +191,11 @@ function updateRange(nextRange: MonitoringRange) {
 
     <section
       v-else-if="loading"
-      class="mt-[18px] grid grid-cols-3 gap-3 max-[900px]:grid-cols-2 max-[560px]:grid-cols-1"
+      class="mt-6 grid grid-cols-3 gap-4 max-[900px]:grid-cols-2 max-[560px]:grid-cols-1"
       role="status"
       aria-label="Loading current system metrics"
     >
-      <article
-        v-for="index in 6"
-        :key="index"
-        class="min-w-0 border border-border bg-card px-[18px] pt-[18px] pb-4"
-      >
+      <article v-for="index in 6" :key="index" class="min-w-0 app-surface px-[18px] pt-[18px] pb-4">
         <div class="flex items-center justify-between gap-3">
           <Skeleton class="h-2.5 w-24" />
           <Skeleton class="h-2.5 w-10" />
@@ -213,10 +207,12 @@ function updateRange(nextRange: MonitoringRange) {
     </section>
 
     <section
-      class="mt-3 grid grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)] gap-3 max-[900px]:grid-cols-1"
+      class="mt-4 grid grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)] gap-4 max-[900px]:grid-cols-1"
     >
-      <article class="min-w-0 border border-border bg-card p-[18px]">
-        <div class="mb-[18px] flex min-h-12 items-start justify-between gap-4">
+      <article class="min-w-0 app-surface p-[18px]">
+        <div
+          class="app-panel-header -mx-[18px] -mt-[18px] mb-[18px] flex min-h-12 items-start justify-between gap-4 px-[18px] py-[18px]"
+        >
           <div>
             <p class="ui-label">Resource pressure</p>
             <h2 class="mt-2 text-base font-medium">Host utilization</h2>
@@ -238,8 +234,10 @@ function updateRange(nextRange: MonitoringRange) {
         <Skeleton v-else class="h-[220px] w-full" />
       </article>
 
-      <article class="min-w-0 border border-border bg-card p-[18px]">
-        <div class="mb-[18px] flex min-h-12 items-start justify-between gap-4">
+      <article class="min-w-0 app-surface p-[18px]">
+        <div
+          class="app-panel-header -mx-[18px] -mt-[18px] mb-[18px] flex min-h-12 items-start justify-between gap-4 px-[18px] py-[18px]"
+        >
           <div>
             <p class="ui-label">I/O throughput</p>
             <h2 class="mt-2 text-base font-medium">Read, write, and transfer</h2>
@@ -264,7 +262,7 @@ function updateRange(nextRange: MonitoringRange) {
 
     <section
       v-if="metrics.length"
-      class="mt-3 flex items-center justify-between gap-5 border-y border-border px-0.5 py-3.5 max-[560px]:items-start max-[560px]:flex-col"
+      class="mt-4 flex items-center justify-between gap-5 border-y border-border px-0.5 py-3.5 max-[560px]:items-start max-[560px]:flex-col"
     >
       <div class="flex min-w-0 items-center gap-2.5">
         <span class="status-dot" data-status="healthy" aria-hidden="true" />

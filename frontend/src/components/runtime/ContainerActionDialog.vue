@@ -258,7 +258,7 @@ async function removeContainer() {
   <TooltipProvider>
     <Dialog v-model:open="open">
       <DialogContent
-        class="max-h-[calc(100vh-2rem)] w-[calc(100%-1rem)] overflow-y-auto rounded-md shadow-none"
+        class="max-h-[calc(100vh-2rem)] w-[calc(100%-1rem)] overflow-y-auto rounded-[10px] shadow-none"
         :class="isTerminalAction ? 'sm:max-w-4xl' : 'sm:max-w-lg'"
       >
         <template v-if="activeAction && container">
@@ -532,7 +532,7 @@ async function removeContainer() {
       <AlertDialogPortal>
         <AlertDialogOverlay class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm" />
         <AlertDialogContent
-          class="fixed top-1/2 left-1/2 z-50 grid w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 gap-5 rounded-md border bg-background p-6 shadow-none"
+          class="fixed top-1/2 left-1/2 z-50 grid w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 gap-5 rounded-[10px] border bg-card p-6 shadow-none"
         >
           <div class="flex items-start gap-3">
             <div

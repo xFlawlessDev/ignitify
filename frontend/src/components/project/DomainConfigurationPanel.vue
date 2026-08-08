@@ -65,10 +65,10 @@ function dnsStatusLabel(state: DnsValidationState) {
 </script>
 
 <template>
-  <section class="border border-border bg-card" aria-labelledby="domain-configuration-heading">
-    <header class="flex items-start gap-3 border-b border-border px-5 py-4">
+  <section class="app-surface" aria-labelledby="domain-configuration-heading">
+    <header class="app-panel-header flex items-start gap-3 px-5 py-4">
       <span
-        class="grid size-8 shrink-0 place-items-center border border-border bg-muted text-muted-foreground"
+        class="grid size-8 shrink-0 place-items-center rounded-[6px] border border-border bg-muted text-muted-foreground"
       >
         <Globe2 class="size-4" :stroke-width="1.5" />
       </span>

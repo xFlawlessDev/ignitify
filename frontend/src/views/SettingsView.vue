@@ -205,14 +205,12 @@ function resetSettings() {
 </script>
 
 <template>
-  <div class="w-full max-w-[1200px]">
-    <header
-      class="flex items-end justify-between gap-6 border-b border-border pb-[25px] max-[700px]:items-start max-[700px]:flex-col"
-    >
+  <div class="app-page">
+    <header class="app-page-header lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
       <div>
         <p class="ui-label">Control plane</p>
-        <h1 class="mt-2.5 text-[30px] leading-none font-medium">Settings</h1>
-        <p class="mt-2.5 max-w-[58ch] text-[13px] leading-5 text-muted-foreground">
+        <h1 class="mt-2 text-3xl leading-none font-normal">Settings</h1>
+        <p class="mt-2 max-w-[58ch] text-sm leading-5 text-muted-foreground">
           Configure the server domain, HTTPS certificates, and build capacity used by each server.
         </p>
       </div>
@@ -242,7 +240,7 @@ function resetSettings() {
       </div>
     </header>
 
-    <form class="mt-[22px] grid gap-3" @submit.prevent="saveSettings">
+    <form class="mt-6 grid gap-4" @submit.prevent="saveSettings">
       <div class="flex items-center gap-2 border-b border-border pb-3">
         <Settings2 class="size-4 text-muted-foreground" :stroke-width="1.5" />
         <p class="ui-label">Server configuration</p>

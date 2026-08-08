@@ -39,7 +39,7 @@ const deltaClass = computed(() => {
 </script>
 
 <template>
-  <article class="min-w-0 border border-border bg-card px-[18px] pt-[18px] pb-4">
+  <article class="min-w-0 app-surface px-[18px] pt-[18px] pb-4">
     <div class="flex items-center justify-between gap-3">
       <div
         class="flex min-w-0 items-center gap-2 font-mono text-[11px] text-muted-foreground uppercase"
@@ -50,7 +50,7 @@ const deltaClass = computed(() => {
       <span class="shrink-0 font-mono text-[10px]" :class="deltaClass">{{ delta }}</span>
     </div>
 
-    <div class="mt-[22px] truncate font-mono text-2xl leading-none text-foreground">
+    <div class="mt-4 truncate font-mono text-2xl leading-none text-foreground">
       {{ value }}
     </div>
     <p class="mt-2 min-h-8 text-[11px] leading-[1.45] text-muted-foreground">{{ detail }}</p>

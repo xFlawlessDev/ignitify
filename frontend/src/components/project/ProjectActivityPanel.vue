@@ -21,8 +21,8 @@ function formatTime(value: string) {
 </script>
 
 <template>
-  <section class="mt-[22px] border border-border bg-card">
-    <div class="flex items-center justify-between border-b border-border px-5 py-4">
+  <section class="app-surface">
+    <div class="app-panel-header flex items-center justify-between px-5 py-4">
       <div>
         <p class="ui-label">Audit trail</p>
         <h2 class="mt-2 text-base font-medium">Project activity</h2>

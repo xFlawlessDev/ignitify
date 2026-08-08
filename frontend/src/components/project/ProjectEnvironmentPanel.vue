@@ -90,9 +90,9 @@ function submit() {
 </script>
 
 <template>
-  <section class="border border-border bg-card" aria-labelledby="project-environment-title">
+  <section class="app-surface" aria-labelledby="project-environment-title">
     <div
-      class="flex items-start justify-between gap-4 border-b border-border px-5 pt-5 pb-4 max-[520px]:flex-col"
+      class="app-panel-header flex items-start justify-between gap-4 px-5 pt-5 pb-4 max-[520px]:flex-col"
     >
       <div class="flex min-w-0 items-start gap-3">
         <span

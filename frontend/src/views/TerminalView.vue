@@ -51,14 +51,12 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="w-full max-w-[1200px]">
-    <header
-      class="flex items-end justify-between gap-6 border-b border-border pb-[25px] max-[700px]:items-start max-[700px]:flex-col max-[700px]:gap-4"
-    >
+  <div class="app-page">
+    <header class="app-page-header lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
       <div class="min-w-0">
         <p class="ui-label">Host administration</p>
-        <h1 class="mt-2.5 text-[30px] leading-none font-medium">Terminal</h1>
-        <p class="mt-2.5 text-[13px] text-muted-foreground">
+        <h1 class="mt-2 text-3xl leading-none font-normal">Terminal</h1>
+        <p class="mt-2 text-sm text-muted-foreground">
           Interactive shell on the control-plane host.
         </p>
       </div>
@@ -81,7 +79,7 @@ onUnmounted(() => {
 
     <section
       ref="terminalFrame"
-      class="mt-3.5 flex min-h-[min(650px,calc(100svh_-_240px))] flex-col overflow-hidden border border-border bg-[#09090b] fullscreen:min-h-svh fullscreen:border-0 max-[700px]:min-h-[min(560px,calc(100svh_-_270px))]"
+      class="mt-4 flex min-h-[min(650px,calc(100svh_-_240px))] flex-col overflow-hidden rounded-[10px] border border-border bg-[#09090b] fullscreen:min-h-svh fullscreen:border-0 fullscreen:rounded-none max-[700px]:min-h-[min(560px,calc(100svh_-_270px))]"
       aria-label="Host terminal"
     >
       <div

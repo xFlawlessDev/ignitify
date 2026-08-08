@@ -17,7 +17,7 @@ function formatUpdatedAt(value: string) {
 </script>
 
 <template>
-  <section v-if="props.view === 'list'" class="border border-border bg-card" aria-label="Projects">
+  <section v-if="props.view === 'list'" class="app-surface" aria-label="Projects">
     <RouterLink
       v-for="project in props.projects"
       :key="project.id"
@@ -53,7 +53,7 @@ function formatUpdatedAt(value: string) {
     <RouterLink
       v-for="project in props.projects"
       :key="project.id"
-      class="flex min-h-[184px] flex-col justify-between border border-border bg-card p-4 text-foreground transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+      class="flex min-h-[184px] flex-col justify-between rounded-[10px] border border-border bg-card p-4 text-foreground transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
       :to="`/projects/${project.id}`"
     >
       <span class="flex items-start justify-between gap-3">

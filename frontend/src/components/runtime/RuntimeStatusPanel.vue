@@ -18,8 +18,8 @@ function formatBytes(value: number) {
 </script>
 
 <template>
-  <section class="min-w-0 border border-border bg-card">
-    <div class="border-b border-border px-5 py-4">
+  <section class="min-w-0 app-surface">
+    <div class="app-panel-header px-5 py-4">
       <p class="ui-label">Runtime</p>
       <h2 class="mt-2 text-base font-medium">Host visibility</h2>
     </div>

@@ -102,7 +102,10 @@ function formatTime(value: string) {
       <Boxes class="size-4 shrink-0 text-muted-foreground" :stroke-width="1.5" />
     </header>
 
-    <section class="border-y border-border" aria-labelledby="overview-metrics-title">
+    <section
+      class="overflow-hidden rounded-[10px] border border-border bg-card"
+      aria-labelledby="overview-metrics-title"
+    >
       <h3 id="overview-metrics-title" class="sr-only">Project metrics</h3>
       <div class="grid grid-cols-2 divide-x divide-y divide-border md:grid-cols-4 md:divide-y-0">
         <div class="min-w-0 px-4 py-4">
@@ -128,9 +131,9 @@ function formatTime(value: string) {
       </div>
     </section>
 
-    <section class="border border-border bg-card" aria-labelledby="service-status-title">
+    <section class="app-surface" aria-labelledby="service-status-title">
       <header
-        class="flex items-end justify-between gap-4 border-b border-border px-5 py-4 max-[560px]:items-start max-[560px]:flex-col"
+        class="app-panel-header flex items-end justify-between gap-4 px-5 py-4 max-[560px]:items-start max-[560px]:flex-col"
       >
         <div>
           <p class="ui-label">Deployment services</p>
@@ -196,8 +199,8 @@ function formatTime(value: string) {
     </section>
 
     <div class="grid gap-6 xl:grid-cols-2">
-      <section class="border border-border bg-card" aria-labelledby="latest-deployments-title">
-        <header class="flex items-center justify-between gap-3 border-b border-border px-5 py-4">
+      <section class="app-surface" aria-labelledby="latest-deployments-title">
+        <header class="app-panel-header flex items-center justify-between gap-3 px-5 py-4">
           <div>
             <p class="ui-label">Runtime</p>
             <h3 id="latest-deployments-title" class="mt-2 text-lg font-normal">
@@ -254,8 +257,8 @@ function formatTime(value: string) {
         </div>
       </section>
 
-      <section class="border border-border bg-card" aria-labelledby="recent-activity-title">
-        <header class="flex items-center justify-between gap-3 border-b border-border px-5 py-4">
+      <section class="app-surface" aria-labelledby="recent-activity-title">
+        <header class="app-panel-header flex items-center justify-between gap-3 px-5 py-4">
           <div>
             <p class="ui-label">Audit trail</p>
             <h3 id="recent-activity-title" class="mt-2 text-lg font-normal">Recent activity</h3>

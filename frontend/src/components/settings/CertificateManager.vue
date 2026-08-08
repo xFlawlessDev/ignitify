@@ -78,11 +78,11 @@ function addCertificate() {
 </script>
 
 <template>
-  <section class="border border-border bg-card" aria-labelledby="certificates-heading">
-    <header class="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
+  <section class="app-surface" aria-labelledby="certificates-heading">
+    <header class="app-panel-header flex items-start justify-between gap-4 px-5 py-4">
       <div class="flex min-w-0 items-start gap-3">
         <span
-          class="grid size-8 shrink-0 place-items-center border border-border bg-muted text-muted-foreground"
+          class="grid size-8 shrink-0 place-items-center rounded-[6px] border border-border bg-muted text-muted-foreground"
         >
           <FileKey2 class="size-4" :stroke-width="1.5" />
         </span>
@@ -133,7 +133,7 @@ function addCertificate() {
     </div>
 
     <Dialog :open="dialogOpen" @update:open="updateDialogOpen">
-      <DialogContent class="rounded-md shadow-none sm:max-w-lg">
+      <DialogContent class="rounded-[10px] shadow-none sm:max-w-lg">
         <DialogHeader>
           <DialogTitle class="text-base font-medium">Add certificate</DialogTitle>
           <DialogDescription class="text-xs leading-5">

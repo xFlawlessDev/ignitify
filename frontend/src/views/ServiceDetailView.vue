@@ -234,7 +234,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="w-full max-w-[1200px] pb-10">
+  <div class="app-page">
     <RouterLink
       class="group inline-flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
       :to="projectRoute"

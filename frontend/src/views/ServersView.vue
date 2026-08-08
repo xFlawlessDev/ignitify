@@ -11,14 +11,12 @@ onMounted(load);
 </script>
 
 <template>
-  <div class="w-full max-w-[1200px]">
-    <header
-      class="flex items-end justify-between gap-6 border-b border-border pb-[25px] max-[640px]:items-start max-[640px]:flex-col"
-    >
+  <div class="app-page">
+    <header class="app-page-header lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
       <div>
         <p class="ui-label">Operations</p>
-        <h1 class="mt-2.5 text-[30px] leading-none font-medium">Servers</h1>
-        <p class="mt-2.5 text-[13px] text-muted-foreground">
+        <h1 class="mt-2 text-3xl leading-none font-normal">Servers</h1>
+        <p class="mt-2 text-sm text-muted-foreground">
           Current control-plane host readiness and Docker capacity.
         </p>
       </div>
@@ -34,12 +32,12 @@ onMounted(load);
     </header>
     <section
       v-if="error"
-      class="mt-4 border border-destructive/40 bg-card px-5 py-4 text-sm text-destructive"
+      class="mt-4 rounded-[10px] border border-destructive/40 bg-card px-5 py-4 text-sm text-destructive"
       role="alert"
     >
       {{ error }}
     </section>
-    <section class="mt-[22px] max-w-md">
+    <section class="mt-6 max-w-md">
       <RuntimeStatusPanel :runtime="data" :loading="loading" />
     </section>
     <p class="mt-4 flex items-center gap-2 text-xs text-muted-foreground">

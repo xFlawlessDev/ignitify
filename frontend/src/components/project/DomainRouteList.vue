@@ -35,8 +35,8 @@ function statusLabel(status: DomainSummary["status"]) {
 </script>
 
 <template>
-  <section class="border border-border bg-card" aria-labelledby="managed-domains-heading">
-    <header class="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
+  <section class="app-surface" aria-labelledby="managed-domains-heading">
+    <header class="app-panel-header flex items-start justify-between gap-4 px-5 py-4">
       <div>
         <p class="ui-label">Managed routes</p>
         <h2 id="managed-domains-heading" class="mt-1.5 text-base font-medium">Project domains</h2>

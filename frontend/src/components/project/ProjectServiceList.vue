@@ -49,7 +49,7 @@ function sourceLabel(service: ServiceSummary) {
 </script>
 
 <template>
-  <section :class="props.view === 'list' ? 'border border-border bg-card' : 'grid gap-3'">
+  <section :class="props.view === 'list' ? 'app-surface' : 'grid gap-3'">
     <div
       class="flex items-start justify-between gap-4 border-b border-border pt-5 pb-4 max-[520px]:flex-col"
       :class="props.view === 'list' ? 'px-5' : ''"
@@ -108,7 +108,7 @@ function sourceLabel(service: ServiceSummary) {
     <div
       v-if="props.loading"
       class="divide-y divide-border"
-      :class="props.view === 'catalog' ? 'border border-border bg-card' : ''"
+      :class="props.view === 'catalog' ? 'app-surface' : ''"
       role="status"
       aria-label="Loading services"
     >
@@ -124,7 +124,7 @@ function sourceLabel(service: ServiceSummary) {
     <div
       v-else-if="props.error"
       class="px-5 py-5"
-      :class="props.view === 'catalog' ? 'border border-destructive/40 bg-card' : ''"
+      :class="props.view === 'catalog' ? 'rounded-[10px] border border-destructive/40 bg-card' : ''"
       role="alert"
     >
       <p class="text-sm text-destructive">{{ props.error }}</p>
@@ -180,7 +180,7 @@ function sourceLabel(service: ServiceSummary) {
           >
           <button
             v-if="props.canManage"
-            class="grid size-8 place-items-center rounded-md border border-transparent text-muted-foreground hover:border-border hover:bg-muted hover:text-foreground"
+            class="grid size-8 place-items-center rounded-[3px] border border-transparent text-muted-foreground hover:border-border hover:bg-muted hover:text-foreground"
             type="button"
             :aria-label="`Edit ${service.name}`"
             title="Edit service"
@@ -195,7 +195,7 @@ function sourceLabel(service: ServiceSummary) {
       <article
         v-for="service in props.services"
         :key="service.id"
-        class="flex min-h-[190px] flex-col border border-border bg-card p-4"
+        class="flex min-h-[190px] flex-col rounded-[10px] border border-border bg-card p-4"
         :class="props.selectedServiceId === service.id ? 'border-foreground/30' : ''"
       >
         <div class="flex items-start justify-between gap-3">
@@ -256,11 +256,7 @@ function sourceLabel(service: ServiceSummary) {
         </div>
       </article>
     </div>
-    <div
-      v-else
-      class="px-5 py-8"
-      :class="props.view === 'catalog' ? 'border border-border bg-card' : ''"
-    >
+    <div v-else class="px-5 py-8" :class="props.view === 'catalog' ? 'app-surface' : ''">
       <p class="text-sm font-medium">No services configured</p>
       <p class="mt-1 max-w-[52ch] text-xs leading-5 text-muted-foreground">
         Start with a container image or hardened Compose file. Git providers are prepared in the

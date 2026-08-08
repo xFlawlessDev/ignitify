@@ -28,7 +28,7 @@ function submit() {
 
 <template>
   <Dialog v-model:open="open">
-    <DialogContent class="rounded-md shadow-none sm:max-w-md">
+    <DialogContent class="rounded-[10px] shadow-none sm:max-w-md">
       <DialogHeader>
         <DialogTitle>New project</DialogTitle>
         <DialogDescription>Projects hold one immutable production environment.</DialogDescription>

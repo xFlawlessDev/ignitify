@@ -17,14 +17,14 @@ Ignitify is an infrastructure control plane. Interface must feel quiet, fast, an
 
 | Role | Dark | Light | Use |
 | --- | --- | --- | --- |
-| Canvas | `#101010` | `#f6f5f4` | page background |
-| Surface | `#1d1a18` | `#ffffff` | cards and popovers |
-| Border | `#3d3a39` | `#d3cfca` | dividers and controls |
-| Foreground | `#eeeeee` | `#1d1a18` | primary text |
-| Muted | `#8a8380` | `#706965` | secondary text |
-| Signal | `#ee6018` | `#d9500c` | live, queued, action required |
+| Canvas | `#111111` | `#f6f5f4` | page background |
+| Surface | `#211f1e` | `#ffffff` | cards and popovers |
+| Border | `#5b544f` | `#d3cfca` | dividers and controls |
+| Foreground | `#f7f5f2` | `#1d1a18` | primary text |
+| Muted | `#c6c0bd` | `#706965` | secondary text |
+| Signal | `#ef7f43` | `#d9500c` | live, queued, action required |
 | Healthy | `#a0ca92` | `#47823e` | healthy status only |
-| Destructive | `#d85a5a` | `#b42318` | destructive actions and errors |
+| Destructive | `#e8736d` | `#b42318` | destructive actions and errors |
 
 Orange and green are state colors, never default button or panel fills. Every status also needs text or an icon.
 

@@ -37,7 +37,7 @@ async function submit(): Promise<void> {
 
 <template>
   <div class="mx-auto grid min-h-[100dvh] max-w-[1200px] place-items-center px-5 py-10 sm:px-6">
-    <section class="w-full max-w-md rounded-lg border border-border bg-card p-6 sm:p-8">
+    <section class="w-full max-w-md rounded-[10px] border border-border bg-card p-6 sm:p-8">
       <div class="flex items-start justify-between gap-5 border-b border-border pb-6">
         <div>
           <p class="ui-label">Ignitify control plane</p>
@@ -45,7 +45,7 @@ async function submit(): Promise<void> {
             {{ bootstrapRequired ? "Create administrator" : "Sign in" }}
           </h1>
         </div>
-        <span class="grid size-9 place-items-center rounded-sm border border-border">
+        <span class="grid size-9 place-items-center rounded-[6px] border border-border bg-muted/30">
           <LockKeyhole class="size-4 text-muted-foreground" stroke-width="1.5" />
         </span>
       </div>

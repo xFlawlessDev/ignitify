@@ -13,8 +13,8 @@ defineProps<{ items: ActivityItem[] }>();
 </script>
 
 <template>
-  <section class="border border-border bg-card">
-    <div class="border-b border-border px-5 py-4">
+  <section class="app-surface">
+    <div class="app-panel-header px-5 py-4">
       <p class="ui-label">Activity</p>
       <h2 class="mt-2 text-base font-medium">System events</h2>
     </div>

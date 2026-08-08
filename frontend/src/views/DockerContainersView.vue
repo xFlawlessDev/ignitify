@@ -245,14 +245,12 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="w-full max-w-[1200px]">
-    <header
-      class="flex items-end justify-between gap-6 border-b border-border pb-[25px] max-[640px]:items-start max-[640px]:flex-col"
-    >
+  <div class="app-page">
+    <header class="app-page-header lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
       <div>
         <p class="ui-label">Docker</p>
-        <h1 class="mt-2.5 text-[30px] leading-none font-medium">Containers</h1>
-        <p class="mt-2.5 text-[13px] text-muted-foreground">
+        <h1 class="mt-2 text-3xl leading-none font-normal">Containers</h1>
+        <p class="mt-2 text-sm text-muted-foreground">
           Runtime health and aggregate container capacity for this host.
         </p>
       </div>
@@ -269,7 +267,7 @@ onUnmounted(() => {
     </header>
 
     <section
-      class="mt-[22px] grid overflow-hidden divide-y divide-border border border-border bg-card sm:grid-cols-2 sm:divide-x sm:divide-y-0 lg:grid-cols-4"
+      class="mt-6 app-surface grid divide-y divide-border sm:grid-cols-2 sm:divide-x sm:divide-y-0 lg:grid-cols-4"
       aria-label="Docker capacity"
     >
       <template v-if="loading && !runtime">
@@ -318,7 +316,7 @@ onUnmounted(() => {
 
     <section
       v-if="error"
-      class="mt-4 flex items-start justify-between gap-4 border border-destructive/40 bg-card px-5 py-4 max-[640px]:flex-col"
+      class="mt-4 rounded-[10px] flex items-start justify-between gap-4 border border-destructive/40 bg-card px-5 py-4 max-[640px]:flex-col"
       role="alert"
     >
       <div class="flex items-start gap-2 text-sm text-destructive">
@@ -337,9 +335,9 @@ onUnmounted(() => {
       </Button>
     </section>
 
-    <section class="mt-[22px] min-w-0 gap-4">
-      <section class="min-w-0 border border-border bg-card">
-        <div class="border-b border-border px-5 py-4">
+    <section class="mt-6 min-w-0 gap-4">
+      <section class="min-w-0 app-surface">
+        <div class="app-panel-header px-5 py-4">
           <p class="ui-label">Container inventory</p>
           <h2 class="mt-2 text-base font-medium">Per-container monitoring</h2>
         </div>

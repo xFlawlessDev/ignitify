@@ -46,9 +46,9 @@ function formatTime(value: string) {
 </script>
 
 <template>
-  <section class="min-w-0 border border-border bg-card">
+  <section class="min-w-0 app-surface">
     <div
-      class="flex items-end justify-between gap-4 border-b border-border px-5 py-4 max-[480px]:items-start max-[480px]:flex-col"
+      class="app-panel-header flex items-end justify-between gap-4 px-5 py-4 max-[480px]:items-start max-[480px]:flex-col"
     >
       <div>
         <p class="ui-label">Deployments</p>

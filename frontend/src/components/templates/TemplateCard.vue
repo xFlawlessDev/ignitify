@@ -31,13 +31,13 @@ watch(
   <article class="group/template-card min-w-0">
     <button
       type="button"
-      class="flex h-full w-full flex-col border border-border bg-card p-5 text-left transition-[border-color,background-color,transform] duration-200 hover:-translate-y-0.5 hover:border-signal/70 hover:bg-muted/40 focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-2"
+      class="flex h-full w-full flex-col rounded-[10px] border border-border bg-card p-5 text-left transition-[border-color,background-color] duration-200 hover:border-signal/70 hover:bg-muted/40 focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-2"
       :aria-label="`View ${template.name} template`"
       @click="emit('select', template)"
     >
       <div class="flex min-h-12 items-start justify-between gap-4">
         <div
-          class="flex size-12 items-center justify-center overflow-hidden rounded-md border border-border bg-background p-2"
+          class="flex size-12 items-center justify-center overflow-hidden rounded-[6px] border border-border bg-background p-2"
         >
           <img
             v-if="logoUrl && !imageFailed"

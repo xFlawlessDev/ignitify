@@ -253,7 +253,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="w-full max-w-[1200px]">
+  <div class="app-page">
     <RouterLink
       class="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
       to="/projects"
@@ -264,7 +264,7 @@ onUnmounted(() => {
 
     <section
       v-if="loading"
-      class="mt-[22px] border border-border bg-card px-5 py-6"
+      class="mt-6 app-surface px-5 py-6"
       role="status"
       aria-label="Loading project"
     >
@@ -281,7 +281,7 @@ onUnmounted(() => {
     </section>
     <section
       v-else-if="error"
-      class="mt-[22px] border border-destructive/40 bg-card px-5 py-8"
+      class="mt-6 rounded-[10px] border border-destructive/40 bg-card px-5 py-8"
       role="alert"
     >
       <p class="text-sm text-destructive">{{ error }}</p>
@@ -296,12 +296,10 @@ onUnmounted(() => {
       </Button>
     </section>
     <template v-else-if="data">
-      <header
-        class="mt-[22px] flex items-center justify-between gap-6 border-b border-border pb-[25px] max-[640px]:items-start max-[640px]:flex-col"
-      >
+      <header class="mt-6 app-page-header lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
         <div class="flex min-w-0 items-center gap-[13px]">
           <div
-            class="grid size-11 shrink-0 place-items-center rounded-[5px] border border-border bg-muted text-muted-foreground"
+            class="grid size-12 shrink-0 place-items-center rounded-[8px] border border-border bg-card text-muted-foreground"
           >
             <Box :size="20" :stroke-width="1.5" />
           </div>
@@ -337,7 +335,7 @@ onUnmounted(() => {
               </button>
             </form>
             <div v-else class="flex min-w-0 items-center gap-1.5">
-              <h1 class="m-0 truncate text-[29px] leading-none font-normal">
+              <h1 class="m-0 truncate text-3xl leading-none font-normal">
                 {{ data.name }}
               </h1>
               <button
@@ -362,7 +360,7 @@ onUnmounted(() => {
       </header>
 
       <nav
-        class="mt-6 flex h-[39px] min-w-0 gap-1 overflow-x-auto border-b border-border"
+        class="mt-6 flex min-w-0 gap-1 overflow-x-auto border-b border-border"
         aria-label="Project sections"
       >
         <button
@@ -375,7 +373,7 @@ onUnmounted(() => {
             'environment',
           ]"
           :key="tab"
-          class="h-[39px] flex-none border-b-2 border-b-transparent px-2.5 text-xs text-muted-foreground capitalize hover:text-foreground"
+          class="h-9 flex-none border-b-2 border-b-transparent px-3 text-xs text-muted-foreground capitalize transition-colors hover:text-foreground"
           :class="activeTab === tab ? 'border-b-[var(--status-live)] text-foreground' : ''"
           type="button"
           :aria-current="activeTab === tab ? 'page' : undefined"
@@ -387,7 +385,7 @@ onUnmounted(() => {
 
       <ProjectOverviewPanel
         v-if="activeTab === 'overview'"
-        class="mt-[22px]"
+        class="mt-6"
         :activity="activityData"
         :activity-error="activityError"
         :activity-loading="activityLoading"
@@ -404,7 +402,7 @@ onUnmounted(() => {
 
       <section
         v-else-if="activeTab === 'environment'"
-        class="mt-[22px] grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_18rem]"
+        class="mt-6 grid min-w-0 gap-6 lg:grid-cols-[minmax(0,1fr)_18rem]"
       >
         <ProjectEnvironmentPanel
           :can-manage="data.role === 'owner' || data.role === 'editor'"
@@ -414,7 +412,7 @@ onUnmounted(() => {
           @save="saveProjectEnvironment"
         />
         <aside class="grid content-start gap-4">
-          <section class="grid gap-3 border border-border bg-card p-5">
+          <section class="app-surface grid gap-3 p-5">
             <p class="ui-label">Project scope</p>
             <div class="flex items-center justify-between gap-3 border-b border-border pb-3">
               <span class="text-xs text-muted-foreground">Environment</span>
@@ -431,7 +429,7 @@ onUnmounted(() => {
               }}</strong>
             </div>
           </section>
-          <section class="border border-border bg-muted/40 p-5">
+          <section class="app-surface-muted p-5">
             <p class="text-xs font-medium">How inheritance works</p>
             <p class="mt-2 text-xs leading-5 text-muted-foreground">
               Each deployment merges project values first. A service-level key with the same name
@@ -441,7 +439,7 @@ onUnmounted(() => {
         </aside>
       </section>
 
-      <section v-else-if="activeTab === 'services'" class="mt-[22px] grid gap-4">
+      <section v-else-if="activeTab === 'services'" class="mt-6 grid gap-6">
         <ProjectServiceList
           :can-manage="data.role === 'owner' || data.role === 'editor'"
           :error="serviceError"
@@ -457,7 +455,7 @@ onUnmounted(() => {
         />
         <nav
           v-if="!serviceLoading && !serviceError && servicePageCount > 1"
-          class="flex items-center justify-between gap-4 border border-border bg-card px-4 py-3 max-[640px]:items-start max-[640px]:flex-col"
+          class="app-surface flex items-center justify-between gap-4 px-4 py-3 max-[640px]:items-start max-[640px]:flex-col"
           aria-label="Service pagination"
         >
           <p class="text-xs text-muted-foreground" aria-live="polite">
@@ -492,7 +490,7 @@ onUnmounted(() => {
 
       <ServiceDomainsPanel
         v-else-if="activeTab === 'domains'"
-        class="mt-[22px]"
+        class="mt-6"
         :can-manage="data.role === 'owner' || data.role === 'editor'"
         :domains="domains.data.value"
         :error="domains.error.value"
@@ -503,7 +501,7 @@ onUnmounted(() => {
         @retry="domains.load(serviceData.map((service) => service.id))"
       />
 
-      <section v-else-if="activeTab === 'deployments'" class="mt-[22px] grid gap-4">
+      <section v-else-if="activeTab === 'deployments'" class="mt-6 grid gap-6">
         <ProjectDeploymentTimeline
           :deployments="deploymentData"
           :error="deploymentError"

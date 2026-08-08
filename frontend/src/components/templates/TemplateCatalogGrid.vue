@@ -54,10 +54,7 @@ const skeletons = Array.from({ length: 8 }, (_, index) => index);
     </Button>
   </div>
 
-  <div
-    v-else-if="templates.length === 0"
-    class="border border-border bg-card px-6 py-16 text-center"
-  >
+  <div v-else-if="templates.length === 0" class="app-surface px-6 py-16 text-center">
     <PackageSearch class="mx-auto size-8 text-muted-foreground" aria-hidden="true" />
     <h2 class="mt-4 text-base font-medium">No templates found</h2>
     <p class="mt-2 text-sm text-muted-foreground">Try a different search or category.</p>

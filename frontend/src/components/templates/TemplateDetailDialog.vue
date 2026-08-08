@@ -167,7 +167,7 @@ onUnmounted(() => {
       <DialogHeader v-if="template" class="pr-8">
         <div class="flex items-start gap-4">
           <div
-            class="flex size-14 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border bg-muted p-2"
+            class="flex size-14 shrink-0 items-center justify-center overflow-hidden rounded-[6px] border border-border bg-muted p-2"
           >
             <img
               v-if="logoUrl && !logoFailed"
@@ -247,7 +247,7 @@ onUnmounted(() => {
 
       <div v-else class="space-y-4">
         <div class="grid gap-4 lg:grid-cols-2">
-          <section class="min-w-0 border border-border bg-card">
+          <section class="min-w-0 app-surface">
             <div class="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
               <h3
                 class="flex items-center gap-2 font-mono text-[11px] uppercase text-muted-foreground"
@@ -279,7 +279,7 @@ onUnmounted(() => {
             </p>
           </section>
 
-          <section class="min-w-0 border border-border bg-card">
+          <section class="min-w-0 app-surface">
             <div class="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
               <h3
                 class="flex items-center gap-2 font-mono text-[11px] uppercase text-muted-foreground"
@@ -312,7 +312,7 @@ onUnmounted(() => {
           </section>
         </div>
 
-        <section v-if="instructions" class="border border-border bg-card">
+        <section v-if="instructions" class="app-surface">
           <div class="flex items-center gap-2 border-b border-border px-4 py-3">
             <FileText class="size-3.5 text-signal" aria-hidden="true" />
             <h3 class="font-mono text-[11px] uppercase text-muted-foreground">instructions.md</h3>

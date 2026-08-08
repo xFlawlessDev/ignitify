@@ -78,17 +78,15 @@ onUnmounted(() => {
 <template>
   <main class="min-h-[calc(100svh-4rem)] border-b border-border">
     <div class="mx-auto w-full max-w-[1200px] px-5 py-12 sm:px-8 lg:py-16">
-      <header
-        class="grid gap-8 border-b border-border pb-12 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end"
-      >
+      <header class="app-page-header lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
         <div class="max-w-2xl">
           <p class="font-mono text-[11px] uppercase tracking-[0.08em] text-signal">
             Template registry
           </p>
-          <h1 class="mt-4 text-3xl font-medium text-foreground sm:text-4xl">
+          <h1 class="mt-2 text-3xl font-normal text-foreground">
             Deploy from a proven starting point.
           </h1>
-          <p class="mt-4 max-w-xl text-base leading-7 text-muted-foreground">
+          <p class="mt-2 max-w-xl text-sm leading-6 text-muted-foreground">
             Browse deploy-ready service blueprints maintained for Ignitify. Pick a template to
             inspect its configuration, source links, and launch files.
           </p>
@@ -130,7 +128,7 @@ onUnmounted(() => {
           @clear="clearFilters"
         />
 
-        <div class="mt-8" aria-live="polite">
+        <div class="mt-6" aria-live="polite">
           <TemplateCatalogGrid
             :templates="templates"
             :is-loading="isLoading"
@@ -142,7 +140,7 @@ onUnmounted(() => {
 
         <nav
           v-if="pagination.totalPages > 1"
-          class="mt-8 flex items-center justify-between gap-4 border border-border bg-card px-4 py-3 max-[640px]:items-start max-[640px]:flex-col"
+          class="mt-8 app-surface flex items-center justify-between gap-4 px-4 py-3 max-[640px]:items-start max-[640px]:flex-col"
           aria-label="Template pagination"
         >
           <p class="text-xs text-muted-foreground" aria-live="polite">

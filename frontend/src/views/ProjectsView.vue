@@ -73,14 +73,12 @@ onMounted(load);
 </script>
 
 <template>
-  <div class="w-full max-w-[1200px]">
-    <header
-      class="flex items-end justify-between gap-5 border-b border-border pb-[25px] max-[640px]:items-start max-[640px]:flex-col"
-    >
+  <div class="app-page">
+    <header class="app-page-header lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
       <div>
         <p class="ui-label">Workspace</p>
-        <h1 class="mt-2.5 text-[30px] leading-none font-medium">Projects</h1>
-        <p class="mt-2.5 max-w-[56ch] text-[13px] leading-5 text-muted-foreground">
+        <h1 class="mt-2 text-3xl leading-none font-normal">Projects</h1>
+        <p class="mt-2 max-w-[56ch] text-sm leading-5 text-muted-foreground">
           Organize deployment services, shared environment values, and release history by product.
         </p>
       </div>
@@ -103,7 +101,7 @@ onMounted(load);
     </header>
 
     <section
-      class="mt-[22px] grid overflow-hidden divide-y divide-border border border-border bg-card sm:grid-cols-3 sm:divide-x sm:divide-y-0"
+      class="mt-6 app-surface grid divide-y divide-border sm:grid-cols-3 sm:divide-x sm:divide-y-0"
       aria-label="Project summary"
     >
       <div class="flex min-h-[86px] items-center gap-3 px-5 py-4">
@@ -129,12 +127,7 @@ onMounted(load);
       </div>
     </section>
 
-    <section
-      v-if="loading"
-      class="mt-[22px] border border-border bg-card"
-      role="status"
-      aria-label="Loading projects"
-    >
+    <section v-if="loading" class="mt-6 app-surface" role="status" aria-label="Loading projects">
       <div
         v-for="index in 4"
         :key="index"
@@ -150,7 +143,7 @@ onMounted(load);
     </section>
     <section
       v-else-if="error"
-      class="mt-[22px] border border-destructive/40 bg-card px-5 py-8"
+      class="mt-6 rounded-[10px] border border-destructive/40 bg-card px-5 py-8"
       role="alert"
     >
       <p class="text-sm text-destructive">{{ error }}</p>
@@ -159,13 +152,13 @@ onMounted(load);
         Retry
       </Button>
     </section>
-    <section v-else-if="data.length === 0" class="mt-[22px] border border-border bg-card px-5 py-8">
+    <section v-else-if="data.length === 0" class="mt-6 app-surface px-5 py-8">
       <p class="text-sm font-medium">No projects yet</p>
       <p class="mt-1 text-xs text-muted-foreground">
         Create project to get production environment.
       </p>
     </section>
-    <section v-else class="mt-[22px] grid gap-3">
+    <section v-else class="mt-6 grid gap-4">
       <div class="flex items-end justify-between gap-4">
         <div>
           <p class="ui-label">Workspace inventory</p>
@@ -214,7 +207,7 @@ onMounted(load);
       <ProjectList :projects="visibleProjects" :view="viewMode" />
       <nav
         v-if="pageCount > 1"
-        class="flex items-center justify-between gap-4 border border-border bg-card px-4 py-3 max-[640px]:items-start max-[640px]:flex-col"
+        class="app-surface flex items-center justify-between gap-4 px-4 py-3 max-[640px]:items-start max-[640px]:flex-col"
         aria-label="Project pagination"
       >
         <p class="text-xs text-muted-foreground" aria-live="polite">

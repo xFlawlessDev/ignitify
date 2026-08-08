@@ -33,14 +33,16 @@ function formatDate(value: string) {
 </script>
 
 <template>
-  <div class="overflow-hidden border border-border bg-card">
+  <div class="app-surface">
     <div
       v-for="provider in providers"
       :key="provider.id"
       class="grid gap-4 border-b border-border px-4 py-4 last:border-b-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:px-5"
     >
       <div class="flex min-w-0 items-start gap-3">
-        <span class="grid size-9 shrink-0 place-items-center border border-border bg-muted">
+        <span
+          class="grid size-9 shrink-0 place-items-center rounded-[6px] border border-border bg-muted"
+        >
           <GitBranch class="size-4 text-muted-foreground" :stroke-width="1.5" />
         </span>
         <div class="min-w-0">

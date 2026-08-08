@@ -136,7 +136,7 @@ onUnmounted(() => {
         </div>
         <nav
           v-if="pagination.totalPages > 1"
-          class="mt-4 flex items-center justify-between gap-4 border border-border bg-card px-4 py-3 max-[640px]:items-start max-[640px]:flex-col"
+          class="mt-4 app-surface flex items-center justify-between gap-4 px-4 py-3 max-[640px]:items-start max-[640px]:flex-col"
           aria-label="Template pagination"
         >
           <p class="text-xs text-muted-foreground" aria-live="polite">
