@@ -33,6 +33,7 @@ const props = defineProps<{
   submitting: boolean;
   canManage: boolean;
   hideConfig?: boolean;
+  hideHeader?: boolean;
   selectedDeploymentId: string | null;
 }>();
 
@@ -63,11 +64,6 @@ const serviceDeployments = computed(() =>
   props.deployments.filter((deployment) => deployment.service_id === props.service.id),
 );
 const latestDeployment = computed(() => serviceDeployments.value[0] ?? null);
-const selectedDeployment = computed(
-  () =>
-    serviceDeployments.value.find((deployment) => deployment.id === props.selectedDeploymentId) ??
-    null,
-);
 const rollbackTarget = computed(
   () => serviceDeployments.value.find((deployment) => deployment.status === "healthy") ?? null,
 );
@@ -169,13 +165,16 @@ function selectDeployment(deployment: DeploymentSummary) {
 </script>
 
 <template>
-  <section class="border border-border bg-card" aria-labelledby="service-detail-title">
+  <section
+    class="overflow-hidden rounded-[10px] border border-border bg-card"
+    aria-labelledby="service-detail-title"
+  >
     <header
-      class="flex items-start justify-between gap-4 border-b border-border px-5 py-5 max-[560px]:flex-col"
+      class="flex items-start justify-between gap-4 border-b border-border bg-muted/20 px-5 py-4 max-[560px]:flex-col"
     >
-      <div class="flex min-w-0 items-start gap-3">
+      <div v-if="!hideHeader" class="flex min-w-0 items-start gap-3">
         <span
-          class="grid size-9 shrink-0 place-items-center rounded-[4px] border border-border bg-muted text-muted-foreground"
+          class="grid size-9 shrink-0 place-items-center rounded-[6px] border border-border bg-card text-muted-foreground"
         >
           <GitBranch
             v-if="service.source_config?.source === 'application'"
@@ -191,6 +190,13 @@ function selectDeployment(deployment: DeploymentSummary) {
           </h2>
           <p class="mt-1 truncate font-mono text-[11px] text-muted-foreground">{{ sourceLabel }}</p>
         </div>
+      </div>
+      <div v-else class="min-w-0">
+        <p class="ui-label">Operations</p>
+        <h2 id="service-detail-title" class="mt-1.5 text-base font-medium">Deployments and logs</h2>
+        <p class="mt-1 truncate text-xs text-muted-foreground">
+          Track revisions and inspect live output.
+        </p>
       </div>
       <div class="flex flex-wrap gap-2">
         <Button
@@ -228,7 +234,7 @@ function selectDeployment(deployment: DeploymentSummary) {
       class="flex items-center justify-between gap-4 border-b border-border px-5 py-3 max-[560px]:items-start max-[560px]:flex-col"
     >
       <Tabs v-model="activeTab">
-        <TabsList aria-label="Service detail sections">
+        <TabsList class="h-8 rounded-[4px]" aria-label="Service detail sections">
           <TabsTrigger
             v-for="tab in detailTabs"
             :key="tab.value"
@@ -239,13 +245,13 @@ function selectDeployment(deployment: DeploymentSummary) {
           </TabsTrigger>
         </TabsList>
       </Tabs>
-      <Badge variant="outline" class="gap-1.5 font-normal text-muted-foreground">
+      <Badge variant="outline" class="gap-1.5 rounded-[4px] font-normal text-muted-foreground">
         <CircleDotDashed class="size-3" :stroke-width="1.5" />
         {{ connectionLabel }}
       </Badge>
     </div>
 
-    <div v-if="activeTab === 'config'" class="grid gap-5 p-5">
+    <div v-if="activeTab === 'config'" class="grid gap-6 p-5">
       <Alert v-if="needsConfiguration" class="border-[var(--status-live)]/40">
         <CircleAlert :stroke-width="1.5" />
         <AlertTitle>Setup required</AlertTitle>
@@ -296,8 +302,8 @@ function selectDeployment(deployment: DeploymentSummary) {
       </div>
     </div>
 
-    <div v-else-if="activeTab === 'deployment'" class="grid gap-5 p-5">
-      <div class="flex flex-wrap items-center justify-between gap-3">
+    <div v-else-if="activeTab === 'deployment'" class="grid gap-6 p-5">
+      <div class="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-5">
         <div>
           <p class="ui-label">Deployment state</p>
           <div class="mt-2 flex items-center gap-2">
@@ -339,11 +345,13 @@ function selectDeployment(deployment: DeploymentSummary) {
         <div
           v-for="deployment in serviceDeployments"
           :key="deployment.id"
-          class="flex items-center gap-3 py-3 max-[560px]:items-start max-[560px]:flex-col"
+          class="flex items-center gap-3 px-2 py-3 transition-colors hover:bg-muted/40 max-[560px]:items-start max-[560px]:flex-col"
+          :class="selectedDeploymentId === deployment.id ? 'bg-muted/60' : ''"
         >
           <button
-            class="grid min-w-0 flex-1 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 text-left"
+            class="grid min-w-0 flex-1 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 rounded-[4px] text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
             type="button"
+            :aria-current="selectedDeploymentId === deployment.id ? 'true' : undefined"
             @click="selectDeployment(deployment)"
           >
             <span class="size-2 rounded-full" :class="statusDotClass(deployment.status)" />
@@ -380,7 +388,12 @@ function selectDeployment(deployment: DeploymentSummary) {
     </div>
 
     <div v-else class="p-5">
-      <DeploymentLogsPanel :connected="connected" :logs="logs" :stream-error="streamError" />
+      <DeploymentLogsPanel
+        embedded
+        :connected="connected"
+        :logs="logs"
+        :stream-error="streamError"
+      />
     </div>
   </section>
 </template>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowLeft, Box, GitBranch, RefreshCw, Trash2 } from "@lucide/vue";
+import { Activity, ArrowLeft, Box, GitBranch, RefreshCw, Settings2, Trash2 } from "@lucide/vue";
 import { computed, onUnmounted, shallowRef, watch } from "vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
 import ServiceConfigurationPanel from "@/components/project/ServiceConfigurationPanel.vue";
@@ -7,6 +7,7 @@ import ServiceDetailPanel from "@/components/project/ServiceDetailPanel.vue";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useDeployment } from "@/composables/useDeployment";
 import { useDeploymentStream } from "@/composables/useDeploymentStream";
 import { useProjectEnvironment } from "@/composables/useProjectEnvironment";
@@ -30,6 +31,10 @@ const service = shallowRef<ServiceSummary | null>(null);
 const serviceLoading = shallowRef(true);
 const serviceError = shallowRef<string | null>(null);
 const activeView = shallowRef<"configuration" | "operations">("configuration");
+const viewTabs = [
+  { value: "configuration" as const, label: "Configuration", icon: Settings2 },
+  { value: "operations" as const, label: "Deployments & logs", icon: Activity },
+];
 const selectedDeploymentId = shallowRef<string | null>(null);
 const streamLogs = shallowRef<DeploymentLog[]>([]);
 const saving = shallowRef(false);
@@ -46,6 +51,24 @@ const deploymentError = deployments.error;
 const environmentData = projectEnvironment.data;
 const providerData = providers.data;
 const serviceConfigError = services.error;
+const latestDeployment = computed(
+  () =>
+    deploymentData.value.find((deployment) => deployment.service_id === service.value?.id) ?? null,
+);
+const serviceStatus = computed(() => {
+  if (service.value?.source_config?.setup_required) return "setup";
+  if (latestDeployment.value?.status === "healthy") return "healthy";
+  if (["queued", "preparing", "running"].includes(latestDeployment.value?.status ?? "")) {
+    return "live";
+  }
+  if (latestDeployment.value?.status === "failed") return "failed";
+  return "inactive";
+});
+const serviceStatusLabel = computed(() => {
+  if (serviceStatus.value === "setup") return "Setup required";
+  if (serviceStatus.value === "inactive") return "Not deployed";
+  return latestDeployment.value?.status ?? "Not deployed";
+});
 const canManage = computed(
   () => service.value?.role === "owner" || service.value?.role === "editor",
 );
@@ -211,18 +234,21 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="w-full max-w-[1200px]">
+  <div class="w-full max-w-[1200px] pb-10">
     <RouterLink
-      class="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+      class="group inline-flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
       :to="projectRoute"
     >
-      <ArrowLeft :size="15" :stroke-width="1.5" />
+      <ArrowLeft
+        class="size-3.5 transition-transform group-hover:-translate-x-0.5"
+        :stroke-width="1.5"
+      />
       Back to project
     </RouterLink>
 
     <section
       v-if="serviceLoading"
-      class="mt-[22px] border border-border bg-card px-5 py-6"
+      class="mt-6 rounded-[10px] border border-border bg-card px-5 py-6"
       role="status"
     >
       <div class="flex items-center gap-3">
@@ -236,7 +262,7 @@ onUnmounted(() => {
 
     <section
       v-else-if="serviceError || !service"
-      class="mt-[22px] border border-destructive/40 bg-card px-5 py-8"
+      class="mt-6 rounded-[10px] border border-destructive/40 bg-card px-5 py-8"
       role="alert"
     >
       <p class="text-sm text-destructive">{{ serviceError ?? "Service not found" }}</p>
@@ -248,11 +274,11 @@ onUnmounted(() => {
 
     <template v-else>
       <header
-        class="mt-[22px] flex items-start justify-between gap-6 border-b border-border pb-5 max-[640px]:flex-col"
+        class="mt-6 grid gap-5 border-b border-border pb-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end"
       >
         <div class="flex min-w-0 items-start gap-3">
           <div
-            class="grid size-11 shrink-0 place-items-center rounded-[5px] border border-border bg-muted text-muted-foreground"
+            class="grid size-12 shrink-0 place-items-center rounded-[8px] border border-border bg-card text-muted-foreground"
           >
             <GitBranch
               v-if="service.source_config?.source === 'application'"
@@ -262,24 +288,37 @@ onUnmounted(() => {
             <Box v-else :size="20" :stroke-width="1.5" />
           </div>
           <div class="min-w-0">
-            <p class="ui-label">Service detail</p>
-            <h1 class="mt-2 truncate text-[29px] leading-none font-normal">{{ service.name }}</h1>
+            <p class="ui-label">Service</p>
+            <h1 class="mt-2 truncate text-3xl leading-none font-normal">{{ service.name }}</h1>
             <p class="mt-2 truncate font-mono text-xs text-muted-foreground">{{ sourceLabel }}</p>
+            <p class="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+              <span
+                class="status-dot"
+                :data-status="serviceStatus === 'setup' ? 'warning' : serviceStatus"
+                aria-hidden="true"
+              />
+              <span class="capitalize">{{ serviceStatusLabel }}</span>
+            </p>
           </div>
         </div>
-        <div class="flex flex-wrap gap-2">
-          <Button
-            v-for="tab in [
-              { value: 'configuration', label: 'Configuration' },
-              { value: 'operations', label: 'Deployments & logs' },
-            ]"
-            :key="tab.value"
-            size="sm"
-            :variant="activeView === tab.value ? 'default' : 'outline'"
-            @click="activeView = tab.value as typeof activeView"
+        <div class="flex flex-wrap items-center gap-3 lg:justify-end">
+          <Tabs
+            :model-value="activeView"
+            class="min-w-0 max-[480px]:w-full"
+            @update:model-value="(value) => (activeView = value as 'configuration' | 'operations')"
           >
-            {{ tab.label }}
-          </Button>
+            <TabsList class="h-9 max-w-full rounded-[4px] max-[480px]:w-full">
+              <TabsTrigger
+                v-for="tab in viewTabs"
+                :key="tab.value"
+                :value="tab.value"
+                class="min-w-0 px-3 text-xs max-[480px]:flex-1"
+              >
+                <component :is="tab.icon" class="size-3.5" :stroke-width="1.5" />
+                <span class="truncate">{{ tab.label }}</span>
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
           <Button v-if="canManage" size="sm" variant="destructive" @click="requestDelete">
             <Trash2 data-icon="inline-start" :stroke-width="1.5" />
             Delete
@@ -287,10 +326,10 @@ onUnmounted(() => {
         </div>
       </header>
 
-      <main class="mt-[22px] grid gap-4">
+      <main class="mt-6 grid gap-6">
         <section
           v-if="deleteConfirmation"
-          class="border border-destructive/40 bg-card p-5"
+          class="rounded-[10px] border border-destructive/40 bg-destructive/[0.04] p-5"
           role="alertdialog"
           aria-labelledby="service-delete-title"
         >
@@ -309,7 +348,7 @@ onUnmounted(() => {
           <p v-if="serviceConfigError" class="mt-2 text-xs text-destructive" role="alert">
             {{ serviceConfigError }}
           </p>
-          <div class="mt-3 flex gap-2">
+          <div class="mt-3 flex flex-wrap gap-2">
             <Button
               size="sm"
               variant="destructive"
@@ -337,6 +376,7 @@ onUnmounted(() => {
           :can-manage="canManage"
           :connected="streamConnected && logStreamConnected"
           :deployments="deploymentData"
+          :hide-header="true"
           :hide-config="true"
           :logs="streamLogs"
           :selected-deployment-id="selectedDeploymentId"

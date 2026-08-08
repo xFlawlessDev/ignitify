@@ -242,4 +242,12 @@ html.dark {
   &[data-status="healthy"] {
     background: var(--status-healthy);
   }
+
+  &[data-status="warning"] {
+    background: var(--status-live);
+  }
+
+  &[data-status="failed"] {
+    background: var(--destructive);
+  }
 }

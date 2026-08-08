@@ -131,28 +131,28 @@ function isRepositorySource() {
 
 function sourceOptionClass(selected: boolean) {
   return cn(
-    "grid gap-1 border px-3 py-3 text-left transition-colors",
+    "grid gap-1 rounded-[6px] border px-3 py-3 text-left transition-colors",
     selected
-      ? "border-[var(--status-live)] bg-muted"
-      : "border-border hover:bg-muted focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[2px] focus-visible:outline-none",
+      ? "border-[var(--status-live)] bg-muted/70"
+      : "border-border hover:bg-muted/60 focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[2px] focus-visible:outline-none",
   );
 }
 
 function builderOptionClass(selected: boolean) {
   return cn(
-    "grid gap-1 border px-3 py-2 text-left transition-colors",
+    "grid gap-1 rounded-[5px] border px-3 py-2 text-left transition-colors",
     selected
       ? "border-[var(--status-live)] bg-background"
-      : "border-border hover:bg-background focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[2px] focus-visible:outline-none",
+      : "border-border hover:bg-muted/40 focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[2px] focus-visible:outline-none",
   );
 }
 
 function composeModeClass(selected: boolean) {
   return cn(
-    "border px-3 py-2 text-left text-xs transition-colors",
+    "rounded-[5px] border px-3 py-2 text-left text-xs transition-colors",
     selected
-      ? "border-[var(--status-live)] bg-muted"
-      : "border-border hover:bg-muted focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[2px] focus-visible:outline-none",
+      ? "border-[var(--status-live)] bg-muted/70"
+      : "border-border hover:bg-muted/60 focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[2px] focus-visible:outline-none",
   );
 }
 
@@ -407,15 +407,18 @@ watch(() => props.service.id, reset, { immediate: true });
 </script>
 
 <template>
-  <form class="grid gap-6 border border-border bg-card p-5" @submit.prevent="submit">
+  <form class="grid gap-6 rounded-[10px] border border-border bg-card p-5" @submit.prevent="submit">
     <header
-      class="flex items-start justify-between gap-4 border-b border-border pb-4 max-[560px]:flex-col"
+      class="flex items-start justify-between gap-4 rounded-[6px] border border-border bg-muted/20 px-4 py-4 max-[560px]:flex-col"
     >
       <div>
         <p class="ui-label">Service configuration</p>
         <h2 class="mt-2 text-xl font-normal">Deployment source and runtime</h2>
       </div>
-      <Badge variant="outline" class="font-mono text-[11px] text-muted-foreground">
+      <Badge
+        variant="outline"
+        class="max-w-full rounded-[4px] font-mono text-[11px] text-muted-foreground"
+      >
         {{ sourceSummary }}
       </Badge>
     </header>
@@ -425,7 +428,7 @@ watch(() => props.service.id, reset, { immediate: true });
       <Input id="service-config-name" v-model="name" maxlength="64" required />
     </div>
 
-    <section class="grid gap-3 border-t border-border pt-4">
+    <section class="grid gap-3 border-t border-border pt-5">
       <div>
         <p class="text-sm font-medium">Deployment source</p>
         <p class="mt-1 text-xs text-muted-foreground">
@@ -448,7 +451,10 @@ watch(() => props.service.id, reset, { immediate: true });
       </div>
     </section>
 
-    <section v-if="source === 'template'" class="grid gap-3 border border-border bg-muted/30 p-3">
+    <section
+      v-if="source === 'template'"
+      class="grid gap-3 rounded-[8px] border border-border bg-muted/30 p-4"
+    >
       <div class="flex items-start gap-2">
         <Boxes class="mt-0.5 size-4 shrink-0 text-muted-foreground" :stroke-width="1.5" />
         <div>
@@ -466,7 +472,7 @@ watch(() => props.service.id, reset, { immediate: true });
 
     <section
       v-else-if="source === 'application'"
-      class="grid gap-4 border border-border bg-muted/30 p-3"
+      class="grid gap-4 rounded-[8px] border border-border bg-muted/30 p-4"
     >
       <div class="flex items-start gap-2">
         <GitBranch class="mt-0.5 size-4 shrink-0 text-muted-foreground" :stroke-width="1.5" />
@@ -483,7 +489,7 @@ watch(() => props.service.id, reset, { immediate: true });
         <select
           id="service-config-provider"
           :value="providerId"
-          class="h-9 border border-input bg-background px-3 text-sm"
+          class="h-9 rounded-[3px] border border-input bg-background px-3 text-sm"
           required
           @change="selectProviderEvent"
         >
@@ -502,7 +508,7 @@ watch(() => props.service.id, reset, { immediate: true });
           <select
             id="service-config-repository"
             :value="repository"
-            class="h-9 border border-input bg-background px-3 text-sm text-foreground"
+            class="h-9 rounded-[3px] border border-input bg-background px-3 text-sm text-foreground"
             :disabled="!providerId || sourceRepositories.repositoriesLoading.value"
             required
             @change="selectRepositoryEvent"
@@ -524,7 +530,7 @@ watch(() => props.service.id, reset, { immediate: true });
           <select
             id="service-config-branch"
             v-model="branch"
-            class="h-9 border border-input bg-background px-3 text-sm text-foreground"
+            class="h-9 rounded-[3px] border border-input bg-background px-3 text-sm text-foreground"
             :disabled="!repository || sourceRepositories.branchesLoading.value"
             required
           >
@@ -594,179 +600,198 @@ watch(() => props.service.id, reset, { immediate: true });
       </div>
     </section>
 
-    <template v-if="kind === 'image'">
-      <div class="grid gap-2">
-        <Label for="service-config-image">Runtime image digest</Label>
-        <Input
-          id="service-config-image"
-          v-model="imageReference"
-          placeholder="registry.example/app@sha256:..."
-          required
-        />
-      </div>
-    </template>
-    <template v-else>
-      <div v-if="source !== 'template'" class="grid gap-2">
-        <Label>Compose source</Label>
-        <div class="grid gap-2 sm:grid-cols-2">
-          <button
-            :class="composeModeClass(composeMode === 'yaml')"
-            type="button"
-            :aria-pressed="composeMode === 'yaml'"
-            @click="selectComposeMode('yaml')"
-          >
-            Inline YAML
-          </button>
-          <button
-            :class="composeModeClass(composeMode === 'repository')"
-            type="button"
-            :aria-pressed="composeMode === 'repository'"
-            @click="selectComposeMode('repository')"
-          >
-            Provider repository
-          </button>
-        </div>
-      </div>
-      <div
-        v-if="composeMode === 'repository'"
-        class="grid gap-3 border border-border bg-muted/30 p-3 sm:grid-cols-3"
-      >
-        <label
-          class="grid gap-2 text-xs text-muted-foreground"
-          for="service-config-compose-provider"
-        >
-          Provider
-          <select
-            id="service-config-compose-provider"
-            :value="providerId"
-            class="h-9 border border-input bg-background px-3 text-sm text-foreground"
-            required
-            @change="selectProviderEvent"
-          >
-            <option value="" disabled>Select provider</option>
-            <option v-for="provider in availableProviders" :key="provider.id" :value="provider.id">
-              {{ provider.name }}
-            </option>
-          </select>
-        </label>
-        <label
-          class="grid gap-2 text-xs text-muted-foreground"
-          for="service-config-compose-repository"
-        >
-          Repository
-          <select
-            id="service-config-compose-repository"
-            :value="repository"
-            class="h-9 border border-input bg-background px-3 text-sm text-foreground"
-            :disabled="!providerId || sourceRepositories.repositoriesLoading.value"
-            required
-            @change="selectRepositoryEvent"
-          >
-            <option value="" disabled>
-              {{
-                sourceRepositories.repositoriesLoading.value
-                  ? "Loading repositories..."
-                  : "Select a repository"
-              }}
-            </option>
-            <option v-for="option in repositoryOptions" :key="option.path" :value="option.path">
-              {{ option.path }}
-            </option>
-          </select>
-        </label>
-        <label class="grid gap-2 text-xs text-muted-foreground" for="service-config-compose-branch">
-          Branch
-          <select
-            id="service-config-compose-branch"
-            v-model="branch"
-            class="h-9 border border-input bg-background px-3 text-sm text-foreground"
-            :disabled="!repository || sourceRepositories.branchesLoading.value"
-            required
-          >
-            <option value="" disabled>
-              {{
-                sourceRepositories.branchesLoading.value ? "Loading branches..." : "Select a branch"
-              }}
-            </option>
-            <option v-for="option in branchOptions" :key="option.name" :value="option.name">
-              {{ option.name }}
-            </option>
-          </select>
-        </label>
-        <label
-          class="grid gap-2 text-xs text-muted-foreground sm:col-span-3"
-          for="service-config-compose-path"
-        >
-          Compose file path
+    <section class="grid gap-5 border-t border-border pt-5">
+      <template v-if="kind === 'image'">
+        <div class="grid gap-2">
+          <Label for="service-config-image">Runtime image digest</Label>
           <Input
-            id="service-config-compose-path"
-            v-model="dockerfilePath"
-            placeholder="docker-compose.yml"
-          />
-        </label>
-      </div>
-      <p
-        v-if="sourceRepositories.repositoriesError"
-        class="text-[11px] text-destructive"
-        role="alert"
-      >
-        {{ sourceRepositories.repositoriesError }}
-      </p>
-      <p
-        v-else-if="sourceRepositories.branchesError"
-        class="text-[11px] text-destructive"
-        role="alert"
-      >
-        {{ sourceRepositories.branchesError }}
-      </p>
-      <div v-if="composeMode === 'yaml'" class="grid gap-2">
-        <div class="flex items-center justify-between gap-3">
-          <Label for="service-config-compose-yaml">
-            {{ source === "template" ? "Template Compose YAML" : "Compose / Docker file" }}
-          </Label>
-          <span class="font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground">
-            YAML
-          </span>
-        </div>
-        <div class="overflow-hidden border border-border bg-background">
-          <div
-            class="flex items-center gap-2 border-b border-border bg-muted/40 px-4 py-2 font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground"
-          >
-            <FileCode2 class="size-3.5 text-signal" :stroke-width="1.5" aria-hidden="true" />
-            docker-compose.yml
-          </div>
-          <YamlCodeEditor
-            id="service-config-compose-yaml"
-            v-model="composeYaml"
-            aria-label="Template Compose YAML"
-            placeholder="services:\n  web:\n    image: registry.example/app:1.2.3"
+            id="service-config-image"
+            v-model="imageReference"
+            placeholder="registry.example/app@sha256:..."
             required
           />
         </div>
-        <p class="text-xs text-muted-foreground">
-          Every image must use an explicit tag or SHA-256 digest. No builds, host ports, binds,
-          privileged mode, devices, or raw Traefik labels.
+      </template>
+      <template v-else>
+        <div v-if="source !== 'template'" class="grid gap-2">
+          <Label>Compose source</Label>
+          <div class="grid gap-2 sm:grid-cols-2">
+            <button
+              :class="composeModeClass(composeMode === 'yaml')"
+              type="button"
+              :aria-pressed="composeMode === 'yaml'"
+              @click="selectComposeMode('yaml')"
+            >
+              Inline YAML
+            </button>
+            <button
+              :class="composeModeClass(composeMode === 'repository')"
+              type="button"
+              :aria-pressed="composeMode === 'repository'"
+              @click="selectComposeMode('repository')"
+            >
+              Provider repository
+            </button>
+          </div>
+        </div>
+        <div
+          v-if="composeMode === 'repository'"
+          class="grid gap-3 rounded-[8px] border border-border bg-muted/30 p-4 sm:grid-cols-3"
+        >
+          <label
+            class="grid gap-2 text-xs text-muted-foreground"
+            for="service-config-compose-provider"
+          >
+            Provider
+            <select
+              id="service-config-compose-provider"
+              :value="providerId"
+              class="h-9 rounded-[3px] border border-input bg-background px-3 text-sm text-foreground"
+              required
+              @change="selectProviderEvent"
+            >
+              <option value="" disabled>Select provider</option>
+              <option
+                v-for="provider in availableProviders"
+                :key="provider.id"
+                :value="provider.id"
+              >
+                {{ provider.name }}
+              </option>
+            </select>
+          </label>
+          <label
+            class="grid gap-2 text-xs text-muted-foreground"
+            for="service-config-compose-repository"
+          >
+            Repository
+            <select
+              id="service-config-compose-repository"
+              :value="repository"
+              class="h-9 rounded-[3px] border border-input bg-background px-3 text-sm text-foreground"
+              :disabled="!providerId || sourceRepositories.repositoriesLoading.value"
+              required
+              @change="selectRepositoryEvent"
+            >
+              <option value="" disabled>
+                {{
+                  sourceRepositories.repositoriesLoading.value
+                    ? "Loading repositories..."
+                    : "Select a repository"
+                }}
+              </option>
+              <option v-for="option in repositoryOptions" :key="option.path" :value="option.path">
+                {{ option.path }}
+              </option>
+            </select>
+          </label>
+          <label
+            class="grid gap-2 text-xs text-muted-foreground"
+            for="service-config-compose-branch"
+          >
+            Branch
+            <select
+              id="service-config-compose-branch"
+              v-model="branch"
+              class="h-9 rounded-[3px] border border-input bg-background px-3 text-sm text-foreground"
+              :disabled="!repository || sourceRepositories.branchesLoading.value"
+              required
+            >
+              <option value="" disabled>
+                {{
+                  sourceRepositories.branchesLoading.value
+                    ? "Loading branches..."
+                    : "Select a branch"
+                }}
+              </option>
+              <option v-for="option in branchOptions" :key="option.name" :value="option.name">
+                {{ option.name }}
+              </option>
+            </select>
+          </label>
+          <label
+            class="grid gap-2 text-xs text-muted-foreground sm:col-span-3"
+            for="service-config-compose-path"
+          >
+            Compose file path
+            <Input
+              id="service-config-compose-path"
+              v-model="dockerfilePath"
+              placeholder="docker-compose.yml"
+            />
+          </label>
+        </div>
+        <p
+          v-if="sourceRepositories.repositoriesError"
+          class="text-[11px] text-destructive"
+          role="alert"
+        >
+          {{ sourceRepositories.repositoriesError }}
+        </p>
+        <p
+          v-else-if="sourceRepositories.branchesError"
+          class="text-[11px] text-destructive"
+          role="alert"
+        >
+          {{ sourceRepositories.branchesError }}
+        </p>
+        <div v-if="composeMode === 'yaml'" class="grid gap-2">
+          <div class="flex items-center justify-between gap-3">
+            <Label for="service-config-compose-yaml">
+              {{ source === "template" ? "Template Compose YAML" : "Compose / Docker file" }}
+            </Label>
+            <span class="font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground">
+              YAML
+            </span>
+          </div>
+          <div class="overflow-hidden rounded-[6px] border border-border bg-background">
+            <div
+              class="flex items-center gap-2 border-b border-border bg-muted/40 px-4 py-2 font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground"
+            >
+              <FileCode2 class="size-3.5 text-signal" :stroke-width="1.5" aria-hidden="true" />
+              docker-compose.yml
+            </div>
+            <YamlCodeEditor
+              id="service-config-compose-yaml"
+              v-model="composeYaml"
+              aria-label="Template Compose YAML"
+              placeholder="services:\n  web:\n    image: registry.example/app:1.2.3"
+              required
+            />
+          </div>
+          <p class="text-xs text-muted-foreground">
+            Every image must use an explicit tag or SHA-256 digest. No builds, host ports, binds,
+            privileged mode, devices, or raw Traefik labels.
+          </p>
+        </div>
+        <div class="grid gap-2">
+          <Label for="service-config-exposed">Exposed Compose service</Label>
+          <Input id="service-config-exposed" v-model="exposedService" placeholder="web" required />
+        </div>
+      </template>
+    </section>
+
+    <section class="grid gap-5 border-t border-border pt-5 sm:grid-cols-2">
+      <div class="grid gap-2">
+        <Label for="service-config-port">Internal port</Label>
+        <Input id="service-config-port" v-model="internalPort" type="number" min="1" max="65535" />
+        <p class="text-[11px] leading-4 text-muted-foreground">
+          The private port exposed to the control plane.
         </p>
       </div>
       <div class="grid gap-2">
-        <Label for="service-config-exposed">Exposed Compose service</Label>
-        <Input id="service-config-exposed" v-model="exposedService" placeholder="web" required />
+        <Label for="service-config-healthcheck">Healthcheck argv</Label>
+        <Textarea
+          id="service-config-healthcheck"
+          v-model="healthcheck"
+          placeholder="One argument per line"
+          spellcheck="false"
+        />
+        <p class="text-[11px] leading-4 text-muted-foreground">
+          Optional command arguments used to verify readiness.
+        </p>
       </div>
-    </template>
-
-    <div class="grid gap-2">
-      <Label for="service-config-port">Internal port</Label>
-      <Input id="service-config-port" v-model="internalPort" type="number" min="1" max="65535" />
-    </div>
-    <div class="grid gap-2">
-      <Label for="service-config-healthcheck">Healthcheck argv</Label>
-      <Textarea
-        id="service-config-healthcheck"
-        v-model="healthcheck"
-        placeholder="One argument per line"
-        spellcheck="false"
-      />
-    </div>
+    </section>
 
     <section v-if="inheritedVariables?.length" class="grid gap-2 border-t border-border pt-4">
       <div class="flex items-center gap-2">
