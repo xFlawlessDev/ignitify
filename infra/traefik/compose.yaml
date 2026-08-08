@@ -20,6 +20,9 @@ services:
       VOLUMES: 0
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+    # The image entrypoint generates haproxy.cfg at startup.
+    tmpfs:
+      - /usr/local/etc/haproxy
     read_only: true
     security_opt:
       - no-new-privileges:true
