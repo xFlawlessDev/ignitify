@@ -1,12 +1,18 @@
 <script setup lang="ts">
 import {
+  Activity,
   ArrowLeft,
   Box,
+  Boxes,
   Check,
   ChevronLeft,
   ChevronRight,
+  Globe2,
   Pencil,
+  Plus,
   RefreshCw,
+  Rocket,
+  Settings2,
   X,
 } from "@lucide/vue";
 import { computed, onUnmounted, shallowRef, watch } from "vue";
@@ -21,6 +27,7 @@ import ServiceDialog from "@/components/project/ServiceDialog.vue";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useProject } from "@/composables/useProject";
 import { useProjectActivity } from "@/composables/useProjectActivity";
 import ProjectDeploymentTimeline from "@/components/project/ProjectDeploymentTimeline.vue";
@@ -46,6 +53,15 @@ const deployments = useDeployment();
 const domains = useDomains();
 const activity = useProjectActivity();
 const projectEnvironment = useProjectEnvironment();
+const projectTabs = [
+  { value: "overview", label: "Overview", icon: Boxes },
+  { value: "services", label: "Services", icon: Box },
+  { value: "domains", label: "Domains", icon: Globe2 },
+  { value: "deployments", label: "Deployments", icon: Rocket },
+  { value: "activity", label: "Activity", icon: Activity },
+  { value: "environment", label: "Environment", icon: Settings2 },
+] as const;
+type ProjectTab = (typeof projectTabs)[number]["value"];
 const selectedDeploymentId = shallowRef<string | null>(null);
 const streamLogs = shallowRef<DeploymentLog[]>([]);
 const logStream = useDeploymentStream("", {
@@ -85,7 +101,16 @@ const deploymentData = deployments.data;
 const deploymentError = deployments.error;
 const deploymentLoading = deployments.loading;
 const deploymentSubmitting = deployments.submitting;
-const activeTab = shallowRef("overview");
+const availableDeployments = computed(() =>
+  [...deploymentData.value].sort(
+    (left, right) => new Date(right.created_at).getTime() - new Date(left.created_at).getTime(),
+  ),
+);
+const selectedDeployment = computed(() =>
+  availableDeployments.value.find((deployment) => deployment.id === selectedDeploymentId.value),
+);
+const canManage = computed(() => data.value?.role === "owner" || data.value?.role === "editor");
+const activeTab = shallowRef<ProjectTab>("overview");
 const editName = shallowRef("");
 const renamingProject = shallowRef(false);
 const serviceDialogOpen = shallowRef(false);
@@ -103,6 +128,11 @@ watch(
 function setServiceViewMode(mode: "list" | "catalog") {
   serviceViewMode.value = mode;
   serviceCurrentPage.value = 1;
+}
+
+function setActiveTab(value: string | number | undefined) {
+  const tab = String(value) as ProjectTab;
+  if (projectTabs.some((item) => item.value === tab)) activeTab.value = tab;
 }
 
 function goToPreviousServicePage() {
@@ -142,6 +172,27 @@ function selectDeployment(deploymentId: string) {
     void stream.connect(deploymentId);
     void logStream.connect(deploymentId);
   }
+}
+
+function deploymentServiceName(deployment: DeploymentSummary) {
+  return (
+    serviceData.value.find((service) => service.id === deployment.service_id)?.name ??
+    "Unknown service"
+  );
+}
+
+function deploymentStatusClass(status: DeploymentSummary["status"]) {
+  if (["healthy", "running"].includes(status)) return "text-[var(--status-healthy)]";
+  if (status === "failed") return "text-destructive";
+  if (["queued", "preparing", "stopping"].includes(status)) return "text-[var(--status-live)]";
+  return "text-muted-foreground";
+}
+
+function formatDeploymentTime(value: string) {
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(value));
 }
 
 function selectService(service: ServiceSummary) {
@@ -200,6 +251,11 @@ function createService() {
   serviceDialogOpen.value = true;
 }
 
+function openServiceCreator() {
+  activeTab.value = "services";
+  createService();
+}
+
 async function loadDeployments(projectId: string, generation = projectLoadGeneration) {
   await services.load(projectId);
   if (generation !== projectLoadGeneration) return;
@@ -237,6 +293,22 @@ async function saveService(input: ServiceInput) {
 }
 
 watch(() => String(route.params.projectId), load, { immediate: true });
+watch(
+  availableDeployments,
+  (items) => {
+    if (!items.length) {
+      selectedDeploymentId.value = null;
+      streamLogs.value = [];
+      stream.stop();
+      logStream.stop();
+      return;
+    }
+    if (!items.some((deployment) => deployment.id === selectedDeploymentId.value)) {
+      selectDeployment(items[0].id);
+    }
+  },
+  { immediate: true },
+);
 watch(activeTab, (tab) => {
   if (tab === "deployments" && selectedDeploymentId.value) {
     void stream.connect(selectedDeploymentId.value);
@@ -255,11 +327,14 @@ onUnmounted(() => {
 <template>
   <div class="app-page">
     <RouterLink
-      class="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+      class="group inline-flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
       to="/projects"
     >
-      <ArrowLeft :size="15" :stroke-width="1.5" />
-      Projects
+      <ArrowLeft
+        class="size-3.5 transition-transform group-hover:-translate-x-0.5"
+        :stroke-width="1.5"
+      />
+      Back to projects
     </RouterLink>
 
     <section
@@ -297,16 +372,17 @@ onUnmounted(() => {
     </section>
     <template v-else-if="data">
       <header class="mt-6 app-page-header lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
-        <div class="flex min-w-0 items-center gap-[13px]">
+        <div class="flex min-w-0 items-start gap-3">
           <div
             class="grid size-12 shrink-0 place-items-center rounded-[8px] border border-border bg-card text-muted-foreground"
           >
             <Box :size="20" :stroke-width="1.5" />
           </div>
           <div class="min-w-0">
+            <p class="ui-label">Project</p>
             <form
               v-if="renamingProject"
-              class="flex min-w-0 items-center gap-1.5"
+              class="mt-2 flex min-w-0 items-center gap-1.5"
               @submit.prevent="renameProject"
             >
               <Input
@@ -334,7 +410,7 @@ onUnmounted(() => {
                 <X class="size-4" :stroke-width="1.5" />
               </button>
             </form>
-            <div v-else class="flex min-w-0 items-center gap-1.5">
+            <div v-else class="mt-2 flex min-w-0 items-center gap-1.5">
               <h1 class="m-0 truncate text-3xl leading-none font-normal">
                 {{ data.name }}
               </h1>
@@ -352,36 +428,42 @@ onUnmounted(() => {
             <p v-if="renamingProject && error" class="mt-1 text-xs text-destructive" role="alert">
               {{ error }}
             </p>
-            <p class="mt-2 truncate text-xs text-muted-foreground">
-              {{ data.default_environment.name }} environment
+            <p
+              class="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[11px] text-muted-foreground"
+            >
+              <span>{{ data.default_environment.name }} environment</span>
+              <span aria-hidden="true">•</span>
+              <span class="capitalize">{{ data.role }} access</span>
             </p>
           </div>
         </div>
+        <div class="grid min-w-0 gap-3 lg:justify-items-end">
+          <Button v-if="canManage" size="sm" @click="openServiceCreator">
+            <Plus class="size-4" :stroke-width="1.5" />
+            New service
+          </Button>
+          <Tabs
+            :model-value="activeTab"
+            class="min-w-0 max-[760px]:w-full"
+            @update:model-value="setActiveTab"
+          >
+            <TabsList
+              class="h-9 max-w-full justify-start overflow-x-auto rounded-[4px] max-[760px]:w-full"
+              aria-label="Project sections"
+            >
+              <TabsTrigger
+                v-for="tab in projectTabs"
+                :key="tab.value"
+                :value="tab.value"
+                class="min-w-max px-3 text-xs"
+              >
+                <component :is="tab.icon" class="size-3.5" :stroke-width="1.5" />
+                {{ tab.label }}
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+        </div>
       </header>
-
-      <nav
-        class="mt-6 flex min-w-0 gap-1 overflow-x-auto border-b border-border"
-        aria-label="Project sections"
-      >
-        <button
-          v-for="tab in [
-            'overview',
-            'services',
-            'domains',
-            'deployments',
-            'activity',
-            'environment',
-          ]"
-          :key="tab"
-          class="h-9 flex-none border-b-2 border-b-transparent px-3 text-xs text-muted-foreground capitalize transition-colors hover:text-foreground"
-          :class="activeTab === tab ? 'border-b-[var(--status-live)] text-foreground' : ''"
-          type="button"
-          :aria-current="activeTab === tab ? 'page' : undefined"
-          @click="activeTab = tab"
-        >
-          {{ tab }}
-        </button>
-      </nav>
 
       <ProjectOverviewPanel
         v-if="activeTab === 'overview'"
@@ -405,7 +487,7 @@ onUnmounted(() => {
         class="mt-6 grid min-w-0 gap-6 lg:grid-cols-[minmax(0,1fr)_18rem]"
       >
         <ProjectEnvironmentPanel
-          :can-manage="data.role === 'owner' || data.role === 'editor'"
+          :can-manage="canManage"
           :error="projectEnvironment.error.value"
           :saving="projectEnvironment.saving.value"
           :variables="projectEnvironment.data.value.variables"
@@ -441,7 +523,7 @@ onUnmounted(() => {
 
       <section v-else-if="activeTab === 'services'" class="mt-6 grid gap-6">
         <ProjectServiceList
-          :can-manage="data.role === 'owner' || data.role === 'editor'"
+          :can-manage="canManage"
           :error="serviceError"
           :loading="serviceLoading"
           :project-variable-count="projectEnvironment.data.value.variables.length"
@@ -491,7 +573,7 @@ onUnmounted(() => {
       <ServiceDomainsPanel
         v-else-if="activeTab === 'domains'"
         class="mt-6"
-        :can-manage="data.role === 'owner' || data.role === 'editor'"
+        :can-manage="canManage"
         :domains="domains.data.value"
         :error="domains.error.value"
         :loading="domains.loading.value"
@@ -513,18 +595,54 @@ onUnmounted(() => {
           @retry="loadDeployments(data.id)"
           @rollback="rollbackDeployment"
         />
-        <div v-if="deploymentData.length" class="flex flex-wrap gap-2">
-          <Button
-            v-for="deployment in deploymentData"
-            :key="deployment.id"
-            size="sm"
-            :variant="selectedDeploymentId === deployment.id ? 'default' : 'outline'"
-            @click="selectDeployment(deployment.id)"
-            >g{{ deployment.generation }}</Button
+        <section
+          v-if="availableDeployments.length"
+          class="app-surface"
+          aria-labelledby="deployment-output-heading"
+        >
+          <header
+            class="app-panel-header flex items-end justify-between gap-4 px-5 py-4 max-[560px]:items-start max-[560px]:flex-col"
           >
-        </div>
+            <div>
+              <p class="ui-label">Inspect output</p>
+              <h2 id="deployment-output-heading" class="mt-2 text-lg font-normal">
+                Deployment logs
+              </h2>
+            </div>
+            <p v-if="selectedDeployment" class="font-mono text-[11px] text-muted-foreground">
+              {{ deploymentServiceName(selectedDeployment) }} · g{{ selectedDeployment.generation }}
+            </p>
+          </header>
+          <div class="divide-y divide-border" aria-label="Select deployment logs">
+            <button
+              v-for="deployment in availableDeployments"
+              :key="deployment.id"
+              class="grid w-full gap-2 px-5 py-3.5 text-left transition-colors hover:bg-muted/60 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-4"
+              :class="selectedDeploymentId === deployment.id ? 'bg-muted/70' : ''"
+              type="button"
+              :aria-pressed="selectedDeploymentId === deployment.id"
+              @click="selectDeployment(deployment.id)"
+            >
+              <span class="grid min-w-0 gap-1">
+                <span class="truncate text-sm font-medium">{{
+                  deploymentServiceName(deployment)
+                }}</span>
+                <span class="truncate font-mono text-[11px] text-muted-foreground">
+                  Generation g{{ deployment.generation }} ·
+                  {{ formatDeploymentTime(deployment.created_at) }}
+                </span>
+              </span>
+              <span
+                class="justify-self-start text-xs capitalize sm:justify-self-end"
+                :class="deploymentStatusClass(deployment.status)"
+              >
+                {{ deployment.status }}
+              </span>
+            </button>
+          </div>
+        </section>
         <DeploymentLogsPanel
-          v-if="selectedDeploymentId"
+          v-if="selectedDeployment"
           :connected="stream.connected.value && logStream.connected.value"
           :logs="streamLogs"
           :stream-error="stream.error.value ?? logStream.error.value"
