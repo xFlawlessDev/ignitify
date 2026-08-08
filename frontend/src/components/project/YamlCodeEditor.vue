@@ -59,9 +59,11 @@ function syncScroll(event: Event) {
 </script>
 
 <template>
-  <div class="relative min-h-[420px] overflow-hidden border border-border bg-[#11161d]">
+  <div
+    class="relative min-h-[420px] overflow-hidden rounded-[6px] border border-border bg-[#11161d]"
+  >
     <pre
-      class="pointer-events-none absolute top-0 left-0 min-w-full p-4 font-mono text-xs leading-6 whitespace-pre"
+      class="pointer-events-none absolute top-0 left-0 min-w-full p-4 font-mono text-xs leading-6 whitespace-pre text-[#d0d5dd]"
       :style="highlightStyle"
       aria-hidden="true"
     ><span
