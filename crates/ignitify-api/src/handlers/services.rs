@@ -34,6 +34,12 @@ pub(crate) struct ServiceRequest {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RemoveServiceRequest {
+    confirm_name: String,
+}
+
+#[derive(Debug, Deserialize)]
 pub(crate) struct ServiceVariableRequest {
     key: String,
     value: String,
@@ -171,6 +177,7 @@ pub(crate) async fn create(
         ServiceMutationOutcomeModel::Missing => Err(ApiError::NotFound),
         ServiceMutationOutcomeModel::Forbidden => Err(ApiError::Forbidden),
         ServiceMutationOutcomeModel::Updated(_) => unreachable!("service create cannot update"),
+        ServiceMutationOutcomeModel::Removed => unreachable!("service create cannot remove"),
     }
 }
 
@@ -207,6 +214,31 @@ pub(crate) async fn update(
         ServiceMutationOutcomeModel::Missing => Err(ApiError::NotFound),
         ServiceMutationOutcomeModel::Forbidden => Err(ApiError::Forbidden),
         ServiceMutationOutcomeModel::Created(_) => unreachable!("service update cannot create"),
+        ServiceMutationOutcomeModel::Removed => unreachable!("service update cannot remove"),
+    }
+}
+
+pub(crate) async fn remove(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(service_id): Path<String>,
+    Json(input): Json<RemoveServiceRequest>,
+) -> Result<StatusCode, ApiError> {
+    let actor = require_actor(&state, &headers).await?;
+    require_same_origin_request(&state, &headers)?;
+    match state
+        .services()?
+        .remove(service_actor(&actor), &service_id, &input.confirm_name)
+        .await?
+    {
+        ServiceMutationOutcomeModel::Removed => {
+            let _ = state.control()?.wake_worker();
+            Ok(StatusCode::NO_CONTENT)
+        }
+        ServiceMutationOutcomeModel::Missing => Err(ApiError::NotFound),
+        ServiceMutationOutcomeModel::Forbidden => Err(ApiError::Forbidden),
+        ServiceMutationOutcomeModel::Created(_) => unreachable!("service remove cannot create"),
+        ServiceMutationOutcomeModel::Updated(_) => unreachable!("service remove cannot update"),
     }
 }
 

@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 const api = vi.hoisted(() => ({
   create: vi.fn(),
+  remove: vi.fn(),
   get: vi.fn(),
   list: vi.fn(),
   update: vi.fn(),
@@ -10,6 +11,7 @@ const api = vi.hoisted(() => ({
 
 vi.mock("@/lib/api/services", () => ({
   apiCreateService: api.create,
+  apiDeleteService: api.remove,
   apiGetService: api.get,
   apiListServices: api.list,
   apiUpdateService: api.update,
@@ -33,10 +35,7 @@ const service = {
 };
 
 afterEach(() => {
-  api.create.mockReset();
-  api.get.mockReset();
-  api.list.mockReset();
-  api.update.mockReset();
+  Object.values(api).forEach((mock) => mock.mockReset());
   localStorage.clear();
   vi.resetModules();
 });
@@ -112,5 +111,27 @@ describe("useService", () => {
 
     expect(services.loading.value).toBe(false);
     expect(services.error.value).toBe("network offline");
+  });
+
+  it("removes a service from local state only after the API succeeds", async () => {
+    api.remove.mockResolvedValue({ success: true, data: undefined });
+    const { useService } = await import("./useService");
+    const services = useService();
+    services.data.value = [service, { ...service, id: "service-2" }];
+
+    expect(await services.remove(service.id, service.name)).toBe(true);
+    expect(api.remove.mock.calls).toEqual([[service.id, service.name]]);
+    expect(services.data.value).toEqual([{ ...service, id: "service-2" }]);
+  });
+
+  it("keeps the service and records the API error when removal fails", async () => {
+    api.remove.mockResolvedValue({ success: false, data: null, error: "stop it first" });
+    const { useService } = await import("./useService");
+    const services = useService();
+    services.data.value = [service];
+
+    expect(await services.remove(service.id, service.name)).toBe(false);
+    expect(services.data.value).toEqual([service]);
+    expect(services.error.value).toBe("stop it first");
   });
 });

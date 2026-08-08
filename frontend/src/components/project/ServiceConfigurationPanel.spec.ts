@@ -21,6 +21,12 @@ vi.mock("@/lib/api/templates", () => ({
   TEMPLATES_URL: "http://localhost:4545/api/templates",
 }));
 
+vi.mock("@/components/ui/tooltip", () => ({
+  Tooltip: { template: "<div><slot /></div>" },
+  TooltipContent: { template: "<span><slot /></span>" },
+  TooltipTrigger: { template: "<span><slot /></span>" },
+}));
+
 const service = {
   id: "service-1",
   project_id: "project-1",
@@ -178,7 +184,21 @@ describe("ServiceConfigurationPanel", () => {
           return {
             status: 200,
             ok: true,
-            text: async () => '[[config.domains]]\nserviceName = "wordpress"\nport = 80\n',
+            text: async () => `
+[variables]
+site_name = "Ignitify"
+admin_password = "\${password:32}"
+
+[config]
+env = [
+  "SITE_NAME=\${site_name}",
+  "ADMIN_PASSWORD=\${admin_password}",
+]
+
+[[config.domains]]
+serviceName = "wordpress"
+port = 80
+`,
           };
         }
         return { status: 404, ok: false, text: async () => "" };
@@ -255,6 +275,26 @@ describe("ServiceConfigurationPanel", () => {
       internal_port: 80,
       source_config: { source: "template", template: "wordpress" },
     });
+    const savedVariables = (
+      onSave.mock.calls[0]?.[0] as
+        | {
+            variables?: Array<{
+              key: string;
+              value: string;
+              is_secret: boolean;
+            }>;
+          }
+        | undefined
+    )?.variables;
+    expect(savedVariables?.find((variable) => variable.key === "SITE_NAME")).toEqual({
+      key: "SITE_NAME",
+      value: "Ignitify",
+      is_secret: false,
+    });
+    const savedPassword = savedVariables?.find((variable) => variable.key === "ADMIN_PASSWORD");
+    expect(savedPassword?.is_secret).toBe(true);
+    expect(savedPassword?.value.length).toBe(32);
+    expect(/^[A-Za-z0-9_-]+$/.test(savedPassword?.value ?? "")).toBe(true);
     app.unmount();
   });
 

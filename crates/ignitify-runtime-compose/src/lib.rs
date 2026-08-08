@@ -386,8 +386,14 @@ impl ImageRuntime for ComposeRuntime {
             .ps(&stage, runtime_ref)
             .await
             .map_err(|_| ControlError::Runtime)?;
+        let ServiceSpec::Compose {
+            exposed_service, ..
+        } = &deployment.spec
+        else {
+            return Err(ControlError::Runtime);
+        };
         let records = parse_ps(&output);
-        let statuses: Vec<String> = records.iter().map(status).collect();
+        let statuses = service_statuses(&records, exposed_service);
         let running = !statuses.is_empty()
             && statuses
                 .iter()
@@ -793,7 +799,6 @@ fn validate_canonical(value: &Value, generated: bool) -> Result<()> {
                 continue;
             };
             if volume.get("external").and_then(Value::as_bool) == Some(true)
-                || volume.contains_key("name")
                 || volume.contains_key("driver")
                 || volume.contains_key("driver_opts")
             {
@@ -847,7 +852,6 @@ fn validate_canonical(value: &Value, generated: bool) -> Result<()> {
                     Value::Object(value) => {
                         if value.get("type").and_then(Value::as_str) != Some("volume")
                             || value.get("source").and_then(Value::as_str).is_none()
-                            || value.contains_key("volume")
                         {
                             return Err(Error::Policy("only named local volumes are allowed"));
                         }
@@ -976,6 +980,19 @@ fn status(value: &Value) -> String {
         .to_ascii_lowercase()
 }
 
+fn service_statuses(records: &[Value], exposed_service: &str) -> Vec<String> {
+    records
+        .iter()
+        .filter(|record| {
+            record
+                .get("Service")
+                .and_then(Value::as_str)
+                .is_some_and(|service| service == exposed_service)
+        })
+        .map(status)
+        .collect()
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("Docker executable path must be absolute")]
@@ -994,7 +1011,7 @@ pub enum Error {
 
 #[cfg(test)]
 mod tests {
-    use super::{MAX_DEPTH, preflight_yaml, validate_canonical};
+    use super::{MAX_DEPTH, preflight_yaml, service_statuses, validate_canonical};
     use serde_json::json;
 
     #[cfg(unix)]
@@ -1052,6 +1069,19 @@ mod tests {
                 "--env-file".to_owned(),
                 stage.join("ignitify.env").display().to_string(),
             ]
+        );
+    }
+
+    #[test]
+    fn service_statuses_ignores_stopped_companion_services() {
+        let records = vec![
+            json!({ "Service": "web", "State": "running" }),
+            json!({ "Service": "migration", "State": "exited" }),
+        ];
+
+        assert_eq!(
+            service_statuses(&records, "web"),
+            vec!["running".to_owned()]
         );
     }
 
@@ -1249,7 +1279,20 @@ mod tests {
         let yaml = "services:\n  web:\n    image: nginx@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n    volumes:\n      - data:/data\nvolumes:\n  data: {}\n";
         preflight_yaml(yaml).unwrap();
         validate_canonical(
-            &json!({"services":{"web":{"image":"nginx@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}}),
+            &json!({
+                "services": {
+                    "web": {
+                        "image": "nginx@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                        "volumes": [{
+                            "type": "volume",
+                            "source": "data",
+                            "target": "/data",
+                            "volume": {}
+                        }]
+                    }
+                },
+                "volumes": { "data": { "name": "ignitify_test_data" } }
+            }),
             false,
         )
         .unwrap();
@@ -1303,6 +1346,7 @@ mod tests {
         assert!(validate_canonical(&json!({"services":{"web":{"image":"nginx@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "labels":{"traefik.enable":"true"}}}}), false).is_err());
         assert!(validate_canonical(&json!({"services":{"web":{"image":"nginx@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "volumes":["/tmp:/data"]}}}), false).is_err());
         assert!(validate_canonical(&json!({"services":{"web":{"image":"nginx@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}, "volumes":{"data":{"external":true}}}), false).is_err());
+        assert!(preflight_yaml("services:\n  web:\n    image: nginx@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n    volumes:\n      - data:/data\nvolumes:\n  data:\n    name: tenant-data\n").is_err());
     }
 
     #[test]

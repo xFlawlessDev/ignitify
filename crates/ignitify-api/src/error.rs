@@ -73,6 +73,20 @@ impl IntoResponse for ApiError {
                 StatusCode::CONFLICT,
                 "service name already exists".to_owned(),
             ),
+            Self::Database(DatabaseError::ServiceConfirmationMismatch)
+            | Self::Control(ignitify_control_plane::Error::Database(
+                DatabaseError::ServiceConfirmationMismatch,
+            )) => (
+                StatusCode::BAD_REQUEST,
+                "service removal confirmation does not match name".to_owned(),
+            ),
+            Self::Database(DatabaseError::ServiceHasActiveDeployment)
+            | Self::Control(ignitify_control_plane::Error::Database(
+                DatabaseError::ServiceHasActiveDeployment,
+            )) => (
+                StatusCode::CONFLICT,
+                "stop the active deployment before deleting this service".to_owned(),
+            ),
             Self::Database(DatabaseError::DomainNameConflict) => (
                 StatusCode::CONFLICT,
                 "domain hostname already exists".to_owned(),

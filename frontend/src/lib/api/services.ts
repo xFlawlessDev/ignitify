@@ -46,3 +46,10 @@ export function apiUpdateService(
     body: JSON.stringify(input),
   });
 }
+
+export function apiDeleteService(serviceId: string, confirmName: string): Promise<ApiResult<void>> {
+  return apiFetch<void>(`/services/${encodeURIComponent(serviceId)}`, {
+    method: "DELETE",
+    body: JSON.stringify({ confirm_name: confirmName }),
+  });
+}

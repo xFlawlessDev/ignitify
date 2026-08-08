@@ -6,8 +6,9 @@ use ignitify_domain::{
 use uuid::Uuid;
 
 use crate::{
-    ActivityActor, Database, DatabaseConfig, NewProvider, NewServiceVariable, ProjectActor,
-    ProjectUpdateOutcome, ProviderAuthMode, ProviderKind, ServiceActor, ServiceMutationOutcome,
+    ActivityActor, Database, DatabaseConfig, DomainActor, NewProvider, NewServiceVariable,
+    ProjectActor, ProjectUpdateOutcome, ProviderAuthMode, ProviderKind, ServiceActor,
+    ServiceMutationOutcome,
 };
 
 async fn database() -> Database {
@@ -778,4 +779,94 @@ async fn service_repository_enforces_role_updates_generation_and_audits_without_
     .await
     .unwrap();
     assert_eq!(audit_count, 2);
+}
+
+#[tokio::test]
+async fn service_removal_requires_confirmation_and_cascades_stopped_records() {
+    let database = database().await;
+    let owner_id = user_id(&database, "owner").await;
+    let project = database
+        .projects()
+        .create(&owner_id, ProjectInput::new("Platform").unwrap())
+        .await
+        .unwrap();
+    let owner = ServiceActor {
+        id: &owner_id,
+        is_admin: false,
+    };
+    let created = database
+        .services()
+        .create(
+            owner,
+            project.id.as_str(),
+            ServiceInput::image(
+                "web",
+                "nginx@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                Some(8080),
+                None,
+                vec![],
+            )
+            .unwrap()
+            .configuration,
+            vec![],
+        )
+        .await
+        .unwrap();
+    let ServiceMutationOutcome::Created(service) = created else {
+        panic!("service must be created");
+    };
+    let now = Utc::now().to_rfc3339();
+    sqlx::query(
+        "INSERT INTO deployments (
+            id, service_id, generation, idempotency_key, requested_by_user_id, spec_json,
+            variables_ciphertext, status, created_at
+         ) VALUES (?, ?, 1, 'deployment-1', ?, '{}', '{}', 'healthy', ?)",
+    )
+    .bind(Uuid::new_v4().to_string())
+    .bind(service.id.as_str())
+    .bind(&owner_id)
+    .bind(&now)
+    .execute(&database.pool)
+    .await
+    .unwrap();
+
+    assert!(matches!(
+        database
+            .services()
+            .remove(owner, service.id.as_str(), "web")
+            .await,
+        Err(crate::DatabaseError::ServiceHasActiveDeployment)
+    ));
+
+    sqlx::query("UPDATE deployments SET status = 'stopped' WHERE service_id = ?")
+        .bind(service.id.as_str())
+        .execute(&database.pool)
+        .await
+        .unwrap();
+    database
+        .domains()
+        .create(
+            DomainActor {
+                id: &owner_id,
+                is_admin: false,
+            },
+            service.id.as_str(),
+            DomainName::new("web.example.com").unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let removed = database
+        .services()
+        .remove(owner, service.id.as_str(), "web")
+        .await
+        .unwrap();
+    assert!(matches!(removed, ServiceMutationOutcome::Removed(_)));
+    for table in ["services", "deployments", "domains", "service_variables"] {
+        let count: i64 = sqlx::query_scalar(&format!("SELECT COUNT(*) FROM {table}"))
+            .fetch_one(&database.pool)
+            .await
+            .unwrap();
+        assert_eq!(count, 0, "{table} must cascade when removing the service");
+    }
 }

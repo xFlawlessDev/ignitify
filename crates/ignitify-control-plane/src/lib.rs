@@ -196,6 +196,9 @@ impl ServiceControl {
                 ServiceMutationOutcome::Updated(_) => {
                     unreachable!("service create cannot return update")
                 }
+                ServiceMutationOutcome::Removed(_) => {
+                    unreachable!("service create cannot return remove")
+                }
                 ServiceMutationOutcome::Missing => ServiceMutationOutcomeModel::Missing,
                 ServiceMutationOutcome::Forbidden => ServiceMutationOutcomeModel::Forbidden,
             },
@@ -218,11 +221,39 @@ impl ServiceControl {
                 ServiceMutationOutcome::Created(_) => {
                     unreachable!("service update cannot return create")
                 }
+                ServiceMutationOutcome::Removed(_) => {
+                    unreachable!("service update cannot return remove")
+                }
                 ServiceMutationOutcome::Updated(service) => {
                     ServiceMutationOutcomeModel::Updated(self.read_model(service)?)
                 }
                 ServiceMutationOutcome::Missing => ServiceMutationOutcomeModel::Missing,
                 ServiceMutationOutcome::Forbidden => ServiceMutationOutcomeModel::Forbidden,
+            },
+        )
+    }
+
+    pub async fn remove(
+        &self,
+        actor: ServiceActor<'_>,
+        service_id: &str,
+        confirm_name: &str,
+    ) -> Result<ServiceMutationOutcomeModel> {
+        Ok(
+            match self
+                .services
+                .remove(actor, service_id, confirm_name)
+                .await?
+            {
+                ServiceMutationOutcome::Removed(_) => ServiceMutationOutcomeModel::Removed,
+                ServiceMutationOutcome::Missing => ServiceMutationOutcomeModel::Missing,
+                ServiceMutationOutcome::Forbidden => ServiceMutationOutcomeModel::Forbidden,
+                ServiceMutationOutcome::Created(_) => {
+                    unreachable!("service remove cannot return create")
+                }
+                ServiceMutationOutcome::Updated(_) => {
+                    unreachable!("service remove cannot return update")
+                }
             },
         )
     }
@@ -1249,13 +1280,14 @@ where
                 .await?;
             runtime_ref
         }
-        Err(Error::Policy(_)) => {
+        Err(Error::Policy(reason)) => {
+            let failure_reason = format!("runtime policy rejected input: {reason}");
             deployments
                 .transition(
                     deployment.id.as_str(),
                     DeploymentState::Failed,
                     Some(&predicted_runtime_ref),
-                    Some("runtime policy rejected input"),
+                    Some(&failure_reason),
                 )
                 .await?;
             publisher
@@ -1709,6 +1741,7 @@ pub struct ServiceVariableReadModel {
 pub enum ServiceMutationOutcomeModel {
     Created(ServiceReadModel),
     Updated(ServiceReadModel),
+    Removed,
     Missing,
     Forbidden,
 }

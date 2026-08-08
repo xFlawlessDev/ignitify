@@ -290,6 +290,7 @@ function applyTemplate(application: TemplateApplication) {
   composeYaml.value = normalizeComposeYaml(application.composeYaml);
   exposedService.value = defaults.exposedService;
   internalPort.value = defaults.internalPort;
+  variables.splice(0, variables.length, ...defaults.variables);
   validationError.value = null;
 }
 

@@ -71,8 +71,8 @@ describe("ServiceDetailPanel", () => {
           id: "deployment-failed",
           service_id: "service-1",
           generation: 3,
-          status: "failed" as const,
-          failure_reason: "Image could not start",
+          status: "running" as const,
+          failure_reason: null,
           created_at: "2026-08-01T00:00:00Z",
           started_at: "2026-08-01T00:00:01Z",
           finished_at: "2026-08-01T00:00:02Z",
@@ -112,6 +112,93 @@ describe("ServiceDetailPanel", () => {
 
     expect(onStop.mock.calls).toEqual([["service-1"]]);
     expect(onRollback.mock.calls).toEqual([["deployment-healthy"]]);
+    app.unmount();
+  });
+
+  it("shows stop for an active deployment even when desired state is stopped", async () => {
+    const component = (await import("./ServiceDetailPanel.vue")).default;
+    const onStop = vi.fn();
+    const host = document.createElement("div");
+    document.body.append(host);
+    const app = createApp(component, {
+      service,
+      deployments: [
+        {
+          id: "deployment-healthy",
+          service_id: "service-1",
+          generation: 1,
+          status: "healthy" as const,
+          failure_reason: null,
+          created_at: "2026-08-01T00:00:00Z",
+          started_at: "2026-08-01T00:00:01Z",
+          finished_at: null,
+        },
+      ],
+      logs: [],
+      connected: true,
+      streamError: null,
+      submitting: false,
+      canManage: true,
+      selectedDeploymentId: null,
+      onDeploy: vi.fn(),
+      onStop,
+      onRollback: vi.fn(),
+      onEdit: vi.fn(),
+      onSelectDeployment: vi.fn(),
+    });
+    app.mount(host);
+    await nextTick();
+
+    const stopButton = [...host.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("Stop"),
+    ) as HTMLButtonElement;
+    stopButton.click();
+
+    expect(onStop.mock.calls).toEqual([["service-1"]]);
+    app.unmount();
+  });
+
+  it("labels application redeploys as rebuilds", async () => {
+    const component = (await import("./ServiceDetailPanel.vue")).default;
+    const host = document.createElement("div");
+    document.body.append(host);
+    const app = createApp(component, {
+      service: {
+        ...service,
+        source_config: {
+          source: "application",
+          repository: "acme/site",
+          builder: "dockerfile",
+        },
+      },
+      deployments: [
+        {
+          id: "deployment-healthy",
+          service_id: "service-1",
+          generation: 1,
+          status: "healthy" as const,
+          failure_reason: null,
+          created_at: "2026-08-01T00:00:00Z",
+          started_at: "2026-08-01T00:00:01Z",
+          finished_at: null,
+        },
+      ],
+      logs: [],
+      connected: true,
+      streamError: null,
+      submitting: false,
+      canManage: true,
+      selectedDeploymentId: null,
+      onDeploy: vi.fn(),
+      onStop: vi.fn(),
+      onRollback: vi.fn(),
+      onEdit: vi.fn(),
+      onSelectDeployment: vi.fn(),
+    });
+    app.mount(host);
+    await nextTick();
+
+    expect(host.textContent).toContain("Rebuild");
     app.unmount();
   });
 

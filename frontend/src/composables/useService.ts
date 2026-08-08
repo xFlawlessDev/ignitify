@@ -1,6 +1,7 @@
 import { shallowRef } from "vue";
 import {
   apiCreateService,
+  apiDeleteService,
   apiGetService,
   apiListServices,
   apiUpdateService,
@@ -79,5 +80,18 @@ export function useService() {
     return result.data;
   }
 
-  return { data, loading, error, load, get, create, update };
+  async function remove(serviceId: string, confirmName: string): Promise<boolean> {
+    error.value = null;
+    const result = await apiDeleteService(serviceId, confirmName);
+    if (!result.success) {
+      error.value = result.error ?? "Could not delete service";
+      return false;
+    }
+    loadGeneration += 1;
+    loading.value = false;
+    data.value = data.value.filter((service) => service.id !== serviceId);
+    return true;
+  }
+
+  return { data, loading, error, load, get, create, update, remove };
 }

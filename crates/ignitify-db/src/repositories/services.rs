@@ -51,6 +51,7 @@ pub struct ServiceVariableRecord {
 pub enum ServiceMutationOutcome {
     Created(AuthorizedService),
     Updated(AuthorizedService),
+    Removed(AuthorizedService),
     Missing,
     Forbidden,
 }
@@ -239,6 +240,62 @@ impl ServicesRepository {
                 .await?
                 .ok_or(sqlx::Error::RowNotFound)?,
         ))
+    }
+
+    pub async fn remove(
+        &self,
+        actor: ServiceActor<'_>,
+        service_id: &str,
+        confirm_name: &str,
+    ) -> Result<ServiceMutationOutcome> {
+        let Some(current) = self.get(actor, service_id).await? else {
+            return Ok(ServiceMutationOutcome::Missing);
+        };
+        if !actor.is_admin && !current.role.can_manage_services() {
+            return Ok(ServiceMutationOutcome::Forbidden);
+        }
+        if current.name != confirm_name {
+            return Err(DatabaseError::ServiceConfirmationMismatch);
+        }
+
+        let now = Utc::now().to_rfc3339();
+        let mut tx = self.pool.begin().await?;
+        let deleted = sqlx::query(
+            "DELETE FROM services
+             WHERE id = ? AND name = ?
+               AND NOT EXISTS (
+                 SELECT 1 FROM deployments
+                 WHERE service_id = ?
+                   AND status IN ('queued', 'preparing', 'running', 'healthy', 'stopping')
+               )",
+        )
+        .bind(service_id)
+        .bind(confirm_name)
+        .bind(service_id)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        if deleted == 0 {
+            tx.rollback().await?;
+            let active: bool = sqlx::query_scalar(
+                "SELECT EXISTS(
+                   SELECT 1 FROM deployments
+                   WHERE service_id = ?
+                     AND status IN ('queued', 'preparing', 'running', 'healthy', 'stopping')
+                 )",
+            )
+            .bind(service_id)
+            .fetch_one(&self.pool)
+            .await?;
+            return if active {
+                Err(DatabaseError::ServiceHasActiveDeployment)
+            } else {
+                Err(DatabaseError::ServiceConfirmationMismatch)
+            };
+        }
+        insert_audit(&mut tx, actor.id, "service.remove", service_id, &now).await?;
+        tx.commit().await?;
+        Ok(ServiceMutationOutcome::Removed(current))
     }
 
     async fn project_role(

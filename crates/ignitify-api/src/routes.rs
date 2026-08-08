@@ -100,7 +100,9 @@ pub(crate) fn router(state: AppState) -> Router {
         )
         .route(
             "/api/v1/services/{service_id}",
-            get(handlers::services::get).patch(handlers::services::update),
+            get(handlers::services::get)
+                .patch(handlers::services::update)
+                .delete(handlers::services::remove),
         )
         .route(
             "/api/v1/services/{service_id}/deployments",

@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { ArrowLeft, Box, GitBranch, RefreshCw } from "@lucide/vue";
+import { ArrowLeft, Box, GitBranch, RefreshCw, Trash2 } from "@lucide/vue";
 import { computed, onUnmounted, shallowRef, watch } from "vue";
-import { RouterLink, useRoute } from "vue-router";
+import { RouterLink, useRoute, useRouter } from "vue-router";
 import ServiceConfigurationPanel from "@/components/project/ServiceConfigurationPanel.vue";
 import ServiceDetailPanel from "@/components/project/ServiceDetailPanel.vue";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useDeployment } from "@/composables/useDeployment";
 import { useDeploymentStream } from "@/composables/useDeploymentStream";
@@ -20,6 +21,7 @@ import type {
 } from "@/lib/types";
 
 const route = useRoute();
+const router = useRouter();
 const services = useService();
 const deployments = useDeployment();
 const projectEnvironment = useProjectEnvironment();
@@ -31,6 +33,9 @@ const activeView = shallowRef<"configuration" | "operations">("configuration");
 const selectedDeploymentId = shallowRef<string | null>(null);
 const streamLogs = shallowRef<DeploymentLog[]>([]);
 const saving = shallowRef(false);
+const deleteConfirmation = shallowRef(false);
+const deleteConfirmName = shallowRef("");
+const deleting = shallowRef(false);
 let loadGeneration = 0;
 
 const projectId = computed(() => String(route.params.projectId));
@@ -110,6 +115,9 @@ async function load() {
   serviceLoading.value = true;
   serviceError.value = null;
   service.value = null;
+  deleteConfirmation.value = false;
+  deleteConfirmName.value = "";
+  deleting.value = false;
   selectedDeploymentId.value = null;
   streamLogs.value = [];
   deployments.clear();
@@ -165,6 +173,29 @@ async function stopService() {
 async function rollbackDeployment(deploymentId: string) {
   const deployment = await deployments.rollback(deploymentId);
   if (deployment) selectDeployment(deployment.id);
+}
+
+function requestDelete() {
+  deleteConfirmation.value = true;
+  deleteConfirmName.value = "";
+}
+
+function cancelDelete() {
+  deleteConfirmation.value = false;
+  deleteConfirmName.value = "";
+  services.error.value = null;
+}
+
+async function deleteService() {
+  const current = service.value;
+  if (!current || deleteConfirmName.value !== current.name) return;
+  deleting.value = true;
+  const removed = await services.remove(current.id, deleteConfirmName.value);
+  deleting.value = false;
+  if (!removed) return;
+  stream.stop();
+  logStream.stop();
+  await router.push(projectRoute.value);
 }
 
 watch(
@@ -249,10 +280,49 @@ onUnmounted(() => {
           >
             {{ tab.label }}
           </Button>
+          <Button v-if="canManage" size="sm" variant="destructive" @click="requestDelete">
+            <Trash2 data-icon="inline-start" :stroke-width="1.5" />
+            Delete
+          </Button>
         </div>
       </header>
 
       <main class="mt-[22px] grid gap-4">
+        <section
+          v-if="deleteConfirmation"
+          class="border border-destructive/40 bg-card p-5"
+          role="alertdialog"
+          aria-labelledby="service-delete-title"
+        >
+          <p id="service-delete-title" class="text-sm font-medium">Delete {{ service.name }}?</p>
+          <p class="mt-1 text-xs text-muted-foreground">
+            Type the service name to permanently remove its configuration, deployments, logs, and
+            domains.
+          </p>
+          <Input
+            v-model="deleteConfirmName"
+            class="mt-3"
+            :placeholder="service.name"
+            autocomplete="off"
+            :disabled="deleting"
+          />
+          <p v-if="serviceConfigError" class="mt-2 text-xs text-destructive" role="alert">
+            {{ serviceConfigError }}
+          </p>
+          <div class="mt-3 flex gap-2">
+            <Button
+              size="sm"
+              variant="destructive"
+              :disabled="deleteConfirmName !== service.name || deleting"
+              @click="deleteService"
+            >
+              {{ deleting ? "Deleting..." : "Delete service" }}
+            </Button>
+            <Button size="sm" variant="outline" :disabled="deleting" @click="cancelDelete">
+              Cancel
+            </Button>
+          </div>
+        </section>
         <ServiceConfigurationPanel
           v-if="activeView === 'configuration'"
           :error="serviceConfigError"
@@ -274,7 +344,6 @@ onUnmounted(() => {
           :stream-error="deploymentError ?? streamError ?? logStreamError"
           :submitting="deploymentSubmitting"
           @deploy="submitDeployment"
-          @edit="activeView = 'configuration'"
           @rollback="rollbackDeployment"
           @select-deployment="selectDeployment"
           @stop="stopService"

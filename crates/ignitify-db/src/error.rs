@@ -16,6 +16,10 @@ pub enum DatabaseError {
     ProjectNameConflict,
     #[error("service name already exists")]
     ServiceNameConflict,
+    #[error("service removal confirmation does not match name")]
+    ServiceConfirmationMismatch,
+    #[error("service has an active deployment")]
+    ServiceHasActiveDeployment,
     #[error("invalid service kind: {0}")]
     InvalidServiceKind(String),
     #[error("invalid stored service specification: {0}")]

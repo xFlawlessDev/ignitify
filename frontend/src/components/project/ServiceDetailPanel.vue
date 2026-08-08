@@ -75,8 +75,7 @@ const needsConfiguration = computed(() => props.service.source_config?.setup_req
 const canStop = computed(
   () =>
     !needsConfiguration.value &&
-    props.service.desired_state !== "stopped" &&
-    !["stopping", "stopped"].includes(latestDeployment.value?.status ?? ""),
+    ["queued", "preparing", "running", "healthy"].includes(latestDeployment.value?.status ?? ""),
 );
 const canRollback = computed(() =>
   Boolean(
@@ -105,7 +104,13 @@ const sourceLabel = computed(() => {
   return "Inline Compose";
 });
 const deployLabel = computed(() =>
-  props.service.source_config?.source === "application" ? "Build & deploy" : "Deploy",
+  props.service.source_config?.source === "application"
+    ? latestDeployment.value
+      ? "Rebuild"
+      : "Build & deploy"
+    : latestDeployment.value
+      ? "Deploy again"
+      : "Deploy",
 );
 const connectionLabel = computed(() => {
   if (!latestDeployment.value) return "No live deployment";
@@ -188,7 +193,12 @@ function selectDeployment(deployment: DeploymentSummary) {
         </div>
       </div>
       <div class="flex flex-wrap gap-2">
-        <Button v-if="canManage" size="sm" variant="outline" @click="emit('edit', service)">
+        <Button
+          v-if="canManage && !hideConfig"
+          size="sm"
+          variant="outline"
+          @click="emit('edit', service)"
+        >
           <Pencil data-icon="inline-start" :stroke-width="1.5" />
           {{ needsConfiguration ? "Set up service" : "Configure" }}
         </Button>
@@ -315,15 +325,6 @@ function selectDeployment(deployment: DeploymentSummary) {
           >
             <RotateCcw data-icon="inline-start" :stroke-width="1.5" />
             Rollback
-          </Button>
-          <Button
-            v-if="canManage"
-            size="sm"
-            :disabled="submitting || needsConfiguration"
-            @click="emit('deploy', service.id)"
-          >
-            <Rocket data-icon="inline-start" :stroke-width="1.5" />
-            {{ latestDeployment ? "Deploy again" : deployLabel }}
           </Button>
         </div>
       </div>
