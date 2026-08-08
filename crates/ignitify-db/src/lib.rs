@@ -16,10 +16,11 @@ pub use repositories::{
     DeploymentRecord, DeploymentVariableRecord, DeploymentsRepository, DomainActor,
     DomainMutationOutcome, DomainRecord, DomainsRepository, EnvironmentsRepository, NewDeployment,
     NewDeploymentLog, NewProjectVariable, NewProvider, NewServiceVariable, ProjectActor,
-    ProjectUpdateOutcome, ProjectVariableRecord, ProjectVariablesMutationOutcome,
-    ProjectsRepository, ProviderAuthMode, ProviderKind, ProviderMutationOutcome, ProviderRecord,
-    ProviderUpdate, ProvidersRepository, RefreshTokensRepository, SequenceCursor, ServiceActor,
-    ServiceMutationOutcome, ServiceVariableRecord, ServicesRepository, UsersRepository,
+    ProjectRemoveOutcome, ProjectUpdateOutcome, ProjectVariableRecord,
+    ProjectVariablesMutationOutcome, ProjectsRepository, ProviderAuthMode, ProviderKind,
+    ProviderMutationOutcome, ProviderRecord, ProviderUpdate, ProvidersRepository,
+    RefreshTokensRepository, SequenceCursor, ServiceActor, ServiceMutationOutcome,
+    ServiceVariableRecord, ServicesRepository, UsersRepository,
 };
 
 #[cfg(test)]

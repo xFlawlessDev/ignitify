@@ -80,7 +80,9 @@ pub(crate) fn router(state: AppState) -> Router {
         )
         .route(
             "/api/v1/projects/{project_id}",
-            get(handlers::projects::get).patch(handlers::projects::update),
+            get(handlers::projects::get)
+                .patch(handlers::projects::update)
+                .delete(handlers::projects::remove),
         )
         .route(
             "/api/v1/projects/{project_id}/environment",

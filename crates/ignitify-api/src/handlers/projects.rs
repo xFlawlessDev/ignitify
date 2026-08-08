@@ -4,7 +4,7 @@ use axum::{
     http::{HeaderMap, StatusCode},
 };
 use ignitify_auth::AuthenticatedUser;
-use ignitify_db::{ProjectActor, ProjectUpdateOutcome};
+use ignitify_db::{ProjectActor, ProjectRemoveOutcome, ProjectUpdateOutcome};
 use ignitify_domain::{EnvironmentSummary, ProjectInput, ProjectSummary};
 use serde::{Deserialize, Serialize};
 
@@ -59,6 +59,12 @@ impl From<EnvironmentSummary> for EnvironmentResponse {
 #[derive(Deserialize)]
 pub(crate) struct ProjectRequest {
     name: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RemoveProjectRequest {
+    confirm_name: String,
 }
 
 pub(crate) async fn list(
@@ -128,6 +134,26 @@ pub(crate) async fn update(
         ProjectUpdateOutcome::Updated(project) => Ok(Json(project.into())),
         ProjectUpdateOutcome::Missing => Err(ApiError::NotFound),
         ProjectUpdateOutcome::Forbidden => Err(ApiError::Forbidden),
+    }
+}
+
+pub(crate) async fn remove(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(project_id): Path<String>,
+    Json(request): Json<RemoveProjectRequest>,
+) -> Result<StatusCode, ApiError> {
+    let actor = require_actor(&state, &headers).await?;
+    require_same_origin_request(&state, &headers)?;
+    match state
+        .database
+        .projects()
+        .remove(project_actor(&actor), &project_id, &request.confirm_name)
+        .await?
+    {
+        ProjectRemoveOutcome::Removed => Ok(StatusCode::NO_CONTENT),
+        ProjectRemoveOutcome::Missing => Err(ApiError::NotFound),
+        ProjectRemoveOutcome::Forbidden => Err(ApiError::Forbidden),
     }
 }
 

@@ -14,6 +14,10 @@ pub enum DatabaseError {
     InvalidProjectMemberRole(String),
     #[error("project name already exists")]
     ProjectNameConflict,
+    #[error("project removal confirmation does not match name")]
+    ProjectConfirmationMismatch,
+    #[error("project has an active deployment")]
+    ProjectHasActiveDeployment,
     #[error("service name already exists")]
     ServiceNameConflict,
     #[error("service removal confirmation does not match name")]

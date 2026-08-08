@@ -2,17 +2,20 @@
 import {
   Activity,
   ArrowLeft,
+  AlertTriangle,
   Box,
   Boxes,
   Check,
   ChevronLeft,
   ChevronRight,
+  Copy,
   Globe2,
   Pencil,
   Plus,
   RefreshCw,
   Rocket,
   Settings2,
+  Trash2,
   X,
 } from "@lucide/vue";
 import { computed, onUnmounted, shallowRef, watch } from "vue";
@@ -28,6 +31,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogOverlay,
+  AlertDialogPortal,
+  AlertDialogRoot,
+  AlertDialogTitle,
+} from "reka-ui";
 import { useProject } from "@/composables/useProject";
 import { useProjectActivity } from "@/composables/useProjectActivity";
 import ProjectDeploymentTimeline from "@/components/project/ProjectDeploymentTimeline.vue";
@@ -47,7 +60,7 @@ import type {
 
 const route = useRoute();
 const router = useRouter();
-const { data, error, load: fetchProject, loading, update } = useProject();
+const { data, error, load: fetchProject, loading, remove: removeProject, update } = useProject();
 const services = useService();
 const deployments = useDeployment();
 const domains = useDomains();
@@ -110,12 +123,24 @@ const selectedDeployment = computed(() =>
   availableDeployments.value.find((deployment) => deployment.id === selectedDeploymentId.value),
 );
 const canManage = computed(() => data.value?.role === "owner" || data.value?.role === "editor");
+const projectVariableCount = computed(
+  () => projectEnvironment.data.value.variables.filter((variable) => !variable.is_secret).length,
+);
+const projectSecretCount = computed(
+  () => projectEnvironment.data.value.variables.filter((variable) => variable.is_secret).length,
+);
+const canDeleteProject = computed(() => data.value?.role === "owner");
 const activeTab = shallowRef<ProjectTab>("overview");
 const editName = shallowRef("");
 const renamingProject = shallowRef(false);
 const serviceDialogOpen = shallowRef(false);
 const savingService = shallowRef(false);
+const deleteProjectOpen = shallowRef(false);
+const deleteProjectConfirmName = shallowRef("");
+const deletingProject = shallowRef(false);
+const copiedProjectName = shallowRef(false);
 let projectLoadGeneration = 0;
+let copyProjectNameTimer: number | undefined;
 
 watch(
   servicePageCount,
@@ -256,6 +281,62 @@ function openServiceCreator() {
   createService();
 }
 
+function requestDeleteProject() {
+  deleteProjectOpen.value = true;
+  deleteProjectConfirmName.value = "";
+  copiedProjectName.value = false;
+}
+
+function cancelDeleteProject() {
+  deleteProjectOpen.value = false;
+  deleteProjectConfirmName.value = "";
+  copiedProjectName.value = false;
+  error.value = null;
+}
+
+async function copyProjectName() {
+  const name = data.value?.name;
+  if (!name) return;
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(name);
+    } else {
+      const input = document.createElement("textarea");
+      input.value = name;
+      input.setAttribute("readonly", "true");
+      input.style.position = "fixed";
+      input.style.opacity = "0";
+      document.body.append(input);
+      input.select();
+      document.execCommand("copy");
+      input.remove();
+    }
+  } catch {
+    return;
+  }
+
+  deleteProjectConfirmName.value = name;
+  copiedProjectName.value = true;
+  if (copyProjectNameTimer !== undefined) window.clearTimeout(copyProjectNameTimer);
+  copyProjectNameTimer = window.setTimeout(() => {
+    copiedProjectName.value = false;
+    copyProjectNameTimer = undefined;
+  }, 1_600);
+}
+
+async function deleteProject() {
+  const current = data.value;
+  if (!current || deleteProjectConfirmName.value !== current.name) return;
+  deletingProject.value = true;
+  const removed = await removeProject(deleteProjectConfirmName.value);
+  deletingProject.value = false;
+  if (!removed) return;
+  deleteProjectOpen.value = false;
+  stream.stop();
+  logStream.stop();
+  await router.push({ name: "Projects" });
+}
+
 async function loadDeployments(projectId: string, generation = projectLoadGeneration) {
   await services.load(projectId);
   if (generation !== projectLoadGeneration) return;
@@ -321,6 +402,7 @@ watch(activeTab, (tab) => {
 onUnmounted(() => {
   stream.stop();
   logStream.stop();
+  if (copyProjectNameTimer !== undefined) window.clearTimeout(copyProjectNameTimer);
 });
 </script>
 
@@ -438,10 +520,21 @@ onUnmounted(() => {
           </div>
         </div>
         <div class="grid min-w-0 gap-3 lg:justify-items-end">
-          <Button v-if="canManage" size="sm" @click="openServiceCreator">
-            <Plus class="size-4" :stroke-width="1.5" />
-            New service
-          </Button>
+          <div class="flex flex-wrap items-center gap-2 lg:justify-end">
+            <Button v-if="canManage" size="sm" @click="openServiceCreator">
+              <Plus class="size-4" :stroke-width="1.5" />
+              New service
+            </Button>
+            <Button
+              v-if="canDeleteProject"
+              size="sm"
+              variant="destructive"
+              @click="requestDeleteProject"
+            >
+              <Trash2 class="size-4" :stroke-width="1.5" />
+              Delete project
+            </Button>
+          </div>
           <Tabs
             :model-value="activeTab"
             class="min-w-0 max-[760px]:w-full"
@@ -489,6 +582,7 @@ onUnmounted(() => {
         <ProjectEnvironmentPanel
           :can-manage="canManage"
           :error="projectEnvironment.error.value"
+          :loading="projectEnvironment.loading.value"
           :saving="projectEnvironment.saving.value"
           :variables="projectEnvironment.data.value.variables"
           @save="saveProjectEnvironment"
@@ -504,18 +598,20 @@ onUnmounted(() => {
               <span class="text-xs text-muted-foreground">Role</span>
               <strong class="text-xs font-medium capitalize">{{ data.role }}</strong>
             </div>
+            <div class="flex items-center justify-between gap-3 border-b border-border pb-3">
+              <span class="text-xs text-muted-foreground">Variables</span>
+              <strong class="font-mono text-xs font-medium">{{ projectVariableCount }}</strong>
+            </div>
             <div class="flex items-center justify-between gap-3">
-              <span class="text-xs text-muted-foreground">Shared keys</span>
-              <strong class="font-mono text-xs font-medium">{{
-                projectEnvironment.data.value.variables.length
-              }}</strong>
+              <span class="text-xs text-muted-foreground">Secrets</span>
+              <strong class="font-mono text-xs font-medium">{{ projectSecretCount }}</strong>
             </div>
           </section>
           <section class="app-surface-muted p-5">
             <p class="text-xs font-medium">How inheritance works</p>
             <p class="mt-2 text-xs leading-5 text-muted-foreground">
-              Each deployment merges project values first. A service-level key with the same name
-              wins.
+              Project values are inherited by every service. A service-level key with the same name
+              wins, while secret values stay masked.
             </p>
           </section>
         </aside>
@@ -664,6 +760,91 @@ onUnmounted(() => {
         :saving="savingService"
         @save="saveService"
       />
+
+      <AlertDialogRoot v-model:open="deleteProjectOpen">
+        <AlertDialogPortal>
+          <AlertDialogOverlay class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm" />
+          <AlertDialogContent
+            class="fixed top-1/2 left-1/2 z-50 grid w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 gap-5 rounded-[10px] border border-border bg-card p-6 shadow-none"
+          >
+            <div class="flex items-start gap-3">
+              <div
+                class="grid size-9 shrink-0 place-items-center rounded-[6px] border border-destructive/30 bg-destructive/10 text-destructive"
+              >
+                <AlertTriangle class="size-4" :stroke-width="1.5" />
+              </div>
+              <div class="min-w-0">
+                <AlertDialogTitle class="text-base font-medium">Delete project?</AlertDialogTitle>
+                <AlertDialogDescription class="mt-2 text-sm leading-5">
+                  This permanently removes
+                  <span class="inline-flex max-w-full items-center gap-1 align-bottom">
+                    <span class="max-w-[18rem] truncate font-medium text-foreground">{{
+                      data.name
+                    }}</span>
+                    <button
+                      class="grid size-5 shrink-0 place-items-center rounded-[3px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                      type="button"
+                      :aria-label="
+                        copiedProjectName
+                          ? 'Project name copied and filled'
+                          : 'Copy and fill project name'
+                      "
+                      :title="
+                        copiedProjectName ? 'Copied and filled' : 'Copy and fill project name'
+                      "
+                      @click="copyProjectName"
+                    >
+                      <Check v-if="copiedProjectName" class="size-3" :stroke-width="1.75" />
+                      <Copy v-else class="size-3" :stroke-width="1.5" />
+                    </button>
+                  </span>
+                  and its services, deployments, logs, domains, and shared variables.
+                </AlertDialogDescription>
+              </div>
+            </div>
+            <label class="grid gap-2 text-xs text-muted-foreground" for="delete-project-name">
+              Type the project name to confirm
+              <Input
+                id="delete-project-name"
+                v-model="deleteProjectConfirmName"
+                :placeholder="data.name"
+                autocomplete="off"
+                :disabled="deletingProject"
+              />
+            </label>
+            <p
+              v-if="error"
+              class="border border-destructive/40 px-3 py-2 text-xs text-destructive"
+              role="alert"
+            >
+              {{ error }}
+            </p>
+            <div class="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <AlertDialogCancel as-child>
+                <Button
+                  class="w-full sm:w-auto"
+                  variant="outline"
+                  :disabled="deletingProject"
+                  @click="cancelDeleteProject"
+                >
+                  Cancel
+                </Button>
+              </AlertDialogCancel>
+              <AlertDialogAction as-child>
+                <Button
+                  class="w-full sm:w-auto"
+                  variant="destructive"
+                  :disabled="deletingProject || deleteProjectConfirmName !== data.name"
+                  @click.prevent="deleteProject"
+                >
+                  <Trash2 class="size-4" :stroke-width="1.5" />
+                  {{ deletingProject ? "Deleting..." : "Delete project" }}
+                </Button>
+              </AlertDialogAction>
+            </div>
+          </AlertDialogContent>
+        </AlertDialogPortal>
+      </AlertDialogRoot>
     </template>
   </div>
 </template>

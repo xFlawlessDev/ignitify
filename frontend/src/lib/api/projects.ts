@@ -32,6 +32,13 @@ export function apiUpdateProject(
   });
 }
 
+export function apiDeleteProject(projectId: string, confirmName: string): Promise<ApiResult<void>> {
+  return apiFetch<void>(`/projects/${encodeURIComponent(projectId)}`, {
+    method: "DELETE",
+    body: JSON.stringify({ confirm_name: confirmName }),
+  });
+}
+
 export function apiGetProjectEnvironment(
   projectId: string,
 ): Promise<ApiResult<ProjectEnvironmentResponse>> {

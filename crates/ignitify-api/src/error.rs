@@ -62,6 +62,14 @@ impl IntoResponse for ApiError {
                 StatusCode::CONFLICT,
                 "project name already exists".to_owned(),
             ),
+            Self::Database(DatabaseError::ProjectConfirmationMismatch) => (
+                StatusCode::BAD_REQUEST,
+                "project removal confirmation does not match name".to_owned(),
+            ),
+            Self::Database(DatabaseError::ProjectHasActiveDeployment) => (
+                StatusCode::CONFLICT,
+                "stop active deployments before deleting this project".to_owned(),
+            ),
             Self::Database(DatabaseError::ProviderNameConflict) => (
                 StatusCode::CONFLICT,
                 "provider name already exists".to_owned(),

@@ -22,8 +22,9 @@ pub use deployments::{
 pub use domains::{DomainActor, DomainMutationOutcome, DomainRecord, DomainsRepository};
 pub use environments::EnvironmentsRepository;
 pub use projects::{
-    AuthorizedProjectVariables, NewProjectVariable, ProjectActor, ProjectUpdateOutcome,
-    ProjectVariableRecord, ProjectVariablesMutationOutcome, ProjectsRepository,
+    AuthorizedProjectVariables, NewProjectVariable, ProjectActor, ProjectRemoveOutcome,
+    ProjectUpdateOutcome, ProjectVariableRecord, ProjectVariablesMutationOutcome,
+    ProjectsRepository,
 };
 pub use providers::{
     NewProvider, ProviderAuthMode, ProviderKind, ProviderMutationOutcome, ProviderRecord,

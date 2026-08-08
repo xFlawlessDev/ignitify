@@ -1,5 +1,17 @@
 <script setup lang="ts">
-import { Box, Boxes, CircleAlert, FileCode2, GitBranch, Info, Plus, Trash2 } from "@lucide/vue";
+import {
+  Box,
+  Boxes,
+  CircleAlert,
+  Eye,
+  EyeOff,
+  FileCode2,
+  GitBranch,
+  Info,
+  LockKeyhole,
+  Plus,
+  Trash2,
+} from "@lucide/vue";
 import { computed, reactive, shallowRef, watch } from "vue";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -8,6 +20,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import TemplateCatalogPicker from "@/components/templates/TemplateCatalogPicker.vue";
@@ -54,7 +67,14 @@ const internalPort = shallowRef("");
 const healthcheck = shallowRef("");
 const appliedTemplateName = shallowRef("");
 const validationError = shallowRef<string | null>(null);
-const variables = reactive<ServiceVariable[]>([]);
+const activeEnvironmentKind = shallowRef<"variables" | "secrets">("variables");
+const showSecretValues = shallowRef(false);
+
+interface ServiceVariableDraft extends ServiceVariable {
+  is_set?: boolean;
+}
+
+const variables = reactive<ServiceVariableDraft[]>([]);
 const sourceRepositories = useProviderRepositories();
 
 const builderOptions: Array<{ value: ApplicationBuilder; label: string; description: string }> = [
@@ -120,6 +140,25 @@ const supportsBuildCommand = computed(
 );
 const usesStaticOutput = computed(
   () => source.value === "application" && builder.value === "static",
+);
+const serviceVariableCount = computed(
+  () => variables.filter((variable) => !variable.is_secret).length,
+);
+const serviceSecretCount = computed(
+  () => variables.filter((variable) => variable.is_secret).length,
+);
+const activeServiceVariables = computed(() =>
+  variables
+    .map((variable, index) => ({ variable, index }))
+    .filter(({ variable }) =>
+      activeEnvironmentKind.value === "secrets" ? variable.is_secret : !variable.is_secret,
+    ),
+);
+const inheritedVariableCount = computed(
+  () => (props.inheritedVariables ?? []).filter((variable) => !variable.is_secret).length,
+);
+const inheritedSecretCount = computed(
+  () => (props.inheritedVariables ?? []).filter((variable) => variable.is_secret).length,
 );
 
 function isRepositorySource() {
@@ -253,8 +292,18 @@ function reset() {
       key: variable.key,
       value: variable.is_secret ? "" : (variable.value ?? ""),
       is_secret: variable.is_secret,
+      is_set: variable.is_set,
     })),
   );
+  if (
+    !variables.some((variable) =>
+      activeEnvironmentKind.value === "secrets" ? variable.is_secret : !variable.is_secret,
+    )
+  ) {
+    activeEnvironmentKind.value = variables.some((variable) => variable.is_secret)
+      ? "secrets"
+      : "variables";
+  }
   if (providerId.value && isRepositorySource()) {
     void sourceRepositories.loadRepositories(providerId.value).then(() => {
       if (repository.value)
@@ -263,8 +312,9 @@ function reset() {
   }
 }
 
-function addVariable() {
-  variables.push({ key: "", value: "", is_secret: true });
+function addVariable(isSecret: boolean) {
+  activeEnvironmentKind.value = isSecret ? "secrets" : "variables";
+  variables.push({ key: "", value: "", is_secret: isSecret, is_set: false });
 }
 
 function selectBuilder(value: ApplicationBuilder) {
@@ -274,6 +324,13 @@ function selectBuilder(value: ApplicationBuilder) {
 
 function removeVariable(index: number) {
   variables.splice(index, 1);
+}
+
+function updateSecret(index: number, isSecret: boolean) {
+  const variable = variables[index];
+  if (!variable) return;
+  variable.is_secret = isSecret;
+  activeEnvironmentKind.value = isSecret ? "secrets" : "variables";
 }
 
 function normalizeComposeYaml(value: string) {
@@ -291,6 +348,9 @@ function applyTemplate(application: TemplateApplication) {
   exposedService.value = defaults.exposedService;
   internalPort.value = defaults.internalPort;
   variables.splice(0, variables.length, ...defaults.variables);
+  activeEnvironmentKind.value = defaults.variables.some((variable) => variable.is_secret)
+    ? "secrets"
+    : "variables";
   validationError.value = null;
 }
 
@@ -331,7 +391,8 @@ function submit() {
     return;
   }
   if (variables.some((variable) => variable.is_secret && !variable.value)) {
-    validationError.value = "Re-enter each secret value before saving changes.";
+    validationError.value =
+      "Enter every service secret before saving; stored secret values must be re-entered.";
     return;
   }
   if (
@@ -368,7 +429,11 @@ function submit() {
           healthcheck: null,
         }),
     internal_port: parsedPort,
-    variables: variables.map((variable) => ({ ...variable, key: variable.key.trim() })),
+    variables: variables.map(({ key, value, is_secret }) => ({
+      key: key.trim(),
+      value,
+      is_secret,
+    })),
     source_config: {
       source: source.value,
       ...(source.value === "template" ? { template: template.value } : {}),
@@ -799,72 +864,167 @@ watch(() => props.service.id, reset, { immediate: true });
         <h3 class="text-sm font-medium">Project defaults</h3>
       </div>
       <p class="text-xs leading-5 text-muted-foreground">
-        These keys are inherited at deployment. Add a matching key below to override it for this
-        service.
+        {{ inheritedVariableCount }} variables and {{ inheritedSecretCount }} secrets are inherited
+        at deployment. Add a matching key below to override it for this service.
       </p>
       <div class="flex flex-wrap gap-1.5">
         <Badge
           v-for="variable in inheritedVariables"
           :key="variable.key"
           variant="outline"
-          class="font-mono text-[10px] text-muted-foreground"
+          class="inline-flex items-center gap-1 font-mono text-[10px] text-muted-foreground"
         >
+          <LockKeyhole
+            v-if="variable.is_secret"
+            class="size-3 text-muted-foreground"
+            :stroke-width="1.5"
+          />
           {{ variable.key }}
         </Badge>
       </div>
     </section>
 
     <fieldset class="grid gap-3 border-t border-border pt-4">
-      <legend class="text-sm font-medium">Service environment</legend>
-      <p class="-mt-1 text-xs leading-5 text-muted-foreground">
-        Service keys override project defaults during deployment.
-      </p>
-      <div
-        v-for="(variable, index) in variables"
-        :key="index"
-        class="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto_auto] items-end gap-2 max-[480px]:grid-cols-1 max-[480px]:items-stretch"
-      >
-        <label class="grid gap-2 text-xs text-muted-foreground">
-          Key
-          <Input v-model="variable.key" autocomplete="off" required />
-        </label>
-        <label class="grid gap-2 text-xs text-muted-foreground">
-          Value
-          <Input
-            v-model="variable.value"
-            :type="variable.is_secret ? 'password' : 'text'"
-            autocomplete="off"
-            required
-          />
-        </label>
-        <label
-          class="grid gap-2 text-xs text-muted-foreground max-[480px]:grid-cols-[1fr_auto] max-[480px]:items-center"
-        >
-          Secret
-          <Switch
-            v-model="variable.is_secret"
-            :aria-label="`Mark ${variable.key || 'variable'} secret`"
-          />
-        </label>
-        <Tooltip>
-          <TooltipTrigger as-child>
-            <Button
-              size="icon"
-              type="button"
-              variant="outline"
-              :aria-label="`Remove ${variable.key || 'variable'}`"
-              @click="removeVariable(index)"
-            >
-              <Trash2 :stroke-width="1.5" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>Remove variable</TooltipContent>
-        </Tooltip>
+      <legend class="sr-only">Service environment</legend>
+      <div class="flex items-start justify-between gap-4 max-[560px]:flex-col">
+        <div>
+          <p class="text-sm font-medium">Service environment</p>
+          <p class="mt-1 text-xs leading-5 text-muted-foreground">
+            Service keys override project defaults during deployment.
+          </p>
+        </div>
+        <div class="grid shrink-0 gap-2 max-[560px]:w-full">
+          <Tabs
+            :model-value="activeEnvironmentKind"
+            class="max-[560px]:w-full"
+            @update:model-value="
+              (value) => (activeEnvironmentKind = value as 'variables' | 'secrets')
+            "
+          >
+            <TabsList class="h-8 w-full rounded-[4px] sm:w-auto">
+              <TabsTrigger value="variables" class="min-w-28 px-3 text-[11px]">
+                Variables
+                <span class="ml-1 font-mono text-[10px] text-muted-foreground">{{
+                  serviceVariableCount
+                }}</span>
+              </TabsTrigger>
+              <TabsTrigger value="secrets" class="min-w-28 px-3 text-[11px]">
+                <LockKeyhole class="size-3.5" :stroke-width="1.5" />
+                Secrets
+                <span class="ml-1 font-mono text-[10px] text-muted-foreground">{{
+                  serviceSecretCount
+                }}</span>
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+          <button
+            v-if="activeEnvironmentKind === 'secrets' && serviceSecretCount"
+            class="inline-flex items-center justify-end gap-1.5 py-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+            type="button"
+            @click="showSecretValues = !showSecretValues"
+          >
+            <EyeOff v-if="showSecretValues" class="size-3.5" :stroke-width="1.5" />
+            <Eye v-else class="size-3.5" :stroke-width="1.5" />
+            {{ showSecretValues ? "Hide values" : "Reveal values" }}
+          </button>
+        </div>
       </div>
-      <Button class="w-fit" size="sm" type="button" variant="outline" @click="addVariable">
-        <Plus data-icon="inline-start" :stroke-width="1.5" />
-        Add variable
-      </Button>
+
+      <div v-if="activeServiceVariables.length" class="grid gap-2">
+        <div
+          class="hidden grid-cols-[minmax(0,0.8fr)_minmax(0,1fr)_auto_auto] gap-2 py-1 text-[10px] uppercase text-muted-foreground sm:grid"
+        >
+          <span>Key</span>
+          <span>Value</span>
+          <span>Type</span>
+          <span class="sr-only">Actions</span>
+        </div>
+        <div
+          v-for="{ variable, index } in activeServiceVariables"
+          :key="index"
+          class="grid min-h-[58px] grid-cols-[minmax(0,0.8fr)_minmax(0,1fr)_auto_auto] items-end gap-2 border-b border-border py-2.5 last:border-b-0 max-[560px]:grid-cols-[minmax(0,1fr)_auto_auto]"
+        >
+          <label class="grid min-w-0 gap-1.5 text-[11px] text-muted-foreground">
+            Key
+            <Input
+              v-model="variable.key"
+              class="h-8 font-mono text-xs uppercase"
+              autocomplete="off"
+              required
+            />
+          </label>
+          <label
+            class="grid min-w-0 gap-1.5 text-[11px] text-muted-foreground max-[560px]:col-span-3"
+          >
+            Value
+            <Input
+              v-model="variable.value"
+              class="h-8 font-mono text-xs"
+              :type="variable.is_secret && !showSecretValues ? 'password' : 'text'"
+              :placeholder="
+                variable.is_secret && variable.is_set
+                  ? 'Stored securely; enter replacement'
+                  : 'Enter value'
+              "
+              autocomplete="off"
+              required
+            />
+          </label>
+          <label class="grid gap-1.5 text-[11px] text-muted-foreground">
+            Secret
+            <Switch
+              :model-value="variable.is_secret"
+              :aria-label="'Mark ' + (variable.key || 'variable') + ' secret'"
+              @update:model-value="updateSecret(index, $event)"
+            />
+          </label>
+          <Tooltip>
+            <TooltipTrigger as-child>
+              <Button
+                size="icon"
+                type="button"
+                variant="outline"
+                :aria-label="'Remove ' + (variable.key || 'variable')"
+                @click="removeVariable(index)"
+              >
+                <Trash2 :stroke-width="1.5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Remove variable</TooltipContent>
+          </Tooltip>
+        </div>
+      </div>
+      <div v-else class="grid gap-1.5 py-4">
+        <div class="flex items-center gap-2">
+          <LockKeyhole
+            v-if="activeEnvironmentKind === 'secrets'"
+            class="size-4 text-muted-foreground"
+            :stroke-width="1.5"
+          />
+          <p class="text-sm font-medium">
+            {{
+              activeEnvironmentKind === "secrets" ? "No service secrets" : "No service variables"
+            }}
+          </p>
+        </div>
+        <p class="max-w-[56ch] text-xs leading-5 text-muted-foreground">
+          {{
+            activeEnvironmentKind === "secrets"
+              ? "Service secrets override project secrets. Stored values stay masked and must be re-entered whenever this configuration is saved."
+              : "Add a service-specific value when it needs to override a project variable."
+          }}
+        </p>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <Button size="sm" type="button" variant="outline" @click="addVariable(false)">
+          <Plus data-icon="inline-start" :stroke-width="1.5" />
+          Add variable
+        </Button>
+        <Button size="sm" type="button" variant="outline" @click="addVariable(true)">
+          <LockKeyhole data-icon="inline-start" :stroke-width="1.5" />
+          Add secret
+        </Button>
+      </div>
     </fieldset>
 
     <Alert v-if="validationMessage" variant="destructive">

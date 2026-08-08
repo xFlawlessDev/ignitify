@@ -1,5 +1,5 @@
 import { shallowRef } from "vue";
-import { apiGetProject, apiUpdateProject } from "@/lib/api/projects";
+import { apiDeleteProject, apiGetProject, apiUpdateProject } from "@/lib/api/projects";
 import type { ProjectInput, ProjectSummary } from "@/lib/types";
 
 export function useProject() {
@@ -35,5 +35,17 @@ export function useProject() {
     return result.data;
   }
 
-  return { data, loading, error, load, update };
+  async function remove(confirmName: string): Promise<boolean> {
+    if (!data.value) return false;
+    error.value = null;
+    const result = await apiDeleteProject(data.value.id, confirmName);
+    if (!result.success) {
+      error.value = result.error ?? "Could not delete project";
+      return false;
+    }
+    data.value = null;
+    return true;
+  }
+
+  return { data, loading, error, load, update, remove };
 }

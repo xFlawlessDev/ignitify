@@ -309,11 +309,73 @@ impl ProjectsRepository {
             .map(ProjectUpdateOutcome::Updated)
             .ok_or_else(|| sqlx::Error::RowNotFound.into())
     }
+
+    pub async fn remove(
+        &self,
+        actor: ProjectActor<'_>,
+        project_id: &str,
+        confirm_name: &str,
+    ) -> Result<ProjectRemoveOutcome> {
+        let Some(project) = self.get(actor.clone(), project_id).await? else {
+            return Ok(ProjectRemoveOutcome::Missing);
+        };
+        if !actor.is_admin && !project.role.can_update_project() {
+            return Ok(ProjectRemoveOutcome::Forbidden);
+        }
+        if project.name != confirm_name {
+            return Err(DatabaseError::ProjectConfirmationMismatch);
+        }
+
+        let active: bool = sqlx::query_scalar(
+            "SELECT EXISTS(
+               SELECT 1
+               FROM services s
+               JOIN environments e ON e.id = s.environment_id
+               JOIN deployments d ON d.service_id = s.id
+               WHERE e.project_id = ?
+                 AND d.status IN ('queued', 'preparing', 'running', 'healthy', 'stopping')
+             )",
+        )
+        .bind(project_id)
+        .fetch_one(&self.pool)
+        .await?;
+        if active {
+            return Err(DatabaseError::ProjectHasActiveDeployment);
+        }
+
+        let now = Utc::now().to_rfc3339();
+        let mut tx = self.pool.begin().await?;
+        sqlx::query(
+            "INSERT INTO audit_logs (id, user_id, action, resource_type, resource_id, created_at)
+             VALUES (?, ?, 'project.remove', 'project', ?, ?)",
+        )
+        .bind(Uuid::new_v4().to_string())
+        .bind(actor.id)
+        .bind(project_id)
+        .bind(&now)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query("DELETE FROM projects WHERE id = ? AND name = ?")
+            .bind(project_id)
+            .bind(confirm_name)
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+
+        Ok(ProjectRemoveOutcome::Removed)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProjectUpdateOutcome {
     Updated(ProjectSummary),
+    Missing,
+    Forbidden,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProjectRemoveOutcome {
+    Removed,
     Missing,
     Forbidden,
 }

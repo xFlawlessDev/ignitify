@@ -7,8 +7,8 @@ use uuid::Uuid;
 
 use crate::{
     ActivityActor, Database, DatabaseConfig, DomainActor, NewProvider, NewServiceVariable,
-    ProjectActor, ProjectUpdateOutcome, ProviderAuthMode, ProviderKind, ServiceActor,
-    ServiceMutationOutcome,
+    ProjectActor, ProjectRemoveOutcome, ProjectUpdateOutcome, ProviderAuthMode, ProviderKind,
+    ServiceActor, ServiceMutationOutcome,
 };
 
 async fn database() -> Database {
@@ -224,6 +224,77 @@ async fn project_authorization_rename_and_duplicate_name_are_enforced() {
         conflict,
         Err(crate::DatabaseError::ProjectNameConflict)
     ));
+}
+
+#[tokio::test]
+async fn project_remove_requires_matching_owner_confirmation_and_cascades_children() {
+    let database = database().await;
+    let owner_id = user_id(&database, "owner").await;
+    let editor_id = user_id(&database, "editor").await;
+    let project = database
+        .projects()
+        .create(&owner_id, ProjectInput::new("Control Plane").unwrap())
+        .await
+        .unwrap();
+    database
+        .projects()
+        .add_member(project.id.as_str(), &editor_id, ProjectMemberRole::Editor)
+        .await
+        .unwrap();
+
+    let owner = ProjectActor {
+        id: &owner_id,
+        is_admin: false,
+    };
+    let editor = ProjectActor {
+        id: &editor_id,
+        is_admin: false,
+    };
+    assert!(matches!(
+        database
+            .projects()
+            .remove(owner.clone(), project.id.as_str(), "Wrong name")
+            .await,
+        Err(crate::DatabaseError::ProjectConfirmationMismatch)
+    ));
+    assert!(matches!(
+        database
+            .projects()
+            .remove(editor, project.id.as_str(), "Control Plane")
+            .await
+            .unwrap(),
+        ProjectRemoveOutcome::Forbidden
+    ));
+
+    assert!(matches!(
+        database
+            .projects()
+            .remove(owner, project.id.as_str(), "Control Plane")
+            .await
+            .unwrap(),
+        ProjectRemoveOutcome::Removed
+    ));
+    assert!(
+        database
+            .projects()
+            .get(
+                ProjectActor {
+                    id: &owner_id,
+                    is_admin: false,
+                },
+                project.id.as_str(),
+            )
+            .await
+            .unwrap()
+            .is_none()
+    );
+    let child_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM environments WHERE project_id = ?")
+            .bind(project.id.as_str())
+            .fetch_one(&database.pool)
+            .await
+            .unwrap();
+    assert_eq!(child_count, 0);
 }
 
 #[tokio::test]

@@ -1,5 +1,16 @@
 <script setup lang="ts">
-import { Activity, ArrowLeft, Box, GitBranch, RefreshCw, Settings2, Trash2 } from "@lucide/vue";
+import {
+  Activity,
+  AlertTriangle,
+  ArrowLeft,
+  Box,
+  Check,
+  Copy,
+  GitBranch,
+  RefreshCw,
+  Settings2,
+  Trash2,
+} from "@lucide/vue";
 import { computed, onUnmounted, shallowRef, watch } from "vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
 import ServiceConfigurationPanel from "@/components/project/ServiceConfigurationPanel.vue";
@@ -8,6 +19,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogOverlay,
+  AlertDialogPortal,
+  AlertDialogRoot,
+  AlertDialogTitle,
+} from "reka-ui";
 import { useDeployment } from "@/composables/useDeployment";
 import { useDeploymentStream } from "@/composables/useDeploymentStream";
 import { useProjectEnvironment } from "@/composables/useProjectEnvironment";
@@ -41,7 +62,9 @@ const saving = shallowRef(false);
 const deleteConfirmation = shallowRef(false);
 const deleteConfirmName = shallowRef("");
 const deleting = shallowRef(false);
+const copiedServiceName = shallowRef(false);
 let loadGeneration = 0;
+let copyServiceNameTimer: number | undefined;
 
 const projectId = computed(() => String(route.params.projectId));
 const serviceId = computed(() => String(route.params.serviceId));
@@ -140,6 +163,7 @@ async function load() {
   service.value = null;
   deleteConfirmation.value = false;
   deleteConfirmName.value = "";
+  copiedServiceName.value = false;
   deleting.value = false;
   selectedDeploymentId.value = null;
   streamLogs.value = [];
@@ -201,12 +225,44 @@ async function rollbackDeployment(deploymentId: string) {
 function requestDelete() {
   deleteConfirmation.value = true;
   deleteConfirmName.value = "";
+  copiedServiceName.value = false;
 }
 
 function cancelDelete() {
   deleteConfirmation.value = false;
   deleteConfirmName.value = "";
+  copiedServiceName.value = false;
   services.error.value = null;
+}
+
+async function copyServiceName() {
+  const name = service.value?.name;
+  if (!name) return;
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(name);
+    } else {
+      const input = document.createElement("textarea");
+      input.value = name;
+      input.setAttribute("readonly", "true");
+      input.style.position = "fixed";
+      input.style.opacity = "0";
+      document.body.append(input);
+      input.select();
+      document.execCommand("copy");
+      input.remove();
+    }
+  } catch {
+    return;
+  }
+
+  deleteConfirmName.value = name;
+  copiedServiceName.value = true;
+  if (copyServiceNameTimer !== undefined) window.clearTimeout(copyServiceNameTimer);
+  copyServiceNameTimer = window.setTimeout(() => {
+    copiedServiceName.value = false;
+    copyServiceNameTimer = undefined;
+  }, 1_600);
 }
 
 async function deleteService() {
@@ -218,6 +274,7 @@ async function deleteService() {
   if (!removed) return;
   stream.stop();
   logStream.stop();
+  copiedServiceName.value = false;
   await router.push(projectRoute.value);
 }
 
@@ -230,6 +287,7 @@ watch(
 onUnmounted(() => {
   stream.stop();
   logStream.stop();
+  if (copyServiceNameTimer !== undefined) window.clearTimeout(copyServiceNameTimer);
 });
 </script>
 
@@ -327,41 +385,6 @@ onUnmounted(() => {
       </header>
 
       <main class="mt-6 grid gap-6">
-        <section
-          v-if="deleteConfirmation"
-          class="rounded-[10px] border border-destructive/40 bg-destructive/[0.04] p-5"
-          role="alertdialog"
-          aria-labelledby="service-delete-title"
-        >
-          <p id="service-delete-title" class="text-sm font-medium">Delete {{ service.name }}?</p>
-          <p class="mt-1 text-xs text-muted-foreground">
-            Type the service name to permanently remove its configuration, deployments, logs, and
-            domains.
-          </p>
-          <Input
-            v-model="deleteConfirmName"
-            class="mt-3"
-            :placeholder="service.name"
-            autocomplete="off"
-            :disabled="deleting"
-          />
-          <p v-if="serviceConfigError" class="mt-2 text-xs text-destructive" role="alert">
-            {{ serviceConfigError }}
-          </p>
-          <div class="mt-3 flex flex-wrap gap-2">
-            <Button
-              size="sm"
-              variant="destructive"
-              :disabled="deleteConfirmName !== service.name || deleting"
-              @click="deleteService"
-            >
-              {{ deleting ? "Deleting..." : "Delete service" }}
-            </Button>
-            <Button size="sm" variant="outline" :disabled="deleting" @click="cancelDelete">
-              Cancel
-            </Button>
-          </div>
-        </section>
         <ServiceConfigurationPanel
           v-if="activeView === 'configuration'"
           :error="serviceConfigError"
@@ -388,6 +411,90 @@ onUnmounted(() => {
           @select-deployment="selectDeployment"
           @stop="stopService"
         />
+        <AlertDialogRoot v-model:open="deleteConfirmation">
+          <AlertDialogPortal>
+            <AlertDialogOverlay class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm" />
+            <AlertDialogContent
+              class="fixed top-1/2 left-1/2 z-50 grid w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 gap-5 rounded-[10px] border border-border bg-card p-6 shadow-none"
+            >
+              <div class="flex items-start gap-3">
+                <div
+                  class="grid size-9 shrink-0 place-items-center rounded-[6px] border border-destructive/30 bg-destructive/10 text-destructive"
+                >
+                  <AlertTriangle class="size-4" :stroke-width="1.5" />
+                </div>
+                <div class="min-w-0">
+                  <AlertDialogTitle class="text-base font-medium">Delete service?</AlertDialogTitle>
+                  <AlertDialogDescription class="mt-2 text-sm leading-5">
+                    This permanently removes
+                    <span class="inline-flex max-w-full items-center gap-1 align-bottom">
+                      <span class="max-w-[18rem] truncate font-medium text-foreground">{{
+                        service.name
+                      }}</span>
+                      <button
+                        class="grid size-5 shrink-0 place-items-center rounded-[3px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                        type="button"
+                        :aria-label="
+                          copiedServiceName
+                            ? 'Service name copied and filled'
+                            : 'Copy and fill service name'
+                        "
+                        :title="
+                          copiedServiceName ? 'Copied and filled' : 'Copy and fill service name'
+                        "
+                        @click="copyServiceName"
+                      >
+                        <Check v-if="copiedServiceName" class="size-3" :stroke-width="1.75" />
+                        <Copy v-else class="size-3" :stroke-width="1.5" />
+                      </button>
+                    </span>
+                    and its configuration, deployments, logs, and domains.
+                  </AlertDialogDescription>
+                </div>
+              </div>
+              <label class="grid gap-2 text-xs text-muted-foreground" for="delete-service-name">
+                Confirm service name
+                <Input
+                  id="delete-service-name"
+                  v-model="deleteConfirmName"
+                  :placeholder="service.name"
+                  autocomplete="off"
+                  :disabled="deleting"
+                />
+              </label>
+              <p
+                v-if="serviceConfigError"
+                class="border border-destructive/40 px-3 py-2 text-xs text-destructive"
+                role="alert"
+              >
+                {{ serviceConfigError }}
+              </p>
+              <div class="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                <AlertDialogCancel as-child>
+                  <Button
+                    class="w-full sm:w-auto"
+                    variant="outline"
+                    :disabled="deleting"
+                    @click="cancelDelete"
+                  >
+                    Cancel
+                  </Button>
+                </AlertDialogCancel>
+                <AlertDialogAction as-child>
+                  <Button
+                    class="w-full sm:w-auto"
+                    variant="destructive"
+                    :disabled="deleteConfirmName !== service.name || deleting"
+                    @click.prevent="deleteService"
+                  >
+                    <Trash2 class="size-4" :stroke-width="1.5" />
+                    {{ deleting ? "Deleting..." : "Delete service" }}
+                  </Button>
+                </AlertDialogAction>
+              </div>
+            </AlertDialogContent>
+          </AlertDialogPortal>
+        </AlertDialogRoot>
       </main>
     </template>
   </div>
