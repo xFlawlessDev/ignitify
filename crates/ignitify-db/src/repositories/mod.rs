@@ -7,6 +7,7 @@ mod projects;
 mod providers;
 mod refresh_tokens;
 mod services;
+mod settings;
 mod users;
 
 pub use activity::{ActivityActor, ActivityRecord, ActivityRepository};
@@ -34,5 +35,9 @@ pub use refresh_tokens::RefreshTokensRepository;
 pub use services::{
     AuthorizedService, NewServiceVariable, ServiceActor, ServiceMutationOutcome,
     ServiceVariableRecord, ServicesRepository,
+};
+pub use settings::{
+    NewServerCertificate, ServerCertificateRecord, ServerSettingsRecord, ServerSettingsRepository,
+    ServerSettingsUpdate,
 };
 pub use users::UsersRepository;

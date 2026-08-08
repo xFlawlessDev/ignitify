@@ -5,4 +5,6 @@
 /data/ignitify-secrets.json
 /data/builds/
 /data/compose/
+/infra/traefik/dynamic/certificates.yml
+/infra/traefik/dynamic/certs/
 .env

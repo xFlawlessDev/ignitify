@@ -266,7 +266,7 @@ impl DeploymentsRepository {
     ) -> Result<Option<DeploymentRecord>> {
         let row = sqlx::query_as::<_, DeploymentWithProjectRow>(
             "SELECT d.id, d.service_id, d.generation, d.idempotency_key, d.requested_by_user_id,
-                    d.spec_json, d.source_config_json, d.source_revision, d.local_image_id,
+                    d.spec_json, d.runtime_spec_json, d.source_config_json, d.source_revision, d.local_image_id,
                     d.variables_ciphertext, d.runtime_ref, d.status, d.failure_reason,
                     d.created_at, d.started_at, d.finished_at, e.project_id
              FROM deployments d
@@ -301,7 +301,7 @@ impl DeploymentsRepository {
             return Ok(None);
         }
         let rows = sqlx::query_as::<_, DeploymentRow>(
-            "SELECT id, service_id, generation, idempotency_key, requested_by_user_id, spec_json,
+            "SELECT id, service_id, generation, idempotency_key, requested_by_user_id, spec_json, runtime_spec_json,
                     source_config_json, source_revision, local_image_id, variables_ciphertext, runtime_ref,
                     status, failure_reason, created_at, started_at, finished_at
              FROM deployments
@@ -332,7 +332,7 @@ impl DeploymentsRepository {
         }
         let rows = sqlx::query_as::<_, DeploymentRow>(
             "SELECT d.id, d.service_id, d.generation, d.idempotency_key, d.requested_by_user_id,
-                    d.spec_json, d.source_config_json, d.source_revision, d.local_image_id,
+                    d.spec_json, d.runtime_spec_json, d.source_config_json, d.source_revision, d.local_image_id,
                     d.variables_ciphertext, d.runtime_ref, d.status, d.failure_reason,
                     d.created_at, d.started_at, d.finished_at
              FROM deployments d
@@ -366,7 +366,7 @@ impl DeploymentsRepository {
             return Ok(None);
         }
         let row = sqlx::query_as::<_, DeploymentRow>(
-            "SELECT id, service_id, generation, idempotency_key, requested_by_user_id, spec_json,
+            "SELECT id, service_id, generation, idempotency_key, requested_by_user_id, spec_json, runtime_spec_json,
                     source_config_json, source_revision, local_image_id, variables_ciphertext, runtime_ref,
                     status, failure_reason, created_at, started_at, finished_at
              FROM deployments
@@ -456,6 +456,34 @@ impl DeploymentsRepository {
         Ok(changed == 1)
     }
 
+    pub async fn record_source_resolution(
+        &self,
+        deployment_id: &str,
+        source_revision: &str,
+        local_image_id: Option<&str>,
+        runtime_spec: Option<&ServiceSpec>,
+    ) -> Result<bool> {
+        let runtime_spec_json = runtime_spec
+            .map(serde_json::to_string)
+            .transpose()
+            .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
+        let changed = sqlx::query(
+            "UPDATE deployments
+             SET source_revision = COALESCE(source_revision, ?),
+                 local_image_id = COALESCE(?, local_image_id),
+                 runtime_spec_json = COALESCE(?, runtime_spec_json)
+             WHERE id = ? AND status = 'preparing' AND runtime_ref IS NULL",
+        )
+        .bind(source_revision)
+        .bind(local_image_id)
+        .bind(runtime_spec_json)
+        .bind(deployment_id)
+        .execute(&self.pool)
+        .await?
+        .rows_affected();
+        Ok(changed == 1)
+    }
+
     pub async fn record_source_revision(
         &self,
         deployment_id: &str,
@@ -496,7 +524,7 @@ impl DeploymentsRepository {
         deployment_id: &str,
     ) -> Result<Vec<DeploymentRecord>> {
         let rows = sqlx::query_as::<_, DeploymentRow>(
-            "SELECT id, service_id, generation, idempotency_key, requested_by_user_id, spec_json,
+            "SELECT id, service_id, generation, idempotency_key, requested_by_user_id, spec_json, runtime_spec_json,
                     source_config_json, source_revision, local_image_id, variables_ciphertext, runtime_ref,
                     status, failure_reason, created_at, started_at, finished_at
              FROM deployments
@@ -597,7 +625,7 @@ impl DeploymentsRepository {
 
     pub async fn routable(&self) -> Result<Vec<DeploymentRecord>> {
         let rows = sqlx::query_as::<_, DeploymentRow>(
-            "SELECT id, service_id, generation, idempotency_key, requested_by_user_id, spec_json,
+            "SELECT id, service_id, generation, idempotency_key, requested_by_user_id, spec_json, runtime_spec_json,
                     source_config_json, source_revision, local_image_id, variables_ciphertext, runtime_ref,
                     status, failure_reason, created_at, started_at, finished_at
              FROM deployments WHERE status IN ('running', 'healthy') AND runtime_ref IS NOT NULL",
@@ -609,7 +637,7 @@ impl DeploymentsRepository {
 
     pub async fn nonterminal(&self) -> Result<Vec<DeploymentRecord>> {
         let rows = sqlx::query_as::<_, DeploymentRow>(
-            "SELECT id, service_id, generation, idempotency_key, requested_by_user_id, spec_json,
+            "SELECT id, service_id, generation, idempotency_key, requested_by_user_id, spec_json, runtime_spec_json,
                     source_config_json, source_revision, local_image_id, variables_ciphertext, runtime_ref,
                     status, failure_reason, created_at, started_at, finished_at
              FROM deployments
@@ -864,7 +892,7 @@ async fn fetch_by_service_key(
     idempotency_key: &str,
 ) -> Result<Option<DeploymentRecord>> {
     let row = sqlx::query_as::<_, DeploymentRow>(
-        "SELECT id, service_id, generation, idempotency_key, requested_by_user_id, spec_json,
+        "SELECT id, service_id, generation, idempotency_key, requested_by_user_id, spec_json, runtime_spec_json,
                 source_config_json, source_revision, local_image_id, variables_ciphertext, runtime_ref,
                 status, failure_reason, created_at, started_at, finished_at
          FROM deployments WHERE service_id = ? AND idempotency_key = ?",
@@ -881,7 +909,7 @@ async fn fetch_deployment(
     deployment_id: &str,
 ) -> Result<Option<DeploymentRecord>> {
     let row = sqlx::query_as::<_, DeploymentRow>(
-        "SELECT id, service_id, generation, idempotency_key, requested_by_user_id, spec_json,
+        "SELECT id, service_id, generation, idempotency_key, requested_by_user_id, spec_json, runtime_spec_json,
                 source_config_json, source_revision, local_image_id, variables_ciphertext, runtime_ref,
                 status, failure_reason, created_at, started_at, finished_at
          FROM deployments WHERE id = ?",
@@ -975,7 +1003,12 @@ fn deployment_from_row(row: DeploymentRow) -> Result<DeploymentRecord> {
         generation: row.generation,
         idempotency_key: row.idempotency_key,
         requested_by_user_id: row.requested_by_user_id,
-        spec: decode_spec(&row.spec_json)?,
+        spec: row
+            .runtime_spec_json
+            .as_deref()
+            .map(decode_spec)
+            .transpose()?
+            .unwrap_or(decode_spec(&row.spec_json)?),
         source_config: decode_source_config(row.source_config_json)?,
         source_revision: row.source_revision,
         local_image_id: row.local_image_id,
@@ -1042,6 +1075,7 @@ struct DeploymentRow {
     idempotency_key: String,
     requested_by_user_id: String,
     spec_json: String,
+    runtime_spec_json: Option<String>,
     source_config_json: Option<String>,
     source_revision: Option<String>,
     local_image_id: Option<String>,
@@ -1062,6 +1096,7 @@ struct DeploymentWithProjectRow {
     idempotency_key: String,
     requested_by_user_id: String,
     spec_json: String,
+    runtime_spec_json: Option<String>,
     source_config_json: Option<String>,
     source_revision: Option<String>,
     local_image_id: Option<String>,
@@ -1084,6 +1119,7 @@ impl From<DeploymentWithProjectRow> for DeploymentRow {
             idempotency_key: row.idempotency_key,
             requested_by_user_id: row.requested_by_user_id,
             spec_json: row.spec_json,
+            runtime_spec_json: row.runtime_spec_json,
             source_config_json: row.source_config_json,
             source_revision: row.source_revision,
             local_image_id: row.local_image_id,

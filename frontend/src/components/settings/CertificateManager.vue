@@ -12,7 +12,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import type { CustomCertificateSummary } from "./types";
+import type { CustomCertificateSummary, CustomCertificateUpload } from "./types";
 
 interface Props {
   certificates: CustomCertificateSummary[];
@@ -21,7 +21,7 @@ interface Props {
 const props = defineProps<Props>();
 
 const emit = defineEmits<{
-  (event: "add", certificate: CustomCertificateSummary): void;
+  (event: "add", certificate: CustomCertificateUpload): void;
   (event: "remove", certificateId: string): void;
 }>();
 
@@ -56,22 +56,14 @@ function updateFile(kind: "certificate" | "privateKey", event: Event) {
   else privateKeyFile.value = file;
 }
 
-function createCertificateId() {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-  return `certificate-${Date.now()}`;
-}
-
 function addCertificate() {
   showValidation.value = true;
   if (formError.value || !certificateFile.value || !privateKeyFile.value) return;
 
   emit("add", {
-    id: createCertificateId(),
     name: form.name.trim(),
-    certificateFileName: certificateFile.value.name,
-    privateKeyFileName: privateKeyFile.value.name,
+    certificateFile: certificateFile.value,
+    privateKeyFile: privateKeyFile.value,
   });
   updateDialogOpen(false);
 }

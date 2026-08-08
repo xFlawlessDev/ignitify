@@ -71,7 +71,7 @@ async fn main() -> Result<()> {
     )
     .shared();
     let secrets_identity = runtime_secrets.secrets_age_identity;
-    let provider_cipher = Some(Arc::new(AgeCipher::from_identity(&secrets_identity)?));
+    let provider_cipher = Arc::new(AgeCipher::from_identity(&secrets_identity)?);
     let services =
         ServiceControl::new(database.services(), database.projects(), &secrets_identity)?;
     let (control, wake) = ControlHandle::new(database.deployments(), &secrets_identity)?;
@@ -80,7 +80,11 @@ async fn main() -> Result<()> {
     let metrics_runtime = image_runtime.clone();
     let runtime = RuntimeSelector::new(image_runtime.clone(), compose_runtime);
     let runtime_health: Arc<dyn ignitify_control_plane::RuntimeHealth> = Arc::new(runtime.clone());
-    let ingress = TraefikIngress::new(image_runtime.clone());
+    let ingress = TraefikIngress::with_server_settings(
+        image_runtime.clone(),
+        database.clone(),
+        provider_cipher.clone(),
+    );
     let _ingress_ready = ingress.ensure_started().await;
     let source_build = GitSourceBuild::from_environment(database.clone(), &secrets_identity)?;
     let ingress_health: Arc<dyn ignitify_control_plane::RuntimeHealth> = Arc::new(ingress.clone());
@@ -106,7 +110,12 @@ async fn main() -> Result<()> {
     let system_metrics: Arc<dyn SystemMetricsProvider> = Arc::new(
         system_metrics::SystemMetricsCollector::new(docker_runtime.clone()),
     );
-    let app = ignitify_api::router_with_system_metrics_and_docker_and_provider_cipher_and_ingress(
+    let domain_policy = ignitify_api::DomainPolicy::from_suffixes(
+        env_value("IGNITIFY_ALLOWED_DOMAIN_SUFFIXES")
+            .into_iter()
+            .flat_map(|suffixes| suffixes.split(',').map(str::to_owned).collect::<Vec<_>>()),
+    );
+    let app = ignitify_api::router_with_system_metrics_and_docker_and_provider_cipher_and_ingress_and_domain_policy(
         auth,
         database,
         services,
@@ -118,8 +127,9 @@ async fn main() -> Result<()> {
         ignitify_terminal::TerminalService,
         env_value("IGNITIFY_SECURE_COOKIES").is_some_and(|value| value == "true"),
         trusted_origins(),
-        provider_cipher,
+        Some(provider_cipher),
         ingress_health,
+        domain_policy,
     );
     let listener = TcpListener::bind("127.0.0.1:5656").await?;
 

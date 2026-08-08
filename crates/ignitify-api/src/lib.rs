@@ -1,5 +1,6 @@
 //! Axum API routes and HTTP adapters for Ignitify.
 
+mod domain_policy;
 mod error;
 mod extract;
 mod handlers;
@@ -18,6 +19,7 @@ use ignitify_db::Database;
 use ignitify_runtime_docker::DockerRuntime;
 
 use crate::state::AppState;
+pub use domain_policy::DomainPolicy;
 
 /// Builds all Ignitify HTTP routes from initialized runtime dependencies.
 #[expect(
@@ -170,6 +172,45 @@ pub fn router_with_system_metrics_and_docker_and_provider_cipher_and_ingress(
     provider_cipher: Option<Arc<AgeCipher>>,
     ingress_health: Arc<dyn RuntimeHealth>,
 ) -> Router {
+    router_with_system_metrics_and_docker_and_provider_cipher_and_ingress_and_domain_policy(
+        auth,
+        database,
+        services,
+        control,
+        runtime_health,
+        worker_health,
+        system_metrics,
+        docker_runtime,
+        terminal,
+        secure_cookies,
+        trusted_origins,
+        provider_cipher,
+        ingress_health,
+        DomainPolicy::permissive(),
+    )
+}
+
+/// Builds all Ignitify HTTP routes with live ingress readiness and a public-domain policy.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "router composes independent runtime dependencies"
+)]
+pub fn router_with_system_metrics_and_docker_and_provider_cipher_and_ingress_and_domain_policy(
+    auth: Arc<AuthService>,
+    database: Database,
+    services: Option<ServiceControl>,
+    control: Option<ControlHandle>,
+    runtime_health: Arc<dyn RuntimeHealth>,
+    worker_health: Arc<dyn RuntimeHealth>,
+    system_metrics: Arc<dyn SystemMetricsProvider>,
+    docker_runtime: Option<DockerRuntime>,
+    terminal: ignitify_terminal::TerminalService,
+    secure_cookies: bool,
+    trusted_origins: Arc<[String]>,
+    provider_cipher: Option<Arc<AgeCipher>>,
+    ingress_health: Arc<dyn RuntimeHealth>,
+    domain_policy: DomainPolicy,
+) -> Router {
     routes::router(AppState {
         auth,
         database,
@@ -184,6 +225,7 @@ pub fn router_with_system_metrics_and_docker_and_provider_cipher_and_ingress(
         secure_cookies,
         trusted_origins,
         provider_cipher,
+        domain_policy,
         github_manifest_states: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
     })
 }

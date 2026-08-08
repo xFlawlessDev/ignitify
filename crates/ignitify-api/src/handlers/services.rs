@@ -370,7 +370,7 @@ mod tests {
     }
 
     #[test]
-    fn compose_policy_accepts_tagged_images() {
+    fn compose_policy_rejects_mutable_image_tags() {
         let result = input(ServiceRequest {
             name: "wordpress".to_owned(),
             kind: Some("compose".to_owned()),
@@ -383,7 +383,7 @@ mod tests {
             source_config: None,
         });
 
-        assert!(result.is_ok());
+        assert!(matches!(result, Err(ApiError::ComposePolicy(_))));
     }
 
     #[test]

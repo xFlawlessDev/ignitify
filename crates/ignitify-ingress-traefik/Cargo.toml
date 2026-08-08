@@ -6,10 +6,12 @@ license.workspace = true
 
 [dependencies]
 ignitify-control-plane = { path = "../ignitify-control-plane" }
+ignitify-db = { path = "../ignitify-db" }
 ignitify-domain = { path = "../ignitify-domain" }
 ignitify-runtime-docker = { path = "../ignitify-runtime-docker" }
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+uuid.workspace = true
 
 [dev-dependencies]

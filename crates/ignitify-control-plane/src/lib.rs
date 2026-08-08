@@ -824,6 +824,14 @@ pub trait Ingress: Send + Sync + 'static {
         hostname: &DomainName,
         port: u32,
     ) -> Result<IngressRoute>;
+
+    fn reconcile(&self) -> impl Future<Output = Result<()>> + Send {
+        async { Ok(()) }
+    }
+
+    fn ensure_ready(&self) -> impl Future<Output = Result<bool>> + Send {
+        async { Ok(true) }
+    }
 }
 
 pub trait ImageRuntime: Send + Sync + 'static {
@@ -1143,6 +1151,7 @@ where
     I: Ingress,
     S: SourceBuild,
 {
+    ingress.reconcile().await?;
     for deployment in deployments.nonterminal().await? {
         match deployment.state {
             DeploymentState::Queued => {}
@@ -1221,7 +1230,16 @@ where
         }
     }
     for deployment in deployments.routable().await? {
-        reconcile_routes(domains, cipher, runtime, ingress, &deployment).await?;
+        let runtime_deployment = RuntimeDeployment::from(&deployment);
+        reconcile_routes(
+            domains,
+            cipher,
+            runtime,
+            ingress,
+            &deployment,
+            &runtime_deployment,
+        )
+        .await?;
     }
     let Some(deployment) = deployments.claim_next().await? else {
         return Ok(());
@@ -1231,19 +1249,14 @@ where
         .await;
     let runtime_deployment = match source_build.build(&deployment).await {
         Ok(Some(output)) => {
-            if let Some(local_image_id) = output.local_image_id.as_deref() {
-                deployments
-                    .record_source_build(
-                        deployment.id.as_str(),
-                        &output.source_revision,
-                        local_image_id,
-                    )
-                    .await?;
-            } else {
-                deployments
-                    .record_source_revision(deployment.id.as_str(), &output.source_revision)
-                    .await?;
-            }
+            deployments
+                .record_source_resolution(
+                    deployment.id.as_str(),
+                    &output.source_revision,
+                    output.local_image_id.as_deref(),
+                    output.runtime_spec.as_ref(),
+                )
+                .await?;
             let mut runtime_deployment = RuntimeDeployment::from(&deployment);
             runtime_deployment.local_image_id = output.local_image_id;
             if let Some(spec) = output.runtime_spec {
@@ -1326,7 +1339,15 @@ where
             publisher,
         )
         .await?;
-        reconcile_routes(domains, cipher, runtime, ingress, &deployment).await?;
+        reconcile_routes(
+            domains,
+            cipher,
+            runtime,
+            ingress,
+            &deployment,
+            &runtime_deployment,
+        )
+        .await?;
     }
     if became_healthy {
         cleanup_prior_deployments(deployments, runtime, &deployment, publisher).await?;
@@ -1373,28 +1394,41 @@ async fn reconcile_routes<R, I>(
     runtime: &R,
     ingress: &I,
     deployment: &DeploymentRecord,
+    runtime_deployment: &RuntimeDeployment,
 ) -> Result<()>
 where
     R: ImageRuntime,
     I: Ingress,
 {
-    let Some(port) = deployment.spec.internal_port() else {
+    let Some(port) = runtime_deployment.spec.internal_port() else {
         return Ok(());
     };
     let domain_records = domains
         .active_for_service(deployment.service_id.as_str())
         .await?;
+    if domain_records.is_empty() {
+        return Ok(());
+    }
+    if !ingress.ensure_ready().await? {
+        set_domain_statuses(
+            domains,
+            &domain_records,
+            ignitify_domain::DomainStatus::Failed,
+            Some("ingress is unavailable"),
+        )
+        .await?;
+        return Ok(());
+    }
     let mut routes = Vec::with_capacity(domain_records.len());
     for domain in &domain_records {
         routes.push(ingress.route(&deployment.service_id, &domain.id, &domain.hostname, port)?);
     }
     let environment = decrypt_deployment_environment(cipher, &deployment.variables_ciphertext)?;
-    let runtime_deployment = RuntimeDeployment::from(deployment);
     let Some(runtime_ref) = deployment.runtime_ref.as_deref() else {
         return Ok(());
     };
     match runtime
-        .reconcile_routes(&runtime_deployment, runtime_ref, environment, routes)
+        .reconcile_routes(runtime_deployment, runtime_ref, environment, routes)
         .await
     {
         Ok(true) => {
@@ -1780,7 +1814,10 @@ fn validate_idempotency_key(value: &str) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Arc, Mutex};
+    use std::sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    };
 
     use age::secrecy::ExposeSecret;
     use ignitify_db::{
@@ -1875,9 +1912,64 @@ mod tests {
         }
     }
 
+    struct SyncingIngress(Arc<AtomicBool>);
+
+    impl Ingress for SyncingIngress {
+        fn route(
+            &self,
+            _service_id: &ignitify_domain::ServiceId,
+            _domain_id: &ignitify_domain::DomainId,
+            _hostname: &ignitify_domain::DomainName,
+            _port: u32,
+        ) -> super::Result<IngressRoute> {
+            Ok(IngressRoute {
+                labels: std::collections::BTreeMap::new(),
+                network: "none".to_owned(),
+            })
+        }
+
+        async fn reconcile(&self) -> super::Result<()> {
+            self.0.store(true, Ordering::Release);
+            Ok(())
+        }
+    }
+
     struct FakeRuntime {
         calls: Arc<Mutex<Vec<String>>>,
+        routed_local_images: Arc<Mutex<Vec<Option<String>>>>,
         routes_fail: bool,
+    }
+
+    #[tokio::test]
+    async fn worker_syncs_ingress_before_claiming_deployments() {
+        let database = Database::connect(&DatabaseConfig {
+            url: "sqlite::memory:".to_owned(),
+        })
+        .await
+        .unwrap();
+        let identity = age::x25519::Identity::generate().to_string();
+        let cipher = AgeCipher::from_identity(identity.expose_secret()).unwrap();
+        let synchronized = Arc::new(AtomicBool::new(false));
+        let ingress = SyncingIngress(synchronized.clone());
+        let runtime = FakeRuntime {
+            calls: Arc::new(Mutex::new(vec![])),
+            routed_local_images: Arc::new(Mutex::new(vec![])),
+            routes_fail: false,
+        };
+        let (publisher, _) = tokio::sync::broadcast::channel(16);
+
+        reconcile_once(
+            &database.deployments(),
+            &database.domains(),
+            &cipher,
+            &runtime,
+            &ingress,
+            &super::StreamPublisher::new(publisher),
+        )
+        .await
+        .unwrap();
+
+        assert!(synchronized.load(Ordering::Acquire));
     }
 
     impl ImageRuntime for FakeRuntime {
@@ -1926,11 +2018,15 @@ mod tests {
 
         async fn reconcile_routes(
             &self,
-            _deployment: &super::RuntimeDeployment,
+            deployment: &super::RuntimeDeployment,
             _runtime_ref: &str,
             _environment: Vec<String>,
             _routes: Vec<IngressRoute>,
         ) -> super::Result<bool> {
+            self.routed_local_images
+                .lock()
+                .unwrap()
+                .push(deployment.local_image_id.clone());
             if self.routes_fail {
                 return Err(super::Error::Runtime);
             }
@@ -1980,6 +2076,18 @@ mod tests {
         let ignitify_db::ServiceMutationOutcome::Created(service) = service else {
             panic!("service must exist");
         };
+        database
+            .domains()
+            .create(
+                ignitify_db::DomainActor {
+                    id: &actor_id,
+                    is_admin: false,
+                },
+                service.id.as_str(),
+                DomainName::new("app.example.com").unwrap(),
+            )
+            .await
+            .unwrap();
         let identity = age::x25519::Identity::generate().to_string();
         let cipher = AgeCipher::from_identity(identity.expose_secret()).unwrap();
         let variables_ciphertext = cipher.encrypt(b"{}").unwrap();
@@ -2008,11 +2116,22 @@ mod tests {
         let claimed = database.deployments().claim_next().await.unwrap().unwrap();
         database
             .deployments()
+            .record_source_resolution(
+                claimed.id.as_str(),
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                Some("sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+                None,
+            )
+            .await
+            .unwrap();
+        database
+            .deployments()
             .record_runtime_ref(claimed.id.as_str(), &format!("runtime-{}", claimed.id))
             .await
             .unwrap();
         let runtime = FakeRuntime {
             calls: Arc::new(Mutex::new(vec![])),
+            routed_local_images: Arc::new(Mutex::new(vec![])),
             routes_fail: false,
         };
         let (publisher, _) = tokio::sync::broadcast::channel(16);
@@ -2045,6 +2164,13 @@ mod tests {
             ]
         );
         assert!(runtime.calls.lock().unwrap().is_empty());
+        assert_eq!(
+            runtime.routed_local_images.lock().unwrap().as_slice(),
+            [Some(
+                "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                    .to_owned()
+            )]
+        );
     }
 
     #[tokio::test]
@@ -2133,6 +2259,7 @@ mod tests {
             .unwrap();
         let runtime = FakeRuntime {
             calls: Arc::new(Mutex::new(vec![])),
+            routed_local_images: Arc::new(Mutex::new(vec![])),
             routes_fail: true,
         };
         let (publisher, _) = tokio::sync::broadcast::channel(16);

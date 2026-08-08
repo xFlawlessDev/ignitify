@@ -11,6 +11,7 @@ use ignitify_control_plane::{
 };
 use ignitify_domain::ServiceSpec;
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use tokio::{fs, process::Command};
 use yaml_rust2::{
     Yaml, YamlLoader,
@@ -236,8 +237,13 @@ impl ComposeRuntime {
         stage: &Path,
         deployment: &RuntimeDeployment,
         routes: &[IngressRoute],
+        canonical: &Value,
     ) -> Result<()> {
-        let content = render_override(deployment, routes)?;
+        let content = render_override(
+            deployment,
+            routes,
+            canonical_volume_names(deployment, canonical),
+        )?;
         write_restricted(&stage.join("ignitify.override.yaml"), content.as_bytes()).await
     }
 
@@ -280,7 +286,11 @@ fn default_docker_binary() -> PathBuf {
     }
 }
 
-fn render_override(deployment: &RuntimeDeployment, routes: &[IngressRoute]) -> Result<String> {
+fn render_override(
+    deployment: &RuntimeDeployment,
+    routes: &[IngressRoute],
+    volumes: Vec<(String, String)>,
+) -> Result<String> {
     let ServiceSpec::Compose {
         exposed_service, ..
     } = &deployment.spec
@@ -301,16 +311,47 @@ fn render_override(deployment: &RuntimeDeployment, routes: &[IngressRoute]) -> R
             ));
         }
     }
-    let networks = (!routes.is_empty()).then(|| {
-        format!(
-            "    networks:\n      - {PROXY_NETWORK}\nnetworks:\n  {PROXY_NETWORK}:\n    external: true\n"
+    let (service_network, network_definition) = if routes.is_empty() {
+        (String::new(), String::new())
+    } else {
+        (
+            format!("    networks:\n      - {PROXY_NETWORK}\n"),
+            format!("networks:\n  {PROXY_NETWORK}:\n    external: true\n"),
         )
+    };
+    let volumes = (!volumes.is_empty()).then(|| {
+        let entries = volumes
+            .into_iter()
+            .map(|(name, value)| format!("  \"{}\":\n    name: {value}", yaml_quote(&name)))
+            .collect::<Vec<_>>()
+            .join("\n");
+        format!("volumes:\n{entries}\n")
     });
     Ok(format!(
-        "services:\n  {exposed_service}:\n{}    labels:\n{}\n",
-        networks.unwrap_or_default(),
+        "services:\n  {exposed_service}:\n    labels:\n{}\n{}{}{}",
         labels.join("\n"),
+        service_network,
+        network_definition,
+        volumes.unwrap_or_default(),
     ))
+}
+
+fn canonical_volume_names(deployment: &RuntimeDeployment, value: &Value) -> Vec<(String, String)> {
+    let Some(volumes) = value.get("volumes").and_then(Value::as_object) else {
+        return Vec::new();
+    };
+    volumes
+        .keys()
+        .map(|name| {
+            let mut digest = Sha256::new();
+            digest.update(name.as_bytes());
+            let digest = format!("{:x}", digest.finalize());
+            (
+                name.clone(),
+                format!("ignitify-{}-{}", deployment.service_id, &digest[..24]),
+            )
+        })
+        .collect()
 }
 
 impl RuntimeHealth for ComposeRuntime {
@@ -344,7 +385,8 @@ impl ImageRuntime for ComposeRuntime {
             self.prepare_stage(deployment, yaml, &environment).await?;
             let canonical = self.canonicalize(&stage, &project, false).await?;
             ensure_exposed_service(&canonical, exposed_service)?;
-            self.write_override(&stage, deployment, &[]).await?;
+            self.write_override(&stage, deployment, &[], &canonical)
+                .await?;
             self.canonicalize(&stage, &project, true).await?;
             up_attempted = true;
             self.up(&stage, &project, true).await
@@ -500,7 +542,9 @@ impl ImageRuntime for ComposeRuntime {
         let project = Self::project_name(deployment);
         let result = async {
             self.prepare_stage(deployment, yaml, &environment).await?;
-            self.write_override(&stage, deployment, &routes).await?;
+            let base = self.canonicalize(&stage, &project, false).await?;
+            self.write_override(&stage, deployment, &routes, &base)
+                .await?;
             let canonical = self.canonicalize(&stage, &project, true).await?;
             ensure_exposed_service(&canonical, exposed_service)?;
             self.up(&stage, &project, true).await
@@ -748,7 +792,7 @@ fn inspect_yaml(value: &Yaml, depth: usize, services: &mut usize) -> Result<()> 
                     && !matches!(child, Yaml::String(image) if is_compose_image(image))
                 {
                     return Err(Error::Policy(
-                        "every Compose image must use an explicit tag or digest",
+                        "every Compose image must use a SHA-256 digest",
                     ));
                 }
                 if key == "volumes"
@@ -866,7 +910,7 @@ fn validate_canonical(value: &Value, generated: bool) -> Result<()> {
             .ok_or(Error::Policy("every service needs image"))?;
         if !is_compose_image(image) {
             return Err(Error::Policy(
-                "every Compose image must use an explicit tag or digest",
+                "every Compose image must use a SHA-256 digest",
             ));
         }
     }
@@ -939,23 +983,7 @@ fn ensure_exposed_service(value: &Value, service: &str) -> Result<()> {
 }
 
 fn is_compose_image(value: &str) -> bool {
-    if ignitify_domain::is_digest_image_reference(value) {
-        return true;
-    }
-
-    let Some((repository, tag)) = value.rsplit_once(':') else {
-        return false;
-    };
-    !repository.is_empty()
-        && !repository.ends_with('/')
-        && repository.bytes().all(|byte| {
-            byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-' | b'/' | b':')
-        })
-        && !tag.is_empty()
-        && tag.len() <= 128
-        && tag
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
+    ignitify_domain::is_digest_image_reference(value)
 }
 
 fn yaml_quote(value: &str) -> String {
@@ -1014,14 +1042,17 @@ mod tests {
     use super::{MAX_DEPTH, preflight_yaml, service_statuses, validate_canonical};
     use serde_json::json;
 
-    #[cfg(unix)]
     use {
-        ignitify_control_plane::{ImageRuntime, RuntimeDeployment},
+        ignitify_control_plane::RuntimeDeployment,
         ignitify_domain::{DeploymentId, ServiceId, ServiceSpec},
-        std::{fs, os::unix::fs::PermissionsExt},
     };
 
     #[cfg(unix)]
+    use {
+        ignitify_control_plane::ImageRuntime,
+        std::{fs, os::unix::fs::PermissionsExt},
+    };
+
     fn deployment() -> RuntimeDeployment {
         RuntimeDeployment {
             id: DeploymentId::new("00000000-0000-0000-0000-000000000001").unwrap(),
@@ -1085,13 +1116,45 @@ mod tests {
         );
     }
 
-    #[cfg(unix)]
     #[test]
     fn override_without_routes_keeps_compose_service_off_proxy_network() {
-        let content = super::render_override(&deployment(), &[]).unwrap();
+        let content = super::render_override(&deployment(), &[], vec![]).unwrap();
 
         assert!(!content.contains(super::PROXY_NETWORK));
         assert!(content.contains(super::MANAGED_LABEL));
+    }
+
+    #[test]
+    fn override_uses_a_stable_volume_name_per_service() {
+        let deployment = deployment();
+        let canonical = json!({ "volumes": { "data": {} } });
+        let content = super::render_override(
+            &deployment,
+            &[],
+            super::canonical_volume_names(&deployment, &canonical),
+        )
+        .unwrap();
+
+        assert!(content.contains("\"data\":"));
+        assert!(content.contains("name: ignitify-00000000-0000-0000-0000-000000000002-"));
+    }
+
+    #[test]
+    fn override_keeps_route_labels_inside_exposed_service() {
+        let deployment = deployment();
+        let route = ignitify_control_plane::IngressRoute {
+            labels: std::collections::BTreeMap::from([(
+                "traefik.enable".to_owned(),
+                "true".to_owned(),
+            )]),
+            network: super::PROXY_NETWORK.to_owned(),
+        };
+        let content = super::render_override(&deployment, &[route], vec![]).unwrap();
+
+        assert!(content.contains("    labels:\n      com.ignitify.managed: \"true\""));
+        assert!(content.contains("      traefik.enable: \"true\""));
+        assert!(content.contains("    networks:\n      - ignitify-proxy"));
+        assert!(content.find("    labels:").unwrap() < content.find("networks:").unwrap());
     }
 
     #[cfg(unix)]
@@ -1299,14 +1362,9 @@ mod tests {
     }
 
     #[test]
-    fn accepts_compose_images_with_explicit_tags() {
+    fn rejects_compose_images_with_mutable_tags() {
         let yaml = "services:\n  router:\n    image: decolua/9router:0.5.40\n  headroom:\n    image: ghcr.io/chopratejas/headroom:0.6.7\n";
-        preflight_yaml(yaml).unwrap();
-        validate_canonical(
-            &json!({"services":{"router":{"image":"decolua/9router:0.5.40"}}}),
-            false,
-        )
-        .unwrap();
+        assert!(preflight_yaml(yaml).is_err());
         assert!(!super::is_compose_image("decolua/9router"));
     }
 

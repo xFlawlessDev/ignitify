@@ -21,7 +21,7 @@ use ignitify_db::{DatabaseConfig, ProjectActor, UserRole as DatabaseUserRole};
 use ignitify_domain::ProjectMemberRole;
 use tower::ServiceExt;
 
-use crate::{router, state::AppState};
+use crate::{DomainPolicy, router, state::AppState};
 
 async fn state() -> AppState {
     let database = ignitify_db::Database::connect(&DatabaseConfig {
@@ -62,6 +62,7 @@ async fn state() -> AppState {
         provider_cipher: Some(Arc::new(
             AgeCipher::from_identity(identity.expose_secret()).unwrap(),
         )),
+        domain_policy: DomainPolicy::from_suffixes(["example.com".to_owned()]),
         github_manifest_states: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
     }
 }
@@ -304,6 +305,94 @@ fn request(method: &str, uri: &str, token: Option<&str>, body: &str) -> Request<
             .insert("x-ignitify-request", "1".parse().unwrap());
     }
     request
+}
+
+#[tokio::test]
+async fn server_settings_require_admin_and_persist_validated_updates() {
+    let state = state().await;
+    let token = session_token(&state).await;
+    let app = router(
+        state.auth.clone(),
+        state.database.clone(),
+        state.services.clone(),
+        state.control.clone(),
+        state.runtime_health.clone(),
+        state.worker_health.clone(),
+        state.secure_cookies,
+        state.trusted_origins.clone(),
+    );
+
+    let unauthenticated = app
+        .clone()
+        .oneshot(request("GET", "/api/v1/settings/server", None, ""))
+        .await
+        .unwrap();
+    assert_eq!(unauthenticated.status(), StatusCode::UNAUTHORIZED);
+
+    let password_hash = Argon2::default()
+        .hash_password(b"password123", &SaltString::generate(&mut OsRng))
+        .unwrap()
+        .to_string();
+    state
+        .database
+        .users()
+        .create("settings-user", &password_hash, DatabaseUserRole::User)
+        .await
+        .unwrap();
+    let user_token = state
+        .auth
+        .login("settings-user", "password123")
+        .await
+        .unwrap()
+        .access_token;
+    let forbidden = app
+        .clone()
+        .oneshot(request(
+            "GET",
+            "/api/v1/settings/server",
+            Some(&user_token),
+            "",
+        ))
+        .await
+        .unwrap();
+    assert_eq!(forbidden.status(), StatusCode::FORBIDDEN);
+
+    let updated = app
+        .clone()
+        .oneshot(request(
+            "PATCH",
+            "/api/v1/settings/server",
+            Some(&token),
+            r#"{"server_domain":"Control.Example.com","https_enabled":true,"automatically_provision_ssl":true,"certificate_provider":"lets-encrypt","custom_certificate_id":null,"concurrent_builds":3}"#,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(updated.status(), StatusCode::OK);
+    let body = updated.into_body().collect().await.unwrap().to_bytes();
+    let settings: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(settings["server_domain"], "control.example.com");
+    assert_eq!(settings["certificate_provider"], "lets-encrypt");
+    assert_eq!(settings["concurrent_builds"], 3);
+
+    let persisted = app
+        .clone()
+        .oneshot(request("GET", "/api/v1/settings/server", Some(&token), ""))
+        .await
+        .unwrap();
+    let body = persisted.into_body().collect().await.unwrap().to_bytes();
+    let settings: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(settings["server_domain"], "control.example.com");
+
+    let invalid = app
+        .oneshot(request(
+            "PATCH",
+            "/api/v1/settings/server",
+            Some(&token),
+            r#"{"server_domain":"control.example.com","https_enabled":true,"automatically_provision_ssl":true,"certificate_provider":"custom","custom_certificate_id":null,"concurrent_builds":3}"#,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(invalid.status(), StatusCode::BAD_REQUEST);
 }
 
 #[tokio::test]

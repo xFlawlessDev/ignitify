@@ -9,7 +9,7 @@ use ignitify_runtime_docker::DockerRuntime;
 use ignitify_terminal::TerminalService;
 use tokio::sync::Mutex;
 
-use crate::error::ApiError;
+use crate::{DomainPolicy, error::ApiError};
 
 pub(crate) const GITHUB_MANIFEST_STATE_TTL: std::time::Duration =
     std::time::Duration::from_secs(60 * 60);
@@ -40,6 +40,7 @@ pub(crate) struct AppState {
     pub(crate) secure_cookies: bool,
     pub(crate) trusted_origins: Arc<[String]>,
     pub(crate) provider_cipher: Option<Arc<AgeCipher>>,
+    pub(crate) domain_policy: DomainPolicy,
     pub(crate) github_manifest_states: GithubManifestStates,
 }
 

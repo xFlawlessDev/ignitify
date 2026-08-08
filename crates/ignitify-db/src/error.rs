@@ -44,6 +44,10 @@ pub enum DatabaseError {
     InvalidProviderKind(String),
     #[error("invalid stored provider auth mode: {0}")]
     InvalidProviderAuthMode(String),
+    #[error("invalid concurrent build count")]
+    InvalidConcurrentBuilds,
+    #[error("invalid stored certificate provider: {0}")]
+    InvalidCertificateProvider(String),
 }
 
 pub type Result<T> = std::result::Result<T, DatabaseError>;

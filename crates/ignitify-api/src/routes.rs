@@ -48,6 +48,18 @@ pub(crate) fn router(state: AppState) -> Router {
         )
         .route("/api/v1/runtime/status", get(handlers::runtime::status))
         .route(
+            "/api/v1/settings/server",
+            get(handlers::settings::get).patch(handlers::settings::update),
+        )
+        .route(
+            "/api/v1/settings/server/certificates",
+            axum::routing::post(handlers::settings::create_certificate),
+        )
+        .route(
+            "/api/v1/settings/server/certificates/{certificate_id}",
+            axum::routing::delete(handlers::settings::remove_certificate),
+        )
+        .route(
             "/api/v1/runtime/containers",
             get(handlers::runtime::containers),
         )

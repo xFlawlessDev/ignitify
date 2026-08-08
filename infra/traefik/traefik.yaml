@@ -4,12 +4,24 @@ entryPoints:
   websecure:
     address: ":443"
 
+certificatesResolvers:
+  le:
+    acme:
+      email: "ops@example.com"
+      storage: "/letsencrypt/acme.json"
+      caServer: "https://acme-staging-v02.api.letsencrypt.org/directory"
+      httpChallenge:
+        entryPoint: web
+
 providers:
   docker:
     endpoint: "tcp://docker-read-proxy:2375"
     exposedByDefault: false
-    constraints: "Label(`com.ignitify.managed`,`true`)"
+    constraints: "Label(`traefik.enable`,`true`)"
     network: "ignitify-proxy"
+  file:
+    directory: "/etc/traefik/dynamic"
+    watch: true
 
 api:
   dashboard: false

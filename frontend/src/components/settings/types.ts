@@ -6,3 +6,9 @@ export interface CustomCertificateSummary {
   certificateFileName: string;
   privateKeyFileName: string;
 }
+
+export interface CustomCertificateUpload {
+  name: string;
+  certificateFile: File;
+  privateKeyFile: File;
+}

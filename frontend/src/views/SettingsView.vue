@@ -1,11 +1,22 @@
 <script setup lang="ts">
 import { Check, RotateCcw, Save, Settings2 } from "@lucide/vue";
-import { computed, reactive, shallowRef } from "vue";
+import { computed, onMounted, reactive, shallowRef } from "vue";
 import CertificateManager from "@/components/settings/CertificateManager.vue";
 import BuildSettings from "@/components/settings/BuildSettings.vue";
 import ServerWebSettings from "@/components/settings/ServerWebSettings.vue";
-import type { CertificateProvider, CustomCertificateSummary } from "@/components/settings/types";
+import type {
+  CertificateProvider,
+  CustomCertificateSummary,
+  CustomCertificateUpload,
+} from "@/components/settings/types";
 import { Button } from "@/components/ui/button";
+import {
+  apiCreateServerCertificate,
+  apiDeleteServerCertificate,
+  apiGetServerSettings,
+  apiUpdateServerSettings,
+} from "@/lib/api";
+import type { ServerSettingsResponse } from "@/lib/api/settings";
 
 interface SettingsDraft {
   serverDomain: string;
@@ -17,7 +28,6 @@ interface SettingsDraft {
   concurrentBuilds: number;
 }
 
-const storageKey = "ignitify.server-settings";
 const defaults: SettingsDraft = {
   serverDomain: "",
   httpsEnabled: false,
@@ -28,31 +38,6 @@ const defaults: SettingsDraft = {
   concurrentBuilds: 2,
 };
 
-function readCustomCertificates(value: unknown): CustomCertificateSummary[] {
-  if (!Array.isArray(value)) return [];
-
-  return value.flatMap((certificate) => {
-    if (!certificate || typeof certificate !== "object") return [];
-    const candidate = certificate as Partial<CustomCertificateSummary>;
-    if (
-      typeof candidate.id !== "string" ||
-      typeof candidate.name !== "string" ||
-      typeof candidate.certificateFileName !== "string" ||
-      typeof candidate.privateKeyFileName !== "string"
-    ) {
-      return [];
-    }
-    return [
-      {
-        id: candidate.id,
-        name: candidate.name,
-        certificateFileName: candidate.certificateFileName,
-        privateKeyFileName: candidate.privateKeyFileName,
-      },
-    ];
-  });
-}
-
 function cloneSettings(settings: SettingsDraft): SettingsDraft {
   return {
     ...settings,
@@ -60,51 +45,45 @@ function cloneSettings(settings: SettingsDraft): SettingsDraft {
   };
 }
 
-function readStoredSettings(): SettingsDraft {
-  if (typeof window === "undefined") return cloneSettings(defaults);
+function toDraft(settings: ServerSettingsResponse): SettingsDraft {
+  const customCertificates: CustomCertificateSummary[] = settings.certificates.map(
+    (certificate) => ({
+      id: certificate.id,
+      name: certificate.name,
+      certificateFileName: certificate.certificate_file_name,
+      privateKeyFileName: certificate.private_key_file_name,
+    }),
+  );
+  const certificateProvider: CertificateProvider =
+    settings.certificate_provider === "lets-encrypt" || settings.certificate_provider === "custom"
+      ? settings.certificate_provider
+      : "none";
+  const customCertificateId =
+    certificateProvider === "custom" &&
+    settings.custom_certificate_id &&
+    customCertificates.some((certificate) => certificate.id === settings.custom_certificate_id)
+      ? settings.custom_certificate_id
+      : null;
 
-  const raw = window.localStorage.getItem(storageKey);
-  if (!raw) return cloneSettings(defaults);
-
-  try {
-    const stored = JSON.parse(raw) as Partial<SettingsDraft>;
-    const concurrentBuilds = Number(stored.concurrentBuilds);
-    const customCertificates = readCustomCertificates(stored.customCertificates);
-    const certificateProvider: CertificateProvider =
-      stored.certificateProvider === "lets-encrypt" || stored.certificateProvider === "custom"
-        ? stored.certificateProvider
-        : "none";
-    const customCertificateId =
-      certificateProvider === "custom" &&
-      typeof stored.customCertificateId === "string" &&
-      customCertificates.some((certificate) => certificate.id === stored.customCertificateId)
-        ? stored.customCertificateId
-        : null;
-    const effectiveCertificateProvider =
-      certificateProvider === "custom" && !customCertificateId ? "none" : certificateProvider;
-
-    return {
-      serverDomain:
-        typeof stored.serverDomain === "string" ? stored.serverDomain : defaults.serverDomain,
-      httpsEnabled: typeof stored.httpsEnabled === "boolean" ? stored.httpsEnabled : false,
-      automaticallyProvisionSsl:
-        stored.certificateProvider === "lets-encrypt" && stored.automaticallyProvisionSsl === true,
-      certificateProvider: effectiveCertificateProvider,
-      customCertificateId,
-      customCertificates,
-      concurrentBuilds:
-        Number.isInteger(concurrentBuilds) && concurrentBuilds >= 1 && concurrentBuilds <= 32
-          ? concurrentBuilds
-          : defaults.concurrentBuilds,
-    };
-  } catch {
-    return cloneSettings(defaults);
-  }
+  return {
+    serverDomain: settings.server_domain,
+    httpsEnabled: settings.https_enabled,
+    automaticallyProvisionSsl:
+      settings.https_enabled &&
+      settings.automatically_provision_ssl &&
+      certificateProvider === "lets-encrypt",
+    certificateProvider:
+      customCertificateId || certificateProvider !== "custom" ? certificateProvider : "none",
+    customCertificateId,
+    customCertificates,
+    concurrentBuilds: settings.concurrent_builds,
+  };
 }
 
-const draft = reactive<SettingsDraft>(readStoredSettings());
-const savedSettings = shallowRef<SettingsDraft>(cloneSettings(draft));
-const saveState = shallowRef<"idle" | "saved">("idle");
+const draft = reactive<SettingsDraft>(cloneSettings(defaults));
+const savedSettings = shallowRef<SettingsDraft | null>(null);
+const saveState = shallowRef<"loading" | "idle" | "saving" | "saved" | "error">("loading");
+const requestError = shallowRef("");
 
 const domainError = computed(() => {
   const value = draft.serverDomain.trim();
@@ -143,13 +122,31 @@ const buildError = computed(() => {
   return "";
 });
 
-const isDirty = computed(() => JSON.stringify(draft) !== JSON.stringify(savedSettings.value));
+const isDirty = computed(
+  () =>
+    savedSettings.value !== null && JSON.stringify(draft) !== JSON.stringify(savedSettings.value),
+);
 const canSave = computed(
-  () => isDirty.value && !domainError.value && !tlsError.value && !buildError.value,
+  () =>
+    saveState.value !== "loading" &&
+    saveState.value !== "saving" &&
+    isDirty.value &&
+    !domainError.value &&
+    !tlsError.value &&
+    !buildError.value,
 );
 
 function markDirty() {
-  saveState.value = "idle";
+  if (saveState.value !== "loading" && saveState.value !== "saving") {
+    saveState.value = "idle";
+  }
+  requestError.value = "";
+}
+
+function applySettings(settings: ServerSettingsResponse) {
+  const next = toDraft(settings);
+  Object.assign(draft, next);
+  savedSettings.value = cloneSettings(next);
 }
 
 function updateHttpsEnabled(value: boolean) {
@@ -169,39 +166,107 @@ function updateCertificateProvider(value: CertificateProvider) {
   markDirty();
 }
 
-function addCertificate(certificate: CustomCertificateSummary) {
+async function addCertificate(upload: CustomCertificateUpload) {
+  requestError.value = "";
+  const result = await apiCreateServerCertificate(
+    upload.name,
+    upload.certificateFile,
+    upload.privateKeyFile,
+  );
+  if (!result.success) {
+    requestError.value = result.error ?? "Unable to upload certificate.";
+    saveState.value = "error";
+    return;
+  }
+  const certificate: CustomCertificateSummary = {
+    id: result.data.id,
+    name: result.data.name,
+    certificateFileName: result.data.certificate_file_name,
+    privateKeyFileName: result.data.private_key_file_name,
+  };
   draft.customCertificates.push(certificate);
-  markDirty();
+  if (savedSettings.value) {
+    savedSettings.value = cloneSettings({
+      ...savedSettings.value,
+      customCertificates: [...savedSettings.value.customCertificates, certificate],
+    });
+  }
+  saveState.value = "idle";
 }
 
-function removeCertificate(certificateId: string) {
+async function removeCertificate(certificateId: string) {
+  requestError.value = "";
+  const result = await apiDeleteServerCertificate(certificateId);
+  if (!result.success) {
+    requestError.value = result.error ?? "Unable to remove certificate.";
+    saveState.value = "error";
+    return;
+  }
   draft.customCertificates = draft.customCertificates.filter(
     (certificate) => certificate.id !== certificateId,
   );
   if (draft.customCertificateId === certificateId) {
     draft.customCertificateId = null;
     draft.certificateProvider = "none";
+    draft.automaticallyProvisionSsl = false;
   }
-  markDirty();
+  if (savedSettings.value) {
+    savedSettings.value = cloneSettings({
+      ...savedSettings.value,
+      customCertificates: savedSettings.value.customCertificates.filter(
+        (certificate) => certificate.id !== certificateId,
+      ),
+      ...(savedSettings.value.customCertificateId === certificateId
+        ? {
+            customCertificateId: null,
+            certificateProvider: "none" as const,
+            automaticallyProvisionSsl: false,
+          }
+        : {}),
+    });
+  }
+  saveState.value = "idle";
 }
 
-function saveSettings() {
+async function saveSettings() {
   if (!canSave.value) return;
 
-  const nextSettings = cloneSettings({
-    ...draft,
-    serverDomain: draft.serverDomain.trim(),
+  saveState.value = "saving";
+  requestError.value = "";
+  const result = await apiUpdateServerSettings({
+    server_domain: draft.serverDomain.trim(),
+    https_enabled: draft.httpsEnabled,
+    automatically_provision_ssl: draft.automaticallyProvisionSsl,
+    certificate_provider: draft.certificateProvider,
+    custom_certificate_id: draft.customCertificateId,
+    concurrent_builds: draft.concurrentBuilds,
   });
-  Object.assign(draft, nextSettings);
-  window.localStorage.setItem(storageKey, JSON.stringify(nextSettings));
-  savedSettings.value = cloneSettings(nextSettings);
+  if (!result.success) {
+    requestError.value = result.error ?? "Unable to save server settings.";
+    saveState.value = "error";
+    return;
+  }
+  applySettings(result.data);
   saveState.value = "saved";
 }
 
 function resetSettings() {
+  if (!savedSettings.value) return;
   Object.assign(draft, cloneSettings(savedSettings.value));
+  requestError.value = "";
   saveState.value = "idle";
 }
+
+onMounted(async () => {
+  const result = await apiGetServerSettings();
+  if (!result.success) {
+    requestError.value = result.error ?? "Unable to load server settings.";
+    saveState.value = "error";
+    return;
+  }
+  applySettings(result.data);
+  saveState.value = "idle";
+});
 </script>
 
 <template>
@@ -225,7 +290,10 @@ function resetSettings() {
             class="size-3.5 text-metric-green"
             :stroke-width="1.7"
           />
-          <span v-if="saveState === 'saved' && !isDirty">Saved locally</span>
+          <span v-if="saveState === 'saved' && !isDirty">Saved to server</span>
+          <span v-else-if="saveState === 'loading'">Loading server settings</span>
+          <span v-else-if="saveState === 'saving'">Saving server settings</span>
+          <span v-else-if="saveState === 'error'">Settings unavailable</span>
           <span v-else-if="isDirty">Unsaved changes</span>
           <span v-else>No unsaved changes</span>
         </span>
@@ -239,6 +307,10 @@ function resetSettings() {
         </Button>
       </div>
     </header>
+
+    <p v-if="requestError" class="mt-4 text-[11px] text-destructive" role="alert">
+      {{ requestError }}
+    </p>
 
     <form class="mt-6 grid gap-4" @submit.prevent="saveSettings">
       <div class="flex items-center gap-2 border-b border-border pb-3">
@@ -292,8 +364,8 @@ function resetSettings() {
         class="flex items-center justify-between gap-4 border-t border-border pt-4 text-[11px] text-muted-foreground max-[560px]:items-start max-[560px]:flex-col"
       >
         <p>
-          Configuration metadata is stored in this browser. Certificate and private key contents
-          require the server configuration API.
+          Settings are applied to managed application routes during worker reconciliation. Uploaded
+          certificate and private key material are encrypted at rest.
         </p>
         <span class="shrink-0 font-mono">Admin only</span>
       </footer>

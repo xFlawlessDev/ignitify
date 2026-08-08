@@ -1,0 +1,25 @@
+services:
+  portfolio:
+    image: ignitify-portfolio:sha-fba6b5c5
+    command: ["bun", "server.js"]
+    restart: unless-stopped
+    networks:
+      ignitify-proxy:
+        aliases:
+          - webapp-portofolio-lbdrvn
+    labels:
+      com.ignitify.managed: "true"
+      traefik.enable: "true"
+      traefik.docker.network: "ignitify-proxy"
+      "traefik.http.routers.portfolio.rule": "Host(`xflawless.dev`) || Host(`www.xflawless.dev`)"
+      traefik.http.routers.portfolio.entrypoints: "websecure"
+      traefik.http.routers.portfolio.tls: "true"
+      traefik.http.routers.portfolio.tls.certresolver: "le"
+      "traefik.http.routers.portfolio-http.rule": "Host(`xflawless.dev`) || Host(`www.xflawless.dev`)"
+      traefik.http.routers.portfolio-http.entrypoints: "web"
+      traefik.http.routers.portfolio-http.service: "portfolio"
+      traefik.http.services.portfolio.loadbalancer.server.port: "3010"
+
+networks:
+  ignitify-proxy:
+    external: true

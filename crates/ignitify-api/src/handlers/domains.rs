@@ -76,6 +76,11 @@ pub(crate) async fn create(
     let actor = require_actor(&state, &headers).await?;
     require_same_origin_request(&state, &headers)?;
     let hostname = DomainName::new(input.hostname)?;
+    if !state.domain_policy.allows(&hostname) {
+        return Err(ApiError::BadRequest(
+            "hostname is not allowed by this server's domain policy",
+        ));
+    }
     let service = state
         .services()?
         .get(

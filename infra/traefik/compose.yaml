@@ -1,7 +1,9 @@
 # Operator artifact. Replace image digests only after verified release review.
 services:
   docker-read-proxy:
-    image: tecnativa/docker-socket-proxy:0.1.2@sha256:dc8ec925b1360c54e6bf350602d6faac4e33c5d8d809118e4c000c0b14a4529a
+    build:
+      context: ./socket-proxy
+    image: ignitify-docker-socket-proxy:0.1.2
     environment:
       CONTAINERS: 1
       EVENTS: 1
@@ -20,9 +22,9 @@ services:
       VOLUMES: 0
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-    # The image entrypoint generates haproxy.cfg at startup.
     tmpfs:
-      - /usr/local/etc/haproxy
+      - /tmp:mode=1777
+      - /run:mode=755
     read_only: true
     security_opt:
       - no-new-privileges:true
@@ -44,6 +46,7 @@ services:
       - "443:443"
     volumes:
       - ./traefik.yaml:/etc/traefik/traefik.yaml:ro
+      - ${IGNITIFY_TRAEFIK_DYNAMIC_DIR:-./dynamic}:/etc/traefik/dynamic:ro
       - ./entrypoint.sh:/ignitify-entrypoint.sh:ro
       - acme:/letsencrypt
     entrypoint:

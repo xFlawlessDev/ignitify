@@ -1,14 +1,14 @@
 use chrono::Utc;
 use ignitify_domain::{
     ApplicationBuilder, DomainName, ProjectInput, ProjectMemberRole, ServiceInput,
-    ServiceSourceConfig, ServiceVariableInput,
+    ServiceSourceConfig, ServiceSpec, ServiceVariableInput,
 };
 use uuid::Uuid;
 
 use crate::{
-    ActivityActor, Database, DatabaseConfig, DomainActor, NewProvider, NewServiceVariable,
-    ProjectActor, ProjectRemoveOutcome, ProjectUpdateOutcome, ProviderAuthMode, ProviderKind,
-    ServiceActor, ServiceMutationOutcome,
+    ActivityActor, Database, DatabaseConfig, DomainActor, NewProvider, NewServerCertificate,
+    NewServiceVariable, ProjectActor, ProjectRemoveOutcome, ProjectUpdateOutcome, ProviderAuthMode,
+    ProviderKind, ServerSettingsUpdate, ServiceActor, ServiceMutationOutcome,
 };
 
 async fn database() -> Database {
@@ -38,6 +38,55 @@ async fn migrations_create_auth_storage() {
     let database = database().await;
 
     assert_eq!(database.users().count().await.unwrap(), 0);
+    let settings = database.server_settings().get().await.unwrap();
+    assert!(settings.https_enabled);
+    assert!(settings.automatically_provision_ssl);
+    assert_eq!(settings.certificate_provider, "lets-encrypt");
+}
+
+#[tokio::test]
+async fn server_settings_and_encrypted_certificate_records_are_durable() {
+    let database = database().await;
+    let updated = database
+        .server_settings()
+        .update(ServerSettingsUpdate {
+            server_domain: "control.example.com".to_owned(),
+            https_enabled: true,
+            automatically_provision_ssl: true,
+            certificate_provider: "lets-encrypt".to_owned(),
+            custom_certificate_id: None,
+            concurrent_builds: 4,
+        })
+        .await
+        .unwrap();
+    assert_eq!(updated.server_domain, "control.example.com");
+    assert_eq!(updated.concurrent_builds, 4);
+
+    let certificate = database
+        .server_settings()
+        .create_certificate(NewServerCertificate {
+            name: "Production wildcard".to_owned(),
+            certificate_file_name: "production.crt".to_owned(),
+            private_key_file_name: "production.key".to_owned(),
+            certificate_ciphertext: "encrypted-certificate".to_owned(),
+            private_key_ciphertext: "encrypted-private-key".to_owned(),
+        })
+        .await
+        .unwrap();
+    assert!(
+        database
+            .server_settings()
+            .certificate_exists(&certificate.id)
+            .await
+            .unwrap()
+    );
+    let stored = database
+        .server_settings()
+        .list_certificates()
+        .await
+        .unwrap();
+    assert_eq!(stored[0].certificate_ciphertext, "encrypted-certificate");
+    assert_eq!(stored[0].private_key_ciphertext, "encrypted-private-key");
 }
 
 #[tokio::test]
@@ -518,25 +567,24 @@ async fn service_repository_persists_source_configuration_separately_from_runtim
         panic!("deployment must be created");
     };
     let claimed = database.deployments().claim_next().await.unwrap().unwrap();
+    let resolved_spec = ServiceSpec::image(
+        "caddy@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        Some(80),
+        None,
+    )
+    .unwrap();
     assert!(
         database
             .deployments()
-            .record_source_revision(
+            .record_source_resolution(
                 claimed.id.as_str(),
                 "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                Some("sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+                Some(&resolved_spec),
             )
             .await
             .unwrap()
     );
-    database
-        .deployments()
-        .record_source_build(
-            claimed.id.as_str(),
-            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-        )
-        .await
-        .unwrap();
     let stored = database
         .deployments()
         .get(
@@ -558,6 +606,7 @@ async fn service_repository_persists_source_configuration_separately_from_runtim
         stored.local_image_id.as_deref(),
         Some("sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
     );
+    assert_eq!(stored.spec, resolved_spec);
     database
         .deployments()
         .transition(

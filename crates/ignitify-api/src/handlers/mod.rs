@@ -10,5 +10,6 @@ pub(crate) mod provider_test;
 pub(crate) mod providers;
 pub(crate) mod runtime;
 pub(crate) mod services;
+pub(crate) mod settings;
 pub(crate) mod streams;
 pub(crate) mod terminal;
