@@ -1178,8 +1178,11 @@ mod tests {
             "TOKEN=value"
         );
         assert_eq!(
-            fs::read_to_string(docker.with_extension("env")).unwrap(),
-            "PATH=/usr/bin:/bin\n"
+            fs::read_to_string(docker.with_extension("env"))
+                .unwrap()
+                .lines()
+                .collect::<Vec<_>>(),
+            ["PATH=/usr/bin:/bin", &format!("PWD={}", stage.display()),]
         );
 
         let calls = fs::read_to_string(docker.with_extension("log")).unwrap();
