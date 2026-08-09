@@ -50,6 +50,7 @@ describe("ServiceDomainsPanel", () => {
       error: null,
       loading: false,
       services: [service],
+      fixedServiceId: service.id,
       onCreate,
       onVerify,
     });
@@ -61,6 +62,8 @@ describe("ServiceDomainsPanel", () => {
     expect(host.textContent).toContain("A 203.0.113.10");
     expect(host.textContent).toContain("Verify DNS");
     expect(host.textContent).toContain("Open link");
+    expect(host.textContent).toContain("This route targets the current service.");
+    expect(host.querySelector("#domain-service")).toBeNull();
 
     const domainInput = host.querySelector("#project-domain") as HTMLInputElement;
     domainInput.value = "api.example.com";

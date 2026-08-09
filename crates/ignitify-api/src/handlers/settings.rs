@@ -30,6 +30,10 @@ pub(crate) struct InfrastructureSettingsRequest {
     dns_record_type: String,
     #[serde(default)]
     dns_record_target: String,
+    #[serde(default)]
+    fallback_page_heading: Option<String>,
+    #[serde(default)]
+    fallback_page_message: Option<String>,
     certificate_provider: String,
     custom_certificate_id: Option<String>,
 }
@@ -47,6 +51,8 @@ pub(crate) struct InfrastructureSettingsResponse {
     acme_email: String,
     dns_record_type: String,
     dns_record_target: String,
+    fallback_page_heading: String,
+    fallback_page_message: String,
     certificate_provider: String,
     custom_certificate_id: Option<String>,
     certificates: Vec<CertificateSummary>,
@@ -215,6 +221,8 @@ pub(crate) async fn remove_certificate(
                 acme_email: current.acme_email,
                 dns_record_type: current.dns_record_type,
                 dns_record_target: current.dns_record_target,
+                fallback_page_heading: current.fallback_page_heading,
+                fallback_page_message: current.fallback_page_message,
                 certificate_provider: "none".to_owned(),
                 custom_certificate_id: None,
                 concurrent_builds: current.concurrent_builds,
@@ -274,6 +282,8 @@ fn settings_response(
         acme_email: settings.acme_email,
         dns_record_type: settings.dns_record_type,
         dns_record_target: settings.dns_record_target,
+        fallback_page_heading: settings.fallback_page_heading,
+        fallback_page_message: settings.fallback_page_message,
         certificate_provider: settings.certificate_provider,
         custom_certificate_id: settings.custom_certificate_id,
         certificates,
@@ -300,12 +310,21 @@ async fn validate_request(
             "application domain suffix must be a valid hostname without a protocol or path",
         )
     })?;
-    let concurrent_builds = state
-        .database
-        .server_settings()
-        .get()
-        .await?
-        .concurrent_builds;
+    let current = state.database.server_settings().get().await?;
+    let fallback_page_heading = normalized_fallback_content(
+        request
+            .fallback_page_heading
+            .unwrap_or(current.fallback_page_heading),
+        "fallback page heading",
+        100,
+    )?;
+    let fallback_page_message = normalized_fallback_content(
+        request
+            .fallback_page_message
+            .unwrap_or(current.fallback_page_message),
+        "fallback page message",
+        280,
+    )?;
 
     let provider = request.certificate_provider.trim().to_ascii_lowercase();
     if !matches!(provider.as_str(), "none" | "lets-encrypt" | "custom") {
@@ -357,14 +376,38 @@ async fn validate_request(
         acme_email,
         dns_record_type,
         dns_record_target,
+        fallback_page_heading,
+        fallback_page_message,
         certificate_provider: if request.https_enabled {
             provider
         } else {
             "none".to_owned()
         },
         custom_certificate_id,
-        concurrent_builds,
+        concurrent_builds: current.concurrent_builds,
     })
+}
+
+fn normalized_fallback_content(
+    value: String,
+    field: &'static str,
+    maximum: usize,
+) -> Result<String, ApiError> {
+    let value = value.replace("\r\n", "\n").replace('\r', "\n");
+    let value = value.trim().to_owned();
+    let allows_newlines = field == "fallback page message";
+    if value.is_empty()
+        || value.chars().count() > maximum
+        || value
+            .chars()
+            .any(|character| character.is_control() && !(allows_newlines && character == '\n'))
+    {
+        return Err(ApiError::BadRequest(match field {
+            "fallback page heading" => "fallback page heading must be 1-100 characters",
+            _ => "fallback page message must be 1-280 characters",
+        }));
+    }
+    Ok(value)
 }
 
 fn valid_email(value: &str) -> bool {

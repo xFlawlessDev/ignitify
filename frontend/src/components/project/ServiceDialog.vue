@@ -291,7 +291,8 @@ watch(open, (isOpen) => {
           <div class="grid gap-2">
             <Label for="service-kind">Deployment source</Label>
             <div class="grid gap-2 sm:grid-cols-3" role="group" aria-label="Deployment source">
-              <button
+              <Button
+                variant="ghost"
                 class="grid gap-1 rounded-[6px] border px-3 py-2 text-left transition-colors"
                 :class="
                   source === 'template'
@@ -308,8 +309,9 @@ watch(open, (isOpen) => {
                 <Box class="size-4 text-muted-foreground" :stroke-width="1.5" />
                 <span class="text-xs font-medium">Template</span>
                 <span class="text-[11px] text-muted-foreground">Start from a known shape</span>
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="ghost"
                 class="grid gap-1 rounded-[6px] border px-3 py-2 text-left transition-colors"
                 :class="
                   source === 'compose'
@@ -327,8 +329,9 @@ watch(open, (isOpen) => {
                 <FileCode2 class="size-4 text-muted-foreground" :stroke-width="1.5" />
                 <span class="text-xs font-medium">Compose</span>
                 <span class="text-[11px] text-muted-foreground">Paste a hardened YAML file</span>
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="ghost"
                 class="grid gap-1 rounded-[6px] border px-3 py-2 text-left transition-colors"
                 :class="
                   source === 'application'
@@ -342,7 +345,7 @@ watch(open, (isOpen) => {
                 <GitBranch class="size-4 text-muted-foreground" :stroke-width="1.5" />
                 <span class="text-xs font-medium">Application</span>
                 <span class="text-[11px] text-muted-foreground">Build from a provider repo</span>
-              </button>
+              </Button>
             </div>
             <Select v-model="kind">
               <SelectTrigger id="service-kind" class="sr-only" aria-hidden="true" tabindex="-1">
@@ -368,7 +371,8 @@ watch(open, (isOpen) => {
               </div>
             </div>
             <div class="grid gap-2 sm:grid-cols-3">
-              <button
+              <Button
+                variant="ghost"
                 v-for="option in templateOptions"
                 :key="option.value"
                 class="grid gap-1 rounded-[5px] border px-3 py-2 text-left"
@@ -385,7 +389,7 @@ watch(open, (isOpen) => {
                 <span class="text-[11px] leading-4 text-muted-foreground">{{
                   option.description
                 }}</span>
-              </button>
+              </Button>
             </div>
           </section>
           <section
@@ -423,26 +427,27 @@ watch(open, (isOpen) => {
               </p>
             </div>
             <div class="grid gap-3 sm:grid-cols-2">
-              <label for="service-repository" class="grid gap-2 text-xs text-muted-foreground"
-                >Repository<input
+              <Label for="service-repository" class="grid gap-2 text-xs text-muted-foreground"
+                >Repository<Input
                   id="service-repository"
                   v-model="repository"
                   class="h-9 rounded-[3px] border border-input bg-background px-3 text-sm text-foreground"
                   placeholder="owner/repository"
                   required
-              /></label>
-              <label for="service-branch" class="grid gap-2 text-xs text-muted-foreground"
-                >Branch<input
+              /></Label>
+              <Label for="service-branch" class="grid gap-2 text-xs text-muted-foreground"
+                >Branch<Input
                   id="service-branch"
                   v-model="branch"
                   class="h-9 rounded-[3px] border border-input bg-background px-3 text-sm text-foreground"
                   placeholder="main"
-              /></label>
+              /></Label>
             </div>
             <div class="grid gap-2">
               <Label>Builder</Label>
               <div class="grid gap-2 sm:grid-cols-2">
-                <button
+                <Button
+                  variant="ghost"
                   v-for="option in builderOptions"
                   :key="option.value"
                   class="grid gap-1 rounded-[5px] border px-3 py-2 text-left"
@@ -459,7 +464,7 @@ watch(open, (isOpen) => {
                   <span class="text-[11px] leading-4 text-muted-foreground">{{
                     option.description
                   }}</span>
-                </button>
+                </Button>
               </div>
             </div>
             <div v-if="builder === 'dockerfile'" class="grid gap-2">
@@ -467,20 +472,20 @@ watch(open, (isOpen) => {
               <Input id="service-dockerfile" v-model="dockerfilePath" placeholder="Dockerfile" />
             </div>
             <div class="grid gap-3 sm:grid-cols-2">
-              <label for="service-build-command" class="grid gap-2 text-xs text-muted-foreground"
-                >Build command<input
+              <Label for="service-build-command" class="grid gap-2 text-xs text-muted-foreground"
+                >Build command<Input
                   id="service-build-command"
                   v-model="buildCommand"
                   class="h-9 rounded-[3px] border border-input bg-background px-3 text-sm text-foreground"
                   placeholder="pnpm build"
-              /></label>
-              <label for="service-output-directory" class="grid gap-2 text-xs text-muted-foreground"
-                >Output directory<input
+              /></Label>
+              <Label for="service-output-directory" class="grid gap-2 text-xs text-muted-foreground"
+                >Output directory<Input
                   id="service-output-directory"
                   v-model="outputDirectory"
                   class="h-9 rounded-[3px] border border-input bg-background px-3 text-sm text-foreground"
                   placeholder="dist"
-              /></label>
+              /></Label>
             </div>
           </section>
           <div v-if="kind === 'image'" class="grid gap-2">
@@ -497,7 +502,8 @@ watch(open, (isOpen) => {
             <div class="grid gap-2">
               <Label>Compose source</Label>
               <div class="grid gap-2 sm:grid-cols-2">
-                <button
+                <Button
+                  variant="ghost"
                   class="rounded-[5px] border px-3 py-2 text-left text-xs"
                   :class="
                     composeMode === 'yaml'
@@ -509,8 +515,9 @@ watch(open, (isOpen) => {
                   @click="composeMode = 'yaml'"
                 >
                   Inline YAML
-                </button>
-                <button
+                </Button>
+                <Button
+                  variant="ghost"
                   class="rounded-[5px] border px-3 py-2 text-left text-xs"
                   :class="
                     composeMode === 'repository'
@@ -525,7 +532,7 @@ watch(open, (isOpen) => {
                   "
                 >
                   Provider repository
-                </button>
+                </Button>
               </div>
             </div>
             <div
@@ -549,34 +556,34 @@ watch(open, (isOpen) => {
                   </SelectContent>
                 </Select>
               </div>
-              <label
+              <Label
                 class="grid gap-2 text-xs text-muted-foreground sm:col-span-1"
                 for="service-repository"
-                >Repository<input
+                >Repository<Input
                   id="service-repository"
                   v-model="repository"
                   class="h-9 rounded-[3px] border border-input bg-background px-3 text-sm text-foreground"
                   placeholder="owner/repository"
                   required
-              /></label>
-              <label
+              /></Label>
+              <Label
                 class="grid gap-2 text-xs text-muted-foreground sm:col-span-1"
                 for="service-branch"
-                >Branch<input
+                >Branch<Input
                   id="service-branch"
                   v-model="branch"
                   class="h-9 rounded-[3px] border border-input bg-background px-3 text-sm text-foreground"
                   placeholder="main"
-              /></label>
-              <label
+              /></Label>
+              <Label
                 class="grid gap-2 text-xs text-muted-foreground sm:col-span-3"
                 for="service-compose-path"
-                >Compose file path<input
+                >Compose file path<Input
                   id="service-compose-path"
                   v-model="dockerfilePath"
                   class="h-9 rounded-[3px] border border-input bg-background px-3 text-sm text-foreground"
                   placeholder="docker-compose.yml"
-              /></label>
+              /></Label>
             </div>
             <div v-if="composeMode === 'yaml'" class="grid gap-2">
               <Label for="service-compose-yaml">Compose / Docker file</Label>
@@ -645,11 +652,11 @@ watch(open, (isOpen) => {
               :key="index"
               class="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto_auto] items-end gap-2 max-[480px]:grid-cols-1 max-[480px]:items-stretch"
             >
-              <label class="grid gap-2 text-xs text-muted-foreground">
+              <Label class="grid gap-2 text-xs text-muted-foreground">
                 Key
                 <Input v-model="variable.key" autocomplete="off" required />
-              </label>
-              <label class="grid gap-2 text-xs text-muted-foreground">
+              </Label>
+              <Label class="grid gap-2 text-xs text-muted-foreground">
                 Value
                 <Input
                   v-model="variable.value"
@@ -657,8 +664,8 @@ watch(open, (isOpen) => {
                   autocomplete="off"
                   required
                 />
-              </label>
-              <label
+              </Label>
+              <div
                 class="grid gap-2 text-xs text-muted-foreground max-[480px]:grid-cols-[1fr_auto] max-[480px]:items-center"
               >
                 Secret
@@ -666,8 +673,9 @@ watch(open, (isOpen) => {
                   v-model="variable.is_secret"
                   :aria-label="`Mark ${variable.key || 'variable'} secret`"
                 />
-              </label>
-              <button
+              </div>
+              <Button
+                variant="ghost"
                 class="grid size-9 place-items-center rounded-[3px] border border-border text-muted-foreground hover:bg-muted hover:text-foreground"
                 type="button"
                 :aria-label="`Remove ${variable.key || 'variable'}`"
@@ -675,7 +683,7 @@ watch(open, (isOpen) => {
                 @click="removeVariable(index)"
               >
                 <Trash2 class="size-4" :stroke-width="1.5" />
-              </button>
+              </Button>
             </div>
             <Button class="w-fit" size="sm" type="button" variant="outline" @click="addVariable">
               <Plus class="size-4" :stroke-width="1.5" />

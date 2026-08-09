@@ -1,14 +1,6 @@
 <script setup lang="ts">
-import {
-  Box,
-  FileCode2,
-  GitBranch,
-  LayoutGrid,
-  List as ListIcon,
-  Pencil,
-  Plus,
-  Rocket,
-} from "@lucide/vue";
+import { Box, FileCode2, GitBranch, LayoutGrid, List as ListIcon, Plus, Rocket } from "@lucide/vue";
+import { RouterLink } from "vue-router";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { ServiceSummary } from "@/lib/types";
@@ -28,8 +20,6 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   create: [];
-  select: [service: ServiceSummary];
-  edit: [service: ServiceSummary];
   retry: [];
   updateView: [view: "list" | "catalog"];
 }>();
@@ -46,13 +36,17 @@ function sourceLabel(service: ServiceSummary) {
     ? `compose / ${service.exposed_service}`
     : service.image_reference;
 }
+
+function stateLabel(service: ServiceSummary) {
+  return service.desired_state === "running" ? "Running" : "Stopped";
+}
 </script>
 
 <template>
   <section :class="props.view === 'list' ? 'app-surface' : 'grid gap-3'">
     <div
-      class="flex items-start justify-between gap-4 border-b border-border pt-5 pb-4 max-[520px]:flex-col"
-      :class="props.view === 'list' ? 'px-5' : ''"
+      class="flex items-start justify-between gap-4 border-b border-border px-5 py-4 max-[520px]:flex-col"
+      :class="props.view === 'catalog' ? 'app-surface rounded-[10px]' : ''"
     >
       <div>
         <p class="ui-label">Deployment services</p>
@@ -67,8 +61,9 @@ function sourceLabel(service: ServiceSummary) {
           role="group"
           aria-label="Service view"
         >
-          <button
-            class="grid size-7 place-items-center rounded-[2px] transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          <Button
+            variant="ghost"
+            class="grid h-7 w-7 place-items-center rounded-[2px] p-0 transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
             :class="
               props.view === 'list'
                 ? 'bg-background text-foreground'
@@ -81,9 +76,10 @@ function sourceLabel(service: ServiceSummary) {
             @click="emit('updateView', 'list')"
           >
             <ListIcon class="size-4" :stroke-width="1.5" />
-          </button>
-          <button
-            class="grid size-7 place-items-center rounded-[2px] transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          </Button>
+          <Button
+            variant="ghost"
+            class="grid h-7 w-7 place-items-center rounded-[2px] p-0 transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
             :class="
               props.view === 'catalog'
                 ? 'bg-background text-foreground'
@@ -96,7 +92,7 @@ function sourceLabel(service: ServiceSummary) {
             @click="emit('updateView', 'catalog')"
           >
             <LayoutGrid class="size-4" :stroke-width="1.5" />
-          </button>
+          </Button>
         </div>
         <Button v-if="props.canManage" size="sm" @click="emit('create')">
           <Plus class="size-4" :stroke-width="1.5" />
@@ -130,131 +126,102 @@ function sourceLabel(service: ServiceSummary) {
       <p class="text-sm text-destructive">{{ props.error }}</p>
       <Button class="mt-3" size="sm" variant="outline" @click="emit('retry')">Retry</Button>
     </div>
-    <div v-else-if="props.services.length && props.view === 'list'" class="divide-y divide-border">
-      <div
+    <div v-else-if="props.services.length && props.view === 'list'">
+      <RouterLink
         v-for="service in props.services"
         :key="service.id"
-        class="grid min-h-[78px] grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-5 py-3 transition-colors hover:bg-muted/50 max-[420px]:gap-2"
+        class="grid min-h-[86px] grid-cols-[32px_minmax(0,1fr)_auto] items-center gap-3.5 border-b border-border px-4 py-3 text-foreground transition-colors last:border-b-0 hover:bg-muted sm:grid-cols-[32px_minmax(0,1fr)_auto_auto] sm:px-[18px]"
         :class="props.selectedServiceId === service.id ? 'bg-muted/60' : ''"
+        :to="{
+          name: 'ServiceDetail',
+          params: { projectId: service.project_id, serviceId: service.id },
+        }"
       >
-        <button
-          class="flex min-w-0 items-center gap-3 text-left"
-          type="button"
-          @click="emit('select', service)"
+        <span
+          class="grid size-[30px] place-items-center rounded-[4px] border border-border bg-muted text-muted-foreground"
         >
+          <FileCode2 v-if="service.kind === 'compose'" :size="15" :stroke-width="1.5" />
+          <GitBranch
+            v-else-if="service.source_config?.source === 'application'"
+            :size="15"
+            :stroke-width="1.5"
+          />
+          <Box v-else :size="15" :stroke-width="1.5" />
+        </span>
+        <span class="grid min-w-0 gap-1.5">
+          <strong class="truncate text-[13px] font-medium">{{ service.name }}</strong>
+          <code class="truncate font-mono text-[11px] text-muted-foreground">{{
+            sourceLabel(service)
+          }}</code>
+        </span>
+        <span class="hidden text-right sm:grid sm:gap-1">
+          <span class="font-mono text-[10px] uppercase text-muted-foreground">
+            {{ stateLabel(service) }}
+          </span>
+          <span class="font-mono text-[10px] text-muted-foreground">
+            g{{ service.desired_generation }}
+          </span>
+        </span>
+        <Rocket
+          v-if="service.desired_state === 'running'"
+          class="text-[var(--status-healthy)]"
+          :size="16"
+          :stroke-width="1.5"
+          aria-label="Running"
+        />
+        <span v-else class="size-4" aria-label="Stopped" />
+      </RouterLink>
+    </div>
+    <div v-else-if="props.services.length" class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <RouterLink
+        v-for="service in props.services"
+        :key="service.id"
+        class="flex min-h-[184px] flex-col justify-between rounded-[10px] border border-border bg-card p-4 text-foreground transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+        :class="props.selectedServiceId === service.id ? 'border-foreground/30' : ''"
+        :to="{
+          name: 'ServiceDetail',
+          params: { projectId: service.project_id, serviceId: service.id },
+        }"
+      >
+        <span class="flex items-start justify-between gap-3">
           <span
-            class="grid size-[30px] shrink-0 place-items-center rounded-[4px] border border-border bg-muted text-muted-foreground"
+            class="grid size-9 place-items-center rounded-[4px] border border-border bg-muted text-muted-foreground"
           >
-            <FileCode2 v-if="service.kind === 'compose'" :size="15" :stroke-width="1.5" />
+            <FileCode2 v-if="service.kind === 'compose'" :size="17" :stroke-width="1.5" />
             <GitBranch
               v-else-if="service.source_config?.source === 'application'"
-              :size="15"
+              :size="17"
               :stroke-width="1.5"
             />
-            <Box v-else :size="15" :stroke-width="1.5" />
+            <Box v-else :size="17" :stroke-width="1.5" />
           </span>
-          <div class="grid min-w-0 gap-1.5">
-            <strong class="truncate text-[13px] font-medium">{{ service.name }}</strong>
-            <code class="truncate font-mono text-[11px] text-muted-foreground">{{
-              sourceLabel(service)
-            }}</code>
-            <span class="font-mono text-[10px] text-muted-foreground">
-              {{ service.variables.length }} service key{{
-                service.variables.length === 1 ? "" : "s"
-              }}
-              <template v-if="props.projectVariableCount">
-                · {{ props.projectVariableCount }} inherited</template
-              >
-            </span>
-          </div>
-        </button>
-        <div class="flex items-center gap-3">
           <Rocket
             v-if="service.desired_state === 'running'"
-            class="size-3.5 text-[var(--status-healthy)]"
+            class="text-[var(--status-healthy)]"
+            :size="16"
             :stroke-width="1.5"
             aria-label="Running"
           />
-          <span class="font-mono text-[11px] text-muted-foreground"
-            >g{{ service.desired_generation }}</span
-          >
-          <button
-            v-if="props.canManage"
-            class="grid size-8 place-items-center rounded-[3px] border border-transparent text-muted-foreground hover:border-border hover:bg-muted hover:text-foreground"
-            type="button"
-            :aria-label="`Edit ${service.name}`"
-            title="Edit service"
-            @click="emit('edit', service)"
-          >
-            <Pencil class="size-4" :stroke-width="1.5" />
-          </button>
-        </div>
-      </div>
-    </div>
-    <div v-else-if="props.services.length" class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-      <article
-        v-for="service in props.services"
-        :key="service.id"
-        class="flex min-h-[190px] flex-col rounded-[10px] border border-border bg-card p-4"
-        :class="props.selectedServiceId === service.id ? 'border-foreground/30' : ''"
-      >
-        <div class="flex items-start justify-between gap-3">
-          <button
-            class="flex min-w-0 flex-1 items-start gap-3 text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-            type="button"
-            @click="emit('select', service)"
-          >
-            <span
-              class="grid size-9 shrink-0 place-items-center rounded-[4px] border border-border bg-muted text-muted-foreground"
-            >
-              <FileCode2 v-if="service.kind === 'compose'" :size="17" :stroke-width="1.5" />
-              <GitBranch
-                v-else-if="service.source_config?.source === 'application'"
-                :size="17"
-                :stroke-width="1.5"
-              />
-              <Box v-else :size="17" :stroke-width="1.5" />
-            </span>
-            <span class="grid min-w-0 gap-1.5 pt-0.5">
-              <strong class="truncate text-[13px] font-medium">{{ service.name }}</strong>
-              <code class="truncate font-mono text-[11px] text-muted-foreground">{{
-                sourceLabel(service)
-              }}</code>
-            </span>
-          </button>
-          <button
-            v-if="props.canManage"
-            class="grid size-8 shrink-0 place-items-center rounded-[3px] border border-transparent text-muted-foreground transition-colors hover:border-border hover:bg-muted hover:text-foreground"
-            type="button"
-            :aria-label="`Edit ${service.name}`"
-            title="Edit service"
-            @click="emit('edit', service)"
-          >
-            <Pencil class="size-4" :stroke-width="1.5" />
-          </button>
-        </div>
-        <div class="mt-auto grid gap-3 border-t border-border pt-3">
-          <div class="flex items-center justify-between gap-3 text-[11px] text-muted-foreground">
-            <span class="flex items-center gap-1.5">
-              <Rocket
-                v-if="service.desired_state === 'running'"
-                class="size-3.5 text-[var(--status-healthy)]"
-                :stroke-width="1.5"
-              />
-              {{ service.desired_state === "running" ? "Running" : "Stopped" }}
-            </span>
-            <span class="font-mono">g{{ service.desired_generation }}</span>
-          </div>
+          <span v-else class="size-4" aria-label="Stopped" />
+        </span>
+        <span class="grid min-w-0 gap-2">
+          <strong class="truncate text-[14px] font-medium">{{ service.name }}</strong>
+          <code class="truncate font-mono text-[11px] text-muted-foreground">{{
+            sourceLabel(service)
+          }}</code>
+        </span>
+        <span class="flex items-center justify-between gap-3 border-t border-border pt-3">
+          <span class="font-mono text-[10px] uppercase text-muted-foreground">
+            {{ stateLabel(service) }}
+          </span>
           <span class="font-mono text-[10px] text-muted-foreground">
-            {{ service.variables.length }} service key{{
-              service.variables.length === 1 ? "" : "s"
-            }}
+            {{ service.variables.length }} key{{ service.variables.length === 1 ? "" : "s" }}
             <template v-if="props.projectVariableCount">
               · {{ props.projectVariableCount }} inherited</template
             >
           </span>
-        </div>
-      </article>
+        </span>
+      </RouterLink>
     </div>
     <div v-else class="px-5 py-8" :class="props.view === 'catalog' ? 'app-surface' : ''">
       <p class="text-sm font-medium">No services configured</p>

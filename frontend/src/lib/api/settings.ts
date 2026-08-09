@@ -32,6 +32,8 @@ export interface InfrastructureSettingsResponse {
   acme_email: string;
   dns_record_type: "a" | "cname";
   dns_record_target: string;
+  fallback_page_heading: string;
+  fallback_page_message: string;
   certificate_provider: ServerCertificateProvider;
   custom_certificate_id: string | null;
   certificates: ServerCertificateSummary[];
@@ -46,6 +48,8 @@ export interface InfrastructureSettingsInput {
   acme_email: string;
   dns_record_type: "a" | "cname";
   dns_record_target: string;
+  fallback_page_heading: string;
+  fallback_page_message: string;
   certificate_provider: ServerCertificateProvider;
   custom_certificate_id: string | null;
 }

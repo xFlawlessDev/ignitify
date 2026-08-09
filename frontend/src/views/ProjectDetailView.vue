@@ -9,7 +9,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Copy,
-  Globe2,
   Pencil,
   Plus,
   RefreshCw,
@@ -25,10 +24,10 @@ import ProjectActivityPanel from "@/components/project/ProjectActivityPanel.vue"
 import ProjectEnvironmentPanel from "@/components/project/ProjectEnvironmentPanel.vue";
 import ProjectOverviewPanel from "@/components/project/ProjectOverviewPanel.vue";
 import ProjectServiceList from "@/components/project/ProjectServiceList.vue";
-import ServiceDomainsPanel from "@/components/project/ServiceDomainsPanel.vue";
 import ServiceDialog from "@/components/project/ServiceDialog.vue";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -46,30 +45,20 @@ import { useProjectActivity } from "@/composables/useProjectActivity";
 import ProjectDeploymentTimeline from "@/components/project/ProjectDeploymentTimeline.vue";
 import { useDeployment } from "@/composables/useDeployment";
 import { useDeploymentStream } from "@/composables/useDeploymentStream";
-import { useDomains } from "@/composables/useDomains";
 import { useService } from "@/composables/useService";
 import { useProjectEnvironment } from "@/composables/useProjectEnvironment";
-import type {
-  DeploymentEvent,
-  DeploymentLog,
-  DeploymentSummary,
-  DomainSummary,
-  ServiceInput,
-  ServiceSummary,
-} from "@/lib/types";
+import type { DeploymentEvent, DeploymentLog, DeploymentSummary, ServiceInput } from "@/lib/types";
 
 const route = useRoute();
 const router = useRouter();
 const { data, error, load: fetchProject, loading, remove: removeProject, update } = useProject();
 const services = useService();
 const deployments = useDeployment();
-const domains = useDomains();
 const activity = useProjectActivity();
 const projectEnvironment = useProjectEnvironment();
 const projectTabs = [
   { value: "overview", label: "Overview", icon: Boxes },
   { value: "services", label: "Services", icon: Box },
-  { value: "domains", label: "Domains", icon: Globe2 },
   { value: "deployments", label: "Deployments", icon: Rocket },
   { value: "activity", label: "Activity", icon: Activity },
   { value: "environment", label: "Environment", icon: Settings2 },
@@ -220,13 +209,6 @@ function formatDeploymentTime(value: string) {
   }).format(new Date(value));
 }
 
-function selectService(service: ServiceSummary) {
-  void router.push({
-    name: "ServiceDetail",
-    params: { projectId: service.project_id, serviceId: service.id },
-  });
-}
-
 function load(projectId: string) {
   const generation = ++projectLoadGeneration;
   deployments.clear();
@@ -340,10 +322,7 @@ async function deleteProject() {
 async function loadDeployments(projectId: string, generation = projectLoadGeneration) {
   await services.load(projectId);
   if (generation !== projectLoadGeneration) return;
-  await Promise.all([
-    deployments.loadProject(projectId),
-    domains.load(services.data.value.map((service) => service.id)),
-  ]);
+  await deployments.loadProject(projectId);
 }
 
 async function submitDeployment(serviceId: string) {
@@ -474,15 +453,17 @@ onUnmounted(() => {
                 aria-label="Project name"
                 required
               />
-              <button
+              <Button
+                variant="ghost"
                 class="grid size-8 shrink-0 place-items-center rounded-[3px] border border-transparent text-muted-foreground transition-colors hover:border-border hover:bg-muted hover:text-foreground"
                 type="submit"
                 aria-label="Save project name"
                 title="Save project name"
               >
                 <Check class="size-4" :stroke-width="1.5" />
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="ghost"
                 class="grid size-8 shrink-0 place-items-center rounded-[3px] border border-transparent text-muted-foreground transition-colors hover:border-border hover:bg-muted hover:text-foreground"
                 type="button"
                 aria-label="Cancel renaming project"
@@ -490,13 +471,14 @@ onUnmounted(() => {
                 @click="cancelRenameProject"
               >
                 <X class="size-4" :stroke-width="1.5" />
-              </button>
+              </Button>
             </form>
             <div v-else class="mt-2 flex min-w-0 items-center gap-1.5">
               <h1 class="m-0 truncate text-3xl leading-none font-normal">
                 {{ data.name }}
               </h1>
-              <button
+              <Button
+                variant="ghost"
                 v-if="data.role === 'owner'"
                 class="grid size-8 shrink-0 place-items-center rounded-[3px] border border-transparent text-muted-foreground transition-colors hover:border-border hover:bg-muted hover:text-foreground"
                 type="button"
@@ -505,7 +487,7 @@ onUnmounted(() => {
                 @click="startRenameProject"
               >
                 <Pencil class="size-4" :stroke-width="1.5" />
-              </button>
+              </Button>
             </div>
             <p v-if="renamingProject && error" class="mt-1 text-xs text-destructive" role="alert">
               {{ error }}
@@ -617,7 +599,7 @@ onUnmounted(() => {
         </aside>
       </section>
 
-      <section v-else-if="activeTab === 'services'" class="mt-6 grid gap-6">
+      <section v-else-if="activeTab === 'services'" class="mt-6 grid gap-4">
         <ProjectServiceList
           :can-manage="canManage"
           :error="serviceError"
@@ -626,9 +608,7 @@ onUnmounted(() => {
           :services="visibleServices"
           :view="serviceViewMode"
           @create="createService"
-          @edit="selectService"
           @retry="services.load(data.id)"
-          @select="selectService"
           @update-view="setServiceViewMode"
         />
         <nav
@@ -666,20 +646,6 @@ onUnmounted(() => {
         </nav>
       </section>
 
-      <ServiceDomainsPanel
-        v-else-if="activeTab === 'domains'"
-        class="mt-6"
-        :can-manage="canManage"
-        :domains="domains.data.value"
-        :error="domains.error.value"
-        :loading="domains.loading.value"
-        :services="serviceData"
-        @create="(serviceId, hostname) => domains.create(serviceId, hostname)"
-        @remove="(domain: DomainSummary) => domains.remove(domain)"
-        @verify="(domain: DomainSummary) => domains.verify(domain)"
-        @retry="domains.load(serviceData.map((service) => service.id))"
-      />
-
       <section v-else-if="activeTab === 'deployments'" class="mt-6 grid gap-6">
         <ProjectDeploymentTimeline
           :deployments="deploymentData"
@@ -711,7 +677,8 @@ onUnmounted(() => {
             </p>
           </header>
           <div class="divide-y divide-border" aria-label="Select deployment logs">
-            <button
+            <Button
+              variant="ghost"
               v-for="deployment in availableDeployments"
               :key="deployment.id"
               class="grid w-full gap-2 px-5 py-3.5 text-left transition-colors hover:bg-muted/60 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-4"
@@ -735,7 +702,7 @@ onUnmounted(() => {
               >
                 {{ deployment.status }}
               </span>
-            </button>
+            </Button>
           </div>
         </section>
         <DeploymentLogsPanel
@@ -782,7 +749,8 @@ onUnmounted(() => {
                     <span class="max-w-[18rem] truncate font-medium text-foreground">{{
                       data.name
                     }}</span>
-                    <button
+                    <Button
+                      variant="ghost"
                       class="grid size-5 shrink-0 place-items-center rounded-[3px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
                       type="button"
                       :aria-label="
@@ -797,13 +765,13 @@ onUnmounted(() => {
                     >
                       <Check v-if="copiedProjectName" class="size-3" :stroke-width="1.75" />
                       <Copy v-else class="size-3" :stroke-width="1.5" />
-                    </button>
+                    </Button>
                   </span>
                   and its services, deployments, logs, domains, and shared variables.
                 </AlertDialogDescription>
               </div>
             </div>
-            <label class="grid gap-2 text-xs text-muted-foreground" for="delete-project-name">
+            <Label class="grid gap-2 text-xs text-muted-foreground" for="delete-project-name">
               Type the project name to confirm
               <Input
                 id="delete-project-name"
@@ -812,7 +780,7 @@ onUnmounted(() => {
                 autocomplete="off"
                 :disabled="deletingProject"
               />
-            </label>
+            </Label>
             <p
               v-if="error"
               class="border border-destructive/40 px-3 py-2 text-xs text-destructive"

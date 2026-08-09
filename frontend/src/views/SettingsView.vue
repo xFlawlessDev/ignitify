@@ -4,6 +4,7 @@ import { computed, onMounted, reactive, shallowRef } from "vue";
 import ApplicationEnvironment from "@/components/settings/ApplicationEnvironment.vue";
 import ApplicationIngressSettings from "@/components/settings/ApplicationIngressSettings.vue";
 import CertificateManager from "@/components/settings/CertificateManager.vue";
+import IngressFallbackSettings from "@/components/settings/IngressFallbackSettings.vue";
 import InfrastructureHealth from "@/components/settings/InfrastructureHealth.vue";
 import type {
   CertificateProvider,
@@ -30,6 +31,8 @@ interface SettingsDraft {
   acmeEmail: string;
   dnsRecordType: "a" | "cname";
   dnsRecordTarget: string;
+  fallbackPageHeading: string;
+  fallbackPageMessage: string;
   certificateProvider: CertificateProvider;
   customCertificateId: string | null;
   customCertificates: CustomCertificateSummary[];
@@ -42,6 +45,8 @@ const defaults: SettingsDraft = {
   acmeEmail: "",
   dnsRecordType: "a",
   dnsRecordTarget: "",
+  fallbackPageHeading: "Application not found",
+  fallbackPageMessage: "The requested hostname is not connected to an active application.",
   certificateProvider: "none",
   customCertificateId: null,
   customCertificates: [],
@@ -84,6 +89,8 @@ function toDraft(settings: InfrastructureSettingsResponse): SettingsDraft {
     acmeEmail: settings.acme_email,
     dnsRecordType: settings.dns_record_type,
     dnsRecordTarget: settings.dns_record_target,
+    fallbackPageHeading: settings.fallback_page_heading,
+    fallbackPageMessage: settings.fallback_page_message,
     certificateProvider:
       customCertificateId || certificateProvider !== "custom" ? certificateProvider : "none",
     customCertificateId,
@@ -165,6 +172,35 @@ const dnsError = computed(() => {
   return "";
 });
 
+function hasDisallowedControlCharacter(value: string, allowNewlines = false) {
+  return [...value].some((character) => {
+    const codePoint = character.codePointAt(0);
+    return (
+      codePoint !== undefined &&
+      (codePoint < 32 || codePoint === 127) &&
+      !(allowNewlines && codePoint === 10)
+    );
+  });
+}
+
+const fallbackHeadingError = computed(() => {
+  const value = draft.fallbackPageHeading.trim();
+  if (!value) return "A fallback page heading is required.";
+  if ([...value].length > 100 || hasDisallowedControlCharacter(value)) {
+    return "Use 1-100 characters without line breaks.";
+  }
+  return "";
+});
+
+const fallbackMessageError = computed(() => {
+  const value = draft.fallbackPageMessage.trim();
+  if (!value) return "A fallback page message is required.";
+  if ([...value].length > 280 || hasDisallowedControlCharacter(value, true)) {
+    return "Use 1-280 characters.";
+  }
+  return "";
+});
+
 const isDirty = computed(
   () =>
     savedSettings.value !== null && JSON.stringify(draft) !== JSON.stringify(savedSettings.value),
@@ -177,7 +213,9 @@ const canSave = computed(
     !domainError.value &&
     !tlsError.value &&
     !emailError.value &&
-    !dnsError.value,
+    !dnsError.value &&
+    !fallbackHeadingError.value &&
+    !fallbackMessageError.value,
 );
 
 function markDirty() {
@@ -286,6 +324,8 @@ async function saveSettings() {
     acme_email: draft.acmeEmail.trim(),
     dns_record_type: draft.dnsRecordType,
     dns_record_target: draft.dnsRecordTarget.trim(),
+    fallback_page_heading: draft.fallbackPageHeading.trim(),
+    fallback_page_message: draft.fallbackPageMessage.trim(),
     certificate_provider: draft.certificateProvider,
     custom_certificate_id: draft.customCertificateId,
   });
@@ -424,6 +464,21 @@ onMounted(loadSettings);
           @update:certificate-provider="updateCertificateProvider"
           @update:custom-certificate-id="
             draft.customCertificateId = $event;
+            markDirty();
+          "
+        />
+
+        <IngressFallbackSettings
+          :heading="draft.fallbackPageHeading"
+          :message="draft.fallbackPageMessage"
+          :heading-error="isDirty ? fallbackHeadingError : ''"
+          :message-error="isDirty ? fallbackMessageError : ''"
+          @update:heading="
+            draft.fallbackPageHeading = $event;
+            markDirty();
+          "
+          @update:message="
+            draft.fallbackPageMessage = $event;
             markDirty();
           "
         />

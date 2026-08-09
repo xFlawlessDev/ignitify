@@ -4,6 +4,7 @@ import { onMounted, shallowRef } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { apiBootstrapStatus } from "@/lib/api";
 import { useAuthStore } from "@/stores/auth";
 
@@ -51,11 +52,11 @@ async function submit(): Promise<void> {
       </div>
 
       <form class="mt-7 space-y-5" @submit.prevent="submit">
-        <label class="grid gap-2">
+        <Label class="grid gap-2">
           <span class="ui-label">Username</span>
           <Input v-model="username" autocomplete="username" required />
-        </label>
-        <label class="grid gap-2">
+        </Label>
+        <Label class="grid gap-2">
           <span class="ui-label">Password</span>
           <Input
             v-model="password"
@@ -64,7 +65,7 @@ async function submit(): Promise<void> {
             minlength="8"
             required
           />
-        </label>
+        </Label>
         <p
           v-if="error"
           class="border-l-2 border-destructive pl-3 text-sm text-destructive"

@@ -43,6 +43,7 @@ async fn migrations_create_auth_storage() {
     assert!(settings.automatically_provision_ssl);
     assert!(settings.acme_email.is_empty());
     assert_eq!(settings.certificate_provider, "lets-encrypt");
+    assert_eq!(settings.fallback_page_heading, "Application not found");
 }
 
 #[tokio::test]
@@ -57,6 +58,8 @@ async fn server_settings_and_encrypted_certificate_records_are_durable() {
             acme_email: "ops@apps.example.com".to_owned(),
             dns_record_type: "a".to_owned(),
             dns_record_target: "203.0.113.10".to_owned(),
+            fallback_page_heading: "This app is unavailable".to_owned(),
+            fallback_page_message: "Check the hostname and try again.".to_owned(),
             certificate_provider: "lets-encrypt".to_owned(),
             custom_certificate_id: None,
             concurrent_builds: 4,
@@ -65,6 +68,7 @@ async fn server_settings_and_encrypted_certificate_records_are_durable() {
         .unwrap();
     assert_eq!(updated.application_domain_suffix, "apps.example.com");
     assert_eq!(updated.acme_email, "ops@apps.example.com");
+    assert_eq!(updated.fallback_page_heading, "This app is unavailable");
     assert_eq!(updated.concurrent_builds, 4);
 
     let certificate = database

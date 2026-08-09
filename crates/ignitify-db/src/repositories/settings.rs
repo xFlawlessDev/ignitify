@@ -12,6 +12,8 @@ pub struct ServerSettingsRecord {
     pub acme_email: String,
     pub dns_record_type: String,
     pub dns_record_target: String,
+    pub fallback_page_heading: String,
+    pub fallback_page_message: String,
     pub certificate_provider: String,
     pub custom_certificate_id: Option<String>,
     pub concurrent_builds: i64,
@@ -26,6 +28,8 @@ pub struct ServerSettingsUpdate {
     pub acme_email: String,
     pub dns_record_type: String,
     pub dns_record_target: String,
+    pub fallback_page_heading: String,
+    pub fallback_page_message: String,
     pub certificate_provider: String,
     pub custom_certificate_id: Option<String>,
     pub concurrent_builds: i64,
@@ -67,6 +71,7 @@ impl ServerSettingsRepository {
             "SELECT server_domain AS application_domain_suffix, https_enabled, automatically_provision_ssl,
                     acme_email,
                     dns_record_type, dns_record_target,
+                    fallback_page_heading, fallback_page_message,
                     certificate_provider, custom_certificate_id, concurrent_builds, updated_at
              FROM server_settings WHERE id = 1",
         )
@@ -84,6 +89,7 @@ impl ServerSettingsRepository {
             "UPDATE server_settings
              SET server_domain = ?, https_enabled = ?, automatically_provision_ssl = ?,
                  acme_email = ?, dns_record_type = ?, dns_record_target = ?,
+                 fallback_page_heading = ?, fallback_page_message = ?,
                  certificate_provider = ?, custom_certificate_id = ?, concurrent_builds = ?,
                  updated_at = ?
              WHERE id = 1",
@@ -94,6 +100,8 @@ impl ServerSettingsRepository {
         .bind(&input.acme_email)
         .bind(&input.dns_record_type)
         .bind(&input.dns_record_target)
+        .bind(&input.fallback_page_heading)
+        .bind(&input.fallback_page_message)
         .bind(&input.certificate_provider)
         .bind(&input.custom_certificate_id)
         .bind(input.concurrent_builds)
@@ -186,6 +194,8 @@ struct ServerSettingsRow {
     acme_email: String,
     dns_record_type: String,
     dns_record_target: String,
+    fallback_page_heading: String,
+    fallback_page_message: String,
     certificate_provider: String,
     custom_certificate_id: Option<String>,
     concurrent_builds: i64,
@@ -212,6 +222,8 @@ impl ServerSettingsRow {
             acme_email: self.acme_email,
             dns_record_type: self.dns_record_type,
             dns_record_target: self.dns_record_target,
+            fallback_page_heading: self.fallback_page_heading,
+            fallback_page_message: self.fallback_page_message,
             certificate_provider: self.certificate_provider,
             custom_certificate_id: self.custom_certificate_id,
             concurrent_builds: self.concurrent_builds,

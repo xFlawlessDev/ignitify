@@ -87,7 +87,8 @@ onMounted(load);
           <Plus class="size-4" :stroke-width="1.5" />
           New project
         </Button>
-        <button
+        <Button
+          variant="ghost"
           class="grid size-9 shrink-0 place-items-center rounded-[3px] border border-border bg-card text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           type="button"
           aria-label="Refresh projects"
@@ -96,7 +97,7 @@ onMounted(load);
           @click="load"
         >
           <RefreshCw class="size-4" :class="loading ? 'animate-spin' : ''" :stroke-width="1.5" />
-        </button>
+        </Button>
       </div>
     </header>
 
@@ -170,7 +171,8 @@ onMounted(load);
             role="group"
             aria-label="Project view"
           >
-            <button
+            <Button
+              variant="ghost"
               class="grid size-7 place-items-center rounded-[2px] transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
               :class="
                 viewMode === 'list'
@@ -184,8 +186,9 @@ onMounted(load);
               @click="setViewMode('list')"
             >
               <ListIcon class="size-4" :stroke-width="1.5" />
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="ghost"
               class="grid size-7 place-items-center rounded-[2px] transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
               :class="
                 viewMode === 'catalog'
@@ -199,7 +202,7 @@ onMounted(load);
               @click="setViewMode('catalog')"
             >
               <LayoutGrid class="size-4" :stroke-width="1.5" />
-            </button>
+            </Button>
           </div>
           <span class="font-mono text-[11px] text-muted-foreground">{{ projectCount }} total</span>
         </div>

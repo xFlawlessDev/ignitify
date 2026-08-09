@@ -20,6 +20,8 @@ use crate::{
     state::AppState,
 };
 
+const APPLICATION_RUNTIME_PLACEHOLDER: &str = "ignitify-source-placeholder@sha256:0000000000000000000000000000000000000000000000000000000000000000";
+
 #[derive(Debug, Deserialize)]
 pub(crate) struct ServiceRequest {
     name: String,
@@ -244,6 +246,9 @@ pub(crate) async fn remove(
 
 fn input(request: ServiceRequest) -> Result<ServiceInput, ApiError> {
     let source_config = request.source_config;
+    let application_source = source_config
+        .as_ref()
+        .is_some_and(|source| source.source == "application");
     let git_compose_source = source_config
         .as_ref()
         .is_some_and(|source| source.source == "compose" && source.provider_id.is_some());
@@ -273,7 +278,11 @@ fn input(request: ServiceRequest) -> Result<ServiceInput, ApiError> {
     let mut input = match request.kind.as_deref().unwrap_or("image") {
         "image" => ServiceInput::image(
             request.name,
-            request.image_reference.unwrap_or_default(),
+            if application_source {
+                APPLICATION_RUNTIME_PLACEHOLDER.to_owned()
+            } else {
+                request.image_reference.unwrap_or_default()
+            },
             request.internal_port,
             request.healthcheck,
             variables,
@@ -332,7 +341,10 @@ async fn ensure_source_provider(
 
 #[cfg(test)]
 mod tests {
-    use super::{ServiceRequest, ServiceVariableReadModel, ServiceVariableResponse, input};
+    use super::{
+        APPLICATION_RUNTIME_PLACEHOLDER, ServiceRequest, ServiceVariableReadModel,
+        ServiceVariableResponse, input,
+    };
     use crate::error::ApiError;
     use ignitify_domain::{ApplicationBuilder, ServiceSourceConfig, ServiceSpec};
 
@@ -479,10 +491,7 @@ mod tests {
         let result = input(ServiceRequest {
             name: "web".to_owned(),
             kind: Some("image".to_owned()),
-            image_reference: Some(
-                "nginx@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-                    .to_owned(),
-            ),
+            image_reference: None,
             compose_yaml: None,
             exposed_service: None,
             internal_port: Some(80),
@@ -511,6 +520,11 @@ mod tests {
                 .and_then(|config| config.repository.as_deref()),
             Some("acme/site")
         );
+        assert!(matches!(
+            result.configuration.spec,
+            ServiceSpec::Image { image_reference, .. }
+                if image_reference == APPLICATION_RUNTIME_PLACEHOLDER
+        ));
     }
 
     #[test]

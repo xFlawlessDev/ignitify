@@ -386,7 +386,8 @@ onUnmounted(() => {
                   <p class="font-mono text-[10px] text-muted-foreground">
                     {{ container.id.slice(0, 12) }}
                   </p>
-                  <button
+                  <Button
+                    variant="ghost"
                     class="grid size-5 shrink-0 place-items-center rounded-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
                     type="button"
                     :aria-label="`Copy full ID for ${container.name}`"
@@ -399,7 +400,7 @@ onUnmounted(() => {
                       :stroke-width="1.75"
                     />
                     <Copy v-else class="size-3" :stroke-width="1.5" />
-                  </button>
+                  </Button>
                 </div>
               </TableCell>
               <TableCell class="py-3">
@@ -482,7 +483,8 @@ onUnmounted(() => {
                       Container actions
                     </p>
                     <PopoverClose v-for="action in containerActions" :key="action.key" as-child>
-                      <button
+                      <Button
+                        variant="ghost"
                         class="flex w-full items-center gap-2 rounded-sm px-2 py-2 text-left text-sm transition-colors hover:bg-muted focus-visible:bg-muted focus-visible:outline-none"
                         type="button"
                         @click="openContainerAction(container, action.key)"
@@ -493,18 +495,19 @@ onUnmounted(() => {
                           :stroke-width="1.5"
                         />
                         <span>{{ action.label }}</span>
-                      </button>
+                      </Button>
                     </PopoverClose>
                     <div class="my-1 border-t border-border" />
                     <PopoverClose as-child>
-                      <button
+                      <Button
+                        variant="ghost"
                         class="flex w-full items-center gap-2 rounded-sm px-2 py-2 text-left text-sm text-destructive transition-colors hover:bg-destructive/10 focus-visible:bg-destructive/10 focus-visible:outline-none"
                         type="button"
                         @click="openContainerAction(container, 'remove')"
                       >
                         <Trash2 class="size-4" :stroke-width="1.5" />
                         <span>Remove Container</span>
-                      </button>
+                      </Button>
                     </PopoverClose>
                   </PopoverContent>
                 </Popover>

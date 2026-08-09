@@ -348,7 +348,8 @@ function selectDeployment(deployment: DeploymentSummary) {
           class="flex items-center gap-3 px-2 py-3 transition-colors hover:bg-muted/40 max-[560px]:items-start max-[560px]:flex-col"
           :class="selectedDeploymentId === deployment.id ? 'bg-muted/60' : ''"
         >
-          <button
+          <Button
+            variant="ghost"
             class="grid min-w-0 flex-1 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 rounded-[4px] text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
             type="button"
             :aria-current="selectedDeploymentId === deployment.id ? 'true' : undefined"
@@ -367,7 +368,7 @@ function selectDeployment(deployment: DeploymentSummary) {
             >
               {{ deployment.status }}
             </Badge>
-          </button>
+          </Button>
           <Button
             v-if="
               canManage && deployment.status === 'healthy' && deployment.id !== latestDeployment?.id

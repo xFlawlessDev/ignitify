@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { CircleCheck, CircleX, ExternalLink, Globe2, RefreshCw, Trash2 } from "@lucide/vue";
+import { Button } from "@/components/ui/button";
 import type { DomainSummary, ServiceSummary } from "@/lib/types";
 
 const props = defineProps<{
@@ -143,7 +144,8 @@ function dnsStatusLabel(status: DomainSummary["dns_status"]) {
         </div>
 
         <div class="flex flex-wrap items-center gap-2 lg:justify-end">
-          <button
+          <Button
+            variant="ghost"
             class="inline-flex h-8 items-center gap-1.5 rounded-[3px] border border-border px-2.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
             type="button"
             :disabled="domain.dns_status === 'pending'"
@@ -157,7 +159,7 @@ function dnsStatusLabel(status: DomainSummary["dns_status"]) {
               :stroke-width="1.5"
             />
             Verify DNS
-          </button>
+          </Button>
           <a
             class="inline-flex h-8 items-center gap-1.5 rounded-[3px] border border-border px-2.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
             :href="domainUrl(domain.hostname)"
@@ -169,7 +171,8 @@ function dnsStatusLabel(status: DomainSummary["dns_status"]) {
             <ExternalLink class="size-3.5" :stroke-width="1.5" />
             Open link
           </a>
-          <button
+          <Button
+            variant="ghost"
             v-if="props.canManage"
             class="grid size-8 place-items-center rounded-[3px] border border-transparent text-muted-foreground transition-colors hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive"
             type="button"
@@ -178,7 +181,7 @@ function dnsStatusLabel(status: DomainSummary["dns_status"]) {
             @click="emit('remove', domain)"
           >
             <Trash2 class="size-4" :stroke-width="1.5" />
-          </button>
+          </Button>
         </div>
       </article>
     </div>

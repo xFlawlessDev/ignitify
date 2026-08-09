@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp, nextTick } from "vue";
+import type { ServiceInput } from "@/lib/types";
 
 const providerApi = vi.hoisted(() => ({
   repositories: vi.fn(),
@@ -161,6 +162,9 @@ describe("ServiceConfigurationPanel", () => {
         builder: "static",
       },
     });
+    const saved = onSave.mock.calls[0]?.[0] as ServiceInput | undefined;
+    expect(saved?.image_reference).toBeUndefined();
+    expect(host.querySelector("#service-config-image")).toBeNull();
     app.unmount();
   });
 

@@ -214,7 +214,8 @@ function submit() {
             role="group"
             aria-label="Authentication method"
           >
-            <button
+            <Button
+              variant="ghost"
               class="min-h-8 px-3 text-xs transition-colors"
               :class="
                 isOAuth ? 'bg-foreground text-background' : 'text-muted-foreground hover:bg-muted'
@@ -224,8 +225,9 @@ function submit() {
               @click="selectAuthMode('oauth')"
             >
               OAuth App
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="ghost"
               class="min-h-8 px-3 text-xs transition-colors"
               :class="
                 isGithubApp
@@ -237,7 +239,7 @@ function submit() {
               @click="selectAuthMode('github_app')"
             >
               GitHub App
-            </button>
+            </Button>
           </div>
         </div>
 

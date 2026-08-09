@@ -28,6 +28,13 @@ export function useDomains() {
     data.value = results.flatMap((result) => result.data);
   }
 
+  function clear() {
+    loadGeneration += 1;
+    data.value = [];
+    loading.value = false;
+    error.value = null;
+  }
+
   async function create(serviceId: string, hostname: string): Promise<DomainSummary | null> {
     error.value = null;
     const result = await apiCreateDomain(serviceId, hostname);
@@ -71,5 +78,5 @@ export function useDomains() {
     return true;
   }
 
-  return { data, loading, error, load, create, remove, verify };
+  return { data, loading, error, load, clear, create, remove, verify };
 }

@@ -2,6 +2,8 @@
 import { ListFilter, Search, X } from "@lucide/vue";
 
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -33,23 +35,23 @@ function updateTag(value: string | undefined) {
   <div class="border-y border-border py-4">
     <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
       <div class="flex min-w-0 flex-1 flex-col gap-3 sm:flex-row sm:items-center">
-        <label class="relative block min-w-0 flex-1 sm:max-w-sm">
+        <Label class="relative block min-w-0 flex-1 sm:max-w-sm">
           <span class="sr-only">Search templates</span>
           <Search
             class="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-muted-foreground"
             aria-hidden="true"
           />
-          <input
-            :value="query"
+          <Input
+            :model-value="query"
             type="search"
             placeholder="Search templates"
             class="h-9 w-full rounded-[3px] border border-input bg-background pr-3 pl-10 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30"
             @input="emit('updateQuery', ($event.target as HTMLInputElement).value)"
           />
-        </label>
+        </Label>
 
         <div class="relative block sm:w-52">
-          <label for="template-category-filter" class="sr-only">Filter by category</label>
+          <Label for="template-category-filter" class="sr-only">Filter by category</Label>
           <ListFilter
             class="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-muted-foreground"
             aria-hidden="true"

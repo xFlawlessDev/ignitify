@@ -89,7 +89,8 @@ function updateRange(nextRange: MonitoringRange) {
           role="group"
           aria-label="Monitoring time range"
         >
-          <button
+          <Button
+            variant="ghost"
             v-for="option in rangeOptions"
             :key="option.value"
             type="button"
@@ -99,7 +100,7 @@ function updateRange(nextRange: MonitoringRange) {
             @click="updateRange(option.value)"
           >
             {{ option.label }}
-          </button>
+          </Button>
         </div>
         <Button
           class="shrink-0"
@@ -134,7 +135,8 @@ function updateRange(nextRange: MonitoringRange) {
       <Skeleton v-else class="h-2.5 w-14" />
       <span class="text-border" aria-hidden="true">/</span>
       <span>Updated {{ updatedLabel }}</span>
-      <button
+      <Button
+        variant="ghost"
         class="ml-2 inline-flex items-center gap-1.5 font-mono text-[10px] text-muted-foreground transition-colors hover:text-foreground"
         type="button"
         @click="autoRefresh = !autoRefresh"
@@ -149,7 +151,7 @@ function updateRange(nextRange: MonitoringRange) {
           />
         </span>
         Auto-refresh {{ autoRefresh ? "on" : "off" }}
-      </button>
+      </Button>
     </div>
 
     <section

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { GitBranch, KeyRound, Server, ShieldCheck } from "@lucide/vue";
 import type { Component } from "vue";
+import { Button } from "@/components/ui/button";
 import type { ProviderKind } from "@/lib/types";
 
 const emit = defineEmits<{ select: [kind: ProviderKind] }>();
@@ -45,7 +46,8 @@ const providerTypes: Array<{
       <h2 id="provider-types-title" class="mt-2 text-base font-medium">Choose a provider</h2>
     </div>
     <div class="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-      <button
+      <Button
+        variant="ghost"
         v-for="provider in providerTypes"
         :key="provider.kind"
         class="group grid min-h-[112px] gap-4 rounded-[10px] border border-border bg-card p-4 text-left transition-colors hover:border-foreground/40 hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
@@ -71,7 +73,7 @@ const providerTypes: Array<{
             provider.description
           }}</span>
         </span>
-      </button>
+      </Button>
     </div>
   </section>
 </template>

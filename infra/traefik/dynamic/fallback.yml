@@ -1,0 +1,20 @@
+http:
+  routers:
+    ignitify-fallback-http:
+      entryPoints:
+        - web
+      rule: "PathPrefix(`/`)"
+      priority: 1
+      service: ignitify-fallback
+    ignitify-fallback-https:
+      entryPoints:
+        - websecure
+      rule: "PathPrefix(`/`)"
+      priority: 1
+      service: ignitify-fallback
+      tls: {}
+  services:
+    ignitify-fallback:
+      loadBalancer:
+        servers:
+          - url: "http://ingress-fallback:8080"

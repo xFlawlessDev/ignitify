@@ -11,6 +11,7 @@ const props = defineProps<{
   canManage: boolean;
   domains: DomainSummary[];
   error: string | null;
+  fixedServiceId?: string;
   loading: boolean;
   services: ServiceSummary[];
 }>();
@@ -45,8 +46,14 @@ const domainError = computed(() => {
 });
 
 watch(
-  routableServices,
-  (services) => {
+  [routableServices, () => props.fixedServiceId],
+  ([services, fixedServiceId]) => {
+    if (fixedServiceId) {
+      serviceId.value = services.some((service) => service.id === fixedServiceId)
+        ? fixedServiceId
+        : "";
+      return;
+    }
     if (!services.some((service) => service.id === serviceId.value)) {
       serviceId.value = services[0]?.id ?? "";
     }
@@ -81,6 +88,7 @@ function removeConfirmed() {
       :server-domain="hostname"
       :service-id="serviceId"
       :domain-error="domainError"
+      :show-service-selector="!fixedServiceId"
       @update:server-domain="hostname = $event"
       @update:service-id="serviceId = $event"
       @create="submit"

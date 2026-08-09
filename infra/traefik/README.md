@@ -7,4 +7,8 @@ Ignitify automatically starts this operator stack on backend startup by default.
 3. Point each domain's DNS A/AAAA records at this host, then verify `/health` reports `"ingress":"ready"` after restarting Ignitify.
 4. Keep `IGNITIFY_TRAEFIK_DYNAMIC_DIR` consistent between the backend environment and Compose. Ignitify writes the selected custom certificate and Traefik file-provider configuration there with restrictive permissions; its generated contents are intentionally ignored by Git.
 
+Requests arriving on port 80 or 443 without a matching application route are served by the internal `ingress-fallback` service with an Ignitify-branded HTTP 404 page. Application routers have a higher priority than this catch-all route, so registered domains remain unaffected. A browser can display the fallback over HTTPS only after it accepts a certificate for the requested hostname; Cloudflare Tunnel traffic forwarded to port 80 receives the page directly.
+
+The page heading and message are configured in **Infrastructure > Ingress fallback**. Ignitify renders them as escaped plain text into `fallback/404.html`; Caddy reads that file on each request, so a saved change does not require a proxy restart.
+
 The Traefik dashboard is disabled. The service sees Docker only through the read-only socket proxy and discovers containers only when `traefik.enable=true`; Ignitify's deployment runtime also applies `com.ignitify.managed=true` to its own containers.

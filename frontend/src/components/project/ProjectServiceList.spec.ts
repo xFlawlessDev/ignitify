@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp, nextTick } from "vue";
+import { createMemoryHistory, createRouter } from "vue-router";
 
 function service(index = 0) {
   return {
@@ -83,6 +84,19 @@ describe("ProjectServiceList", () => {
     const onUpdateView = vi.fn();
     const host = document.createElement("div");
     document.body.append(host);
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: "/", name: "Home", component: { template: "<div />" } },
+        {
+          path: "/projects/:projectId/services/:serviceId",
+          name: "ServiceDetail",
+          component: { template: "<div />" },
+        },
+      ],
+    });
+    await router.push("/");
+    await router.isReady();
     const app = createApp(component, {
       canManage: true,
       services: [service()],
@@ -93,10 +107,11 @@ describe("ProjectServiceList", () => {
       onSelect: vi.fn(),
       onUpdateView,
     });
+    app.use(router);
     app.mount(host);
     await nextTick();
 
-    expect(host.querySelectorAll("article")).toHaveLength(1);
+    expect(host.querySelectorAll("a")).toHaveLength(1);
     expect(host.textContent).toContain("Web");
     expect(host.textContent).toContain("Running");
 

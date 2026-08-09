@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import type { CustomCertificateSummary, CustomCertificateUpload } from "./types";
 
 interface Props {
@@ -108,7 +109,8 @@ function addCertificate() {
             {{ certificate.certificateFileName }} · {{ certificate.privateKeyFileName }}
           </p>
         </div>
-        <button
+        <Button
+          variant="ghost"
           class="grid size-8 shrink-0 place-items-center rounded-[3px] text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
           type="button"
           :aria-label="`Remove ${certificate.name}`"
@@ -116,7 +118,7 @@ function addCertificate() {
           @click="emit('remove', certificate.id)"
         >
           <Trash2 class="size-4" :stroke-width="1.5" />
-        </button>
+        </Button>
       </article>
     </div>
     <div v-else class="flex items-center gap-3 px-5 py-6 text-muted-foreground">
@@ -135,7 +137,7 @@ function addCertificate() {
 
         <form class="grid gap-4" @submit.prevent="addCertificate">
           <div class="grid gap-2">
-            <label for="certificate-name" class="text-xs font-medium">Certificate name</label>
+            <Label for="certificate-name" class="text-xs font-medium">Certificate name</Label>
             <Input
               id="certificate-name"
               v-model="form.name"
@@ -147,8 +149,8 @@ function addCertificate() {
           </div>
 
           <div class="grid gap-2">
-            <label for="certificate-file" class="text-xs font-medium">Certificate file</label>
-            <label
+            <Label for="certificate-file" class="text-xs font-medium">Certificate file</Label>
+            <Label
               class="flex min-h-9 cursor-pointer items-center gap-2 rounded-[3px] border border-input px-3 text-xs text-muted-foreground transition-colors hover:bg-muted"
               for="certificate-file"
             >
@@ -156,7 +158,7 @@ function addCertificate() {
               <span class="truncate">{{
                 certificateFile?.name ?? "Choose .crt or .pem file"
               }}</span>
-            </label>
+            </Label>
             <input
               id="certificate-file"
               class="sr-only"
@@ -167,14 +169,14 @@ function addCertificate() {
           </div>
 
           <div class="grid gap-2">
-            <label for="private-key-file" class="text-xs font-medium">Private key file</label>
-            <label
+            <Label for="private-key-file" class="text-xs font-medium">Private key file</Label>
+            <Label
               class="flex min-h-9 cursor-pointer items-center gap-2 rounded-[3px] border border-input px-3 text-xs text-muted-foreground transition-colors hover:bg-muted"
               for="private-key-file"
             >
               <Upload class="size-4 shrink-0" :stroke-width="1.5" />
               <span class="truncate">{{ privateKeyFile?.name ?? "Choose .key or .pem file" }}</span>
-            </label>
+            </Label>
             <input
               id="private-key-file"
               class="sr-only"

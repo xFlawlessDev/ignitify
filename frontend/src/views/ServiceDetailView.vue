@@ -7,6 +7,7 @@ import {
   Check,
   Copy,
   GitBranch,
+  Globe2,
   RefreshCw,
   Settings2,
   Trash2,
@@ -15,8 +16,10 @@ import { computed, onUnmounted, shallowRef, watch } from "vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
 import ServiceConfigurationPanel from "@/components/project/ServiceConfigurationPanel.vue";
 import ServiceDetailPanel from "@/components/project/ServiceDetailPanel.vue";
+import ServiceDomainsPanel from "@/components/project/ServiceDomainsPanel.vue";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -31,6 +34,7 @@ import {
 } from "reka-ui";
 import { useDeployment } from "@/composables/useDeployment";
 import { useDeploymentStream } from "@/composables/useDeploymentStream";
+import { useDomains } from "@/composables/useDomains";
 import { useProjectEnvironment } from "@/composables/useProjectEnvironment";
 import { useProviders } from "@/composables/useProviders";
 import { useService } from "@/composables/useService";
@@ -38,6 +42,7 @@ import type {
   DeploymentEvent,
   DeploymentLog,
   DeploymentSummary,
+  DomainSummary,
   ServiceInput,
   ServiceSummary,
 } from "@/lib/types";
@@ -46,14 +51,16 @@ const route = useRoute();
 const router = useRouter();
 const services = useService();
 const deployments = useDeployment();
+const domains = useDomains();
 const projectEnvironment = useProjectEnvironment();
 const providers = useProviders();
 const service = shallowRef<ServiceSummary | null>(null);
 const serviceLoading = shallowRef(true);
 const serviceError = shallowRef<string | null>(null);
-const activeView = shallowRef<"configuration" | "operations">("configuration");
+const activeView = shallowRef<"configuration" | "domains" | "operations">("configuration");
 const viewTabs = [
   { value: "configuration" as const, label: "Configuration", icon: Settings2 },
+  { value: "domains" as const, label: "Domains", icon: Globe2 },
   { value: "operations" as const, label: "Deployments & logs", icon: Activity },
 ];
 const selectedDeploymentId = shallowRef<string | null>(null);
@@ -161,6 +168,7 @@ async function load() {
   serviceLoading.value = true;
   serviceError.value = null;
   service.value = null;
+  domains.clear();
   deleteConfirmation.value = false;
   deleteConfirmName.value = "";
   copiedServiceName.value = false;
@@ -182,7 +190,7 @@ async function load() {
     }
     service.value = loaded;
     activeView.value = loaded.source_config?.setup_required ? "configuration" : "operations";
-    await deployments.load(loaded.id);
+    await Promise.all([deployments.load(loaded.id), domains.load([loaded.id])]);
     if (generation !== loadGeneration) return;
     const latest = deployments.data.value.find((deployment) => deployment.service_id === loaded.id);
     if (latest) selectDeployment(latest.id);
@@ -363,7 +371,9 @@ onUnmounted(() => {
           <Tabs
             :model-value="activeView"
             class="min-w-0 max-[480px]:w-full"
-            @update:model-value="(value) => (activeView = value as 'configuration' | 'operations')"
+            @update:model-value="
+              (value) => (activeView = value as 'configuration' | 'domains' | 'operations')
+            "
           >
             <TabsList class="h-9 max-w-full rounded-[4px] max-[480px]:w-full">
               <TabsTrigger
@@ -394,8 +404,21 @@ onUnmounted(() => {
           :service="service"
           @save="saveConfiguration"
         />
+        <ServiceDomainsPanel
+          v-else-if="activeView === 'domains'"
+          :can-manage="canManage"
+          :domains="domains.data.value"
+          :error="domains.error.value"
+          :fixed-service-id="service.id"
+          :loading="domains.loading.value"
+          :services="[service]"
+          @create="(domainServiceId, hostname) => domains.create(domainServiceId, hostname)"
+          @remove="(domain: DomainSummary) => domains.remove(domain)"
+          @retry="domains.load([service.id])"
+          @verify="(domain: DomainSummary) => domains.verify(domain)"
+        />
         <ServiceDetailPanel
-          v-else
+          v-else-if="activeView === 'operations'"
           :can-manage="canManage"
           :connected="streamConnected && logStreamConnected"
           :deployments="deploymentData"
@@ -431,7 +454,8 @@ onUnmounted(() => {
                       <span class="max-w-[18rem] truncate font-medium text-foreground">{{
                         service.name
                       }}</span>
-                      <button
+                      <Button
+                        variant="ghost"
                         class="grid size-5 shrink-0 place-items-center rounded-[3px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
                         type="button"
                         :aria-label="
@@ -446,13 +470,13 @@ onUnmounted(() => {
                       >
                         <Check v-if="copiedServiceName" class="size-3" :stroke-width="1.75" />
                         <Copy v-else class="size-3" :stroke-width="1.5" />
-                      </button>
+                      </Button>
                     </span>
                     and its configuration, deployments, logs, and domains.
                   </AlertDialogDescription>
                 </div>
               </div>
-              <label class="grid gap-2 text-xs text-muted-foreground" for="delete-service-name">
+              <Label class="grid gap-2 text-xs text-muted-foreground" for="delete-service-name">
                 Confirm service name
                 <Input
                   id="delete-service-name"
@@ -461,7 +485,7 @@ onUnmounted(() => {
                   autocomplete="off"
                   :disabled="deleting"
                 />
-              </label>
+              </Label>
               <p
                 v-if="serviceConfigError"
                 class="border border-destructive/40 px-3 py-2 text-xs text-destructive"

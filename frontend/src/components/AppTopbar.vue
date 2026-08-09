@@ -22,6 +22,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Button } from "@/components/ui/button";
 
 const emit = defineEmits<{ openNavigation: [] }>();
 const route = useRoute();
@@ -105,14 +106,15 @@ onUnmounted(() => {
   <header
     class="flex h-14 min-w-0 items-center gap-3 border-b border-border px-4 md:h-[62px] md:px-8"
   >
-    <button
+    <Button
+      variant="ghost"
       class="grid size-8 shrink-0 place-items-center rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground md:hidden"
       type="button"
       :aria-label="t('topbar.openNavigation')"
       @click="emit('openNavigation')"
     >
       <Menu :size="18" :stroke-width="1.5" />
-    </button>
+    </Button>
 
     <Breadcrumb class="min-w-0 flex-1">
       <BreadcrumbList class="flex-nowrap gap-1.5">
@@ -160,7 +162,8 @@ onUnmounted(() => {
 
     <Tooltip>
       <TooltipTrigger as-child>
-        <button
+        <Button
+          variant="ghost"
           class="grid size-8 shrink-0 place-items-center rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground"
           type="button"
           :aria-label="isDark ? t('topbar.useLightTheme') : t('topbar.useDarkTheme')"
@@ -169,7 +172,7 @@ onUnmounted(() => {
         >
           <Sun v-if="isDark" :size="17" :stroke-width="1.5" />
           <Moon v-else :size="17" :stroke-width="1.5" />
-        </button>
+        </Button>
       </TooltipTrigger>
       <TooltipContent side="bottom">
         {{ isDark ? t("topbar.useLightTheme") : t("topbar.useDarkTheme") }}

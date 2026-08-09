@@ -177,7 +177,7 @@ function isRepositorySource() {
 
 function sourceOptionClass(selected: boolean) {
   return cn(
-    "grid gap-1 rounded-[6px] border px-3 py-3 text-left transition-colors",
+    "grid h-auto min-h-[88px] w-full content-start justify-items-start gap-1 rounded-[6px] border px-3 py-3 text-left transition-colors",
     selected
       ? "border-[var(--status-live)] bg-muted/70"
       : "border-border hover:bg-muted/60 focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[2px] focus-visible:outline-none",
@@ -186,7 +186,7 @@ function sourceOptionClass(selected: boolean) {
 
 function builderOptionClass(selected: boolean) {
   return cn(
-    "grid gap-1 rounded-[5px] border px-3 py-2 text-left transition-colors",
+    "grid h-auto min-h-[64px] w-full content-start justify-items-start gap-1 rounded-[5px] border px-3 py-2 text-left transition-colors",
     selected
       ? "border-[var(--status-live)] bg-background"
       : "border-border hover:bg-muted/40 focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[2px] focus-visible:outline-none",
@@ -195,7 +195,7 @@ function builderOptionClass(selected: boolean) {
 
 function composeModeClass(selected: boolean) {
   return cn(
-    "rounded-[5px] border px-3 py-2 text-left text-xs transition-colors",
+    "h-auto min-h-9 w-full justify-start rounded-[5px] border px-3 py-2 text-left text-xs transition-colors",
     selected
       ? "border-[var(--status-live)] bg-muted/70"
       : "border-border hover:bg-muted/60 focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[2px] focus-visible:outline-none",
@@ -427,7 +427,9 @@ function submit() {
     kind: kind.value,
     ...(kind.value === "image"
       ? {
-          image_reference: imageReference.value.trim(),
+          ...(source.value === "application"
+            ? {}
+            : { image_reference: imageReference.value.trim() }),
           healthcheck: healthcheckArguments.length ? healthcheckArguments : null,
         }
       : {
@@ -508,10 +510,11 @@ watch(() => props.service.id, reset, { immediate: true });
         </p>
       </div>
       <div class="grid gap-2 sm:grid-cols-3" role="group" aria-label="Deployment source">
-        <button
+        <Button
+          variant="ghost"
           v-for="option in sourceOptions"
           :key="option.value"
-          :class="sourceOptionClass(source === option.value)"
+          :class="cn(sourceOptionClass(source === option.value), 'text-foreground')"
           type="button"
           :aria-pressed="source === option.value"
           @click="selectSource(option.value as ServiceSource)"
@@ -519,7 +522,7 @@ watch(() => props.service.id, reset, { immediate: true });
           <component :is="option.icon" class="size-4 text-muted-foreground" :stroke-width="1.5" />
           <span class="text-xs font-medium">{{ option.label }}</span>
           <span class="text-[11px] text-muted-foreground">{{ option.description }}</span>
-        </button>
+        </Button>
       </div>
     </section>
 
@@ -638,7 +641,8 @@ watch(() => props.service.id, reset, { immediate: true });
       <div class="grid gap-2">
         <Label>Builder</Label>
         <div class="grid gap-2 sm:grid-cols-2">
-          <button
+          <Button
+            variant="ghost"
             v-for="option in builderOptions"
             :key="option.value"
             :class="builderOptionClass(builder === option.value)"
@@ -650,7 +654,7 @@ watch(() => props.service.id, reset, { immediate: true });
             <span class="text-[11px] leading-4 text-muted-foreground">{{
               option.description
             }}</span>
-          </button>
+          </Button>
         </div>
       </div>
       <div v-if="builder === 'dockerfile'" class="grid gap-2">
@@ -661,15 +665,15 @@ watch(() => props.service.id, reset, { immediate: true });
         v-if="supportsBuildCommand"
         :class="cn('grid gap-3', usesStaticOutput && 'sm:grid-cols-2')"
       >
-        <label for="service-config-build-command" class="grid gap-2 text-xs text-muted-foreground">
+        <Label for="service-config-build-command" class="grid gap-2 text-xs text-muted-foreground">
           Build command
           <Input
             id="service-config-build-command"
             v-model="buildCommand"
             placeholder="pnpm build"
           />
-        </label>
-        <label
+        </Label>
+        <Label
           v-if="usesStaticOutput"
           for="service-config-output-directory"
           class="grid gap-2 text-xs text-muted-foreground"
@@ -680,13 +684,13 @@ watch(() => props.service.id, reset, { immediate: true });
             v-model="outputDirectory"
             placeholder="dist"
           />
-        </label>
+        </Label>
       </div>
     </section>
 
     <section class="grid gap-5 border-t border-border pt-5">
       <template v-if="kind === 'image'">
-        <div class="grid gap-2">
+        <div v-if="source !== 'application'" class="grid gap-2">
           <Label for="service-config-image">Runtime image digest</Label>
           <Input
             id="service-config-image"
@@ -700,22 +704,24 @@ watch(() => props.service.id, reset, { immediate: true });
         <div v-if="source !== 'template'" class="grid gap-2">
           <Label>Compose source</Label>
           <div class="grid gap-2 sm:grid-cols-2">
-            <button
+            <Button
+              variant="ghost"
               :class="composeModeClass(composeMode === 'yaml')"
               type="button"
               :aria-pressed="composeMode === 'yaml'"
               @click="selectComposeMode('yaml')"
             >
               Inline YAML
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="ghost"
               :class="composeModeClass(composeMode === 'repository')"
               type="button"
               :aria-pressed="composeMode === 'repository'"
               @click="selectComposeMode('repository')"
             >
               Provider repository
-            </button>
+            </Button>
           </div>
         </div>
         <div
@@ -790,7 +796,7 @@ watch(() => props.service.id, reset, { immediate: true });
               </SelectContent>
             </Select>
           </div>
-          <label
+          <Label
             class="grid gap-2 text-xs text-muted-foreground sm:col-span-3"
             for="service-config-compose-path"
           >
@@ -800,7 +806,7 @@ watch(() => props.service.id, reset, { immediate: true });
               v-model="dockerfilePath"
               placeholder="docker-compose.yml"
             />
-          </label>
+          </Label>
         </div>
         <p
           v-if="sourceRepositories.repositoriesError"
@@ -933,7 +939,8 @@ watch(() => props.service.id, reset, { immediate: true });
               </TabsTrigger>
             </TabsList>
           </Tabs>
-          <button
+          <Button
+            variant="ghost"
             v-if="activeEnvironmentKind === 'secrets' && serviceSecretCount"
             class="inline-flex items-center justify-end gap-1.5 py-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
             type="button"
@@ -942,7 +949,7 @@ watch(() => props.service.id, reset, { immediate: true });
             <EyeOff v-if="showSecretValues" class="size-3.5" :stroke-width="1.5" />
             <Eye v-else class="size-3.5" :stroke-width="1.5" />
             {{ showSecretValues ? "Hide values" : "Reveal values" }}
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -960,7 +967,7 @@ watch(() => props.service.id, reset, { immediate: true });
           :key="index"
           class="grid min-h-[58px] grid-cols-[minmax(0,0.8fr)_minmax(0,1fr)_auto_auto] items-end gap-2 border-b border-border py-2.5 last:border-b-0 max-[560px]:grid-cols-[minmax(0,1fr)_auto_auto]"
         >
-          <label class="grid min-w-0 gap-1.5 text-[11px] text-muted-foreground">
+          <Label class="grid min-w-0 gap-1.5 text-[11px] text-muted-foreground">
             Key
             <Input
               v-model="variable.key"
@@ -968,8 +975,8 @@ watch(() => props.service.id, reset, { immediate: true });
               autocomplete="off"
               required
             />
-          </label>
-          <label
+          </Label>
+          <Label
             class="grid min-w-0 gap-1.5 text-[11px] text-muted-foreground max-[560px]:col-span-3"
           >
             Value
@@ -985,15 +992,15 @@ watch(() => props.service.id, reset, { immediate: true });
               autocomplete="off"
               required
             />
-          </label>
-          <label class="grid gap-1.5 text-[11px] text-muted-foreground">
+          </Label>
+          <div class="grid gap-1.5 text-[11px] text-muted-foreground">
             Secret
             <Switch
               :model-value="variable.is_secret"
               :aria-label="'Mark ' + (variable.key || 'variable') + ' secret'"
               @update:model-value="updateSecret(index, $event)"
             />
-          </label>
+          </div>
           <Tooltip>
             <TooltipTrigger as-child>
               <Button

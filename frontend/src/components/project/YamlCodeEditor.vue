@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, shallowRef } from "vue";
+import { Textarea } from "@/components/ui/textarea";
 
 interface CodeToken {
   text: string;
@@ -75,7 +76,7 @@ function syncScroll(event: Event) {
       :key="tokenIndex"
       :class="token.className"
     >{{ token.text }}</span></span></pre>
-    <textarea
+    <Textarea
       :id="props.id"
       v-model="model"
       :aria-label="props.ariaLabel"

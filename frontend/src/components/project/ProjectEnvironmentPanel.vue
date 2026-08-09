@@ -3,6 +3,7 @@ import { Copy, Eye, EyeOff, KeyRound, LockKeyhole, Plus, Trash2 } from "@lucide/
 import { computed, shallowRef, watch } from "vue";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -179,7 +180,8 @@ function submit() {
             </TabsTrigger>
           </TabsList>
         </Tabs>
-        <button
+        <Button
+          variant="ghost"
           v-if="props.canManage && activeKind === 'secrets' && secretCount"
           class="inline-flex items-center justify-end gap-1.5 py-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
           type="button"
@@ -188,7 +190,7 @@ function submit() {
           <EyeOff v-if="showSecrets" class="size-3.5" :stroke-width="1.5" />
           <Eye v-else class="size-3.5" :stroke-width="1.5" />
           {{ showSecrets ? "Hide values" : "Reveal values" }}
-        </button>
+        </Button>
       </div>
     </div>
 
@@ -217,15 +219,15 @@ function submit() {
         :key="variable.key + '-' + index"
         class="grid min-h-[58px] grid-cols-[minmax(0,0.8fr)_minmax(0,1fr)_auto_auto] items-end gap-2 border-b border-border py-2.5 last:border-b-0 max-[560px]:grid-cols-[minmax(0,1fr)_auto_auto]"
       >
-        <label class="grid min-w-0 gap-1.5 text-[11px] text-muted-foreground">
+        <Label class="grid min-w-0 gap-1.5 text-[11px] text-muted-foreground">
           Key
           <Input
             v-model="variable.key"
             class="h-8 font-mono text-xs uppercase"
             autocomplete="off"
           />
-        </label>
-        <label
+        </Label>
+        <Label
           class="grid min-w-0 gap-1.5 text-[11px] text-muted-foreground max-[560px]:col-span-3"
         >
           Value
@@ -240,16 +242,17 @@ function submit() {
             "
             autocomplete="off"
           />
-        </label>
-        <label class="grid gap-1.5 text-[11px] text-muted-foreground">
+        </Label>
+        <div class="grid gap-1.5 text-[11px] text-muted-foreground">
           Secret
           <Switch
             :model-value="variable.is_secret"
             :aria-label="'Mark ' + (variable.key || 'variable') + ' secret'"
             @update:model-value="updateSecret(index, $event)"
           />
-        </label>
-        <button
+        </div>
+        <Button
+          variant="ghost"
           class="grid size-8 place-items-center rounded-[3px] border border-transparent text-muted-foreground transition-colors hover:border-border hover:bg-muted hover:text-foreground"
           type="button"
           :aria-label="`Remove ${variable.key || 'variable'}`"
@@ -257,7 +260,7 @@ function submit() {
           @click="removeVariable(index)"
         >
           <Trash2 class="size-3.5" :stroke-width="1.5" />
-        </button>
+        </Button>
       </div>
     </div>
 
@@ -305,7 +308,8 @@ function submit() {
               : variable.value || "Not set"
           }}</span
         >
-        <button
+        <Button
+          variant="ghost"
           v-if="!variable.is_secret || showSecrets"
           class="grid size-7 place-items-center rounded-[3px] border border-transparent text-muted-foreground transition-colors hover:border-border hover:bg-muted hover:text-foreground"
           type="button"
@@ -314,7 +318,7 @@ function submit() {
           @click="copyValue(variable)"
         >
           <Copy class="size-3.5" :stroke-width="1.5" />
-        </button>
+        </Button>
       </div>
     </div>
 

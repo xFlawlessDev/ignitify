@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ArrowUpRight, GitBranch, GitPullRequest, PlugZap, Server, Trash2 } from "@lucide/vue";
+import { Button } from "@/components/ui/button";
 import type { ProviderSummary } from "@/lib/types";
 
 defineProps<{
@@ -86,7 +87,8 @@ function formatDate(value: string) {
         </div>
       </div>
       <div v-if="canManage" class="flex items-center gap-1 justify-self-end">
-        <button
+        <Button
+          variant="ghost"
           class="grid size-8 place-items-center rounded-[3px] text-muted-foreground transition-colors hover:bg-primary/10 hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
           type="button"
           :disabled="busy || testingId !== null"
@@ -99,8 +101,9 @@ function formatDate(value: string) {
             :class="testingId === provider.id ? 'animate-pulse' : ''"
             :stroke-width="1.5"
           />
-        </button>
-        <button
+        </Button>
+        <Button
+          variant="ghost"
           class="grid size-8 place-items-center rounded-[3px] text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:pointer-events-none disabled:opacity-50"
           type="button"
           :disabled="busy || testingId !== null"
@@ -109,7 +112,7 @@ function formatDate(value: string) {
           @click="emit('remove', provider)"
         >
           <Trash2 class="size-4" :stroke-width="1.5" />
-        </button>
+        </Button>
       </div>
     </div>
   </div>

@@ -13,6 +13,8 @@ const initialSettings = {
   acme_email: "",
   dns_record_type: "a" as const,
   dns_record_target: "",
+  fallback_page_heading: "Application not found",
+  fallback_page_message: "The requested hostname is not connected to an active application.",
   certificate_provider: "none",
   custom_certificate_id: null,
   certificates: [],
@@ -118,6 +120,8 @@ describe("SettingsView", () => {
     expect(host.textContent).toContain("Control plane health");
     expect(host.textContent).toContain("Traefik");
     expect(host.textContent).toContain("Application environment");
+    expect(host.textContent).toContain("DNS record type");
+    expect(host.querySelector("#dns-record-target")).not.toBeNull();
     expect(host.textContent).toContain("http://127.0.0.1:6565");
 
     domain.value = "apps.example.com";
@@ -153,6 +157,39 @@ describe("SettingsView", () => {
 
     expect(host.textContent).toContain("Use a valid hostname without a protocol or path.");
     expect(save.disabled).toBe(true);
+    app.unmount();
+  });
+
+  it("persists a custom unmatched-hostname page", async () => {
+    const { app, host } = await mountSettings();
+    const domain = host.querySelector("#application-domain-suffix") as HTMLInputElement;
+    const heading = host.querySelector("#fallback-page-heading") as HTMLInputElement;
+    const message = host.querySelector("#fallback-page-message") as HTMLTextAreaElement;
+    const save = [...host.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("Save changes"),
+    ) as HTMLButtonElement;
+
+    domain.value = "apps.example.com";
+    domain.dispatchEvent(new Event("input", { bubbles: true }));
+    heading.value = "This site is not deployed";
+    heading.dispatchEvent(new Event("input", { bubbles: true }));
+    message.value = "Check the domain name and try again.";
+    message.dispatchEvent(new Event("input", { bubbles: true }));
+    await nextTick();
+
+    expect(save.disabled).toBe(false);
+    save.click();
+    await settle();
+
+    const patch = fetchCalls.find(
+      ([input, init]) =>
+        requestUrl(input).endsWith("/settings/infrastructure") && init?.method === "PATCH",
+    );
+    const requestBody = patch?.[1]?.body;
+    if (typeof requestBody !== "string") throw new Error("Expected a JSON settings payload.");
+    const body = JSON.parse(requestBody);
+    expect(body.fallback_page_heading).toBe("This site is not deployed");
+    expect(body.fallback_page_message).toBe("Check the domain name and try again.");
     app.unmount();
   });
 

@@ -3,6 +3,7 @@ import { Globe2, Server } from "@lucide/vue";
 import { computed } from "vue";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -17,6 +18,7 @@ const props = defineProps<{
   serverDomain: string;
   serviceId: string;
   domainError: string;
+  showServiceSelector?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -51,7 +53,7 @@ const canSubmit = computed(() => Boolean(props.serviceId) && !props.domainError)
     <form class="grid gap-5 px-5 py-5" @submit.prevent="emit('create')">
       <div class="grid gap-2">
         <div class="flex items-center justify-between gap-3">
-          <label for="project-domain" class="text-xs font-medium">Custom domain</label>
+          <Label for="project-domain" class="text-xs font-medium">Custom domain</Label>
           <span class="font-mono text-[10px] text-muted-foreground">FQDN</span>
         </div>
         <Input
@@ -73,11 +75,14 @@ const canSubmit = computed(() => Boolean(props.serviceId) && !props.domainError)
         </p>
       </div>
 
-      <div class="grid gap-2 border-t border-border pt-5">
-        <label for="domain-service" class="flex items-center gap-2 text-xs font-medium">
+      <div
+        v-if="props.showServiceSelector !== false"
+        class="grid gap-2 border-t border-border pt-5"
+      >
+        <Label for="domain-service" class="flex items-center gap-2 text-xs font-medium">
           <Server class="size-4 text-muted-foreground" :stroke-width="1.5" />
           Service
-        </label>
+        </Label>
         <Select
           :model-value="props.serviceId || undefined"
           :disabled="!routableServices.length"
@@ -104,6 +109,10 @@ const canSubmit = computed(() => Boolean(props.serviceId) && !props.domainError)
           Configure an internal port on a service before adding a domain.
         </p>
       </div>
+
+      <p v-else class="border-t border-border pt-5 text-[11px] leading-4 text-muted-foreground">
+        This route targets the current service.
+      </p>
 
       <div class="flex items-center justify-between gap-4 border-t border-border pt-4">
         <p class="text-[11px] leading-4 text-muted-foreground">

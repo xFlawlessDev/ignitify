@@ -114,7 +114,8 @@ function isActive(status: DeploymentSummary["status"]) {
             {{ deployment.status }}
           </span>
           <div class="flex items-center gap-1">
-            <button
+            <Button
+              variant="ghost"
               v-if="deployment.status === 'healthy' || deployment.status === 'running'"
               class="grid size-8 place-items-center rounded-[3px] border border-transparent text-muted-foreground hover:border-border hover:bg-muted hover:text-foreground"
               type="button"
@@ -124,8 +125,9 @@ function isActive(status: DeploymentSummary["status"]) {
               @click="emit('stop', deployment.service_id)"
             >
               <Square class="size-4" :stroke-width="1.5" />
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="ghost"
               v-if="deployment.status === 'healthy' || deployment.status === 'stopped'"
               class="grid size-8 place-items-center rounded-[3px] border border-transparent text-muted-foreground hover:border-border hover:bg-muted hover:text-foreground"
               type="button"
@@ -135,7 +137,7 @@ function isActive(status: DeploymentSummary["status"]) {
               @click="emit('rollback', deployment.id)"
             >
               <RotateCcw class="size-4" :stroke-width="1.5" />
-            </button>
+            </Button>
           </div>
         </div>
       </div>

@@ -53,6 +53,7 @@ services:
       - /ignitify-entrypoint.sh
     depends_on:
       - docker-read-proxy
+      - ingress-fallback
     read_only: true
     security_opt:
       - no-new-privileges:true
@@ -62,6 +63,30 @@ services:
       - NET_BIND_SERVICE
     networks:
       - internal
+      - ignitify-proxy
+
+  ingress-fallback:
+    image: caddy:2.11.4-alpine@sha256:98eb57d882ccd5213d1688764db10c1ca2c58a1ca3a6717a3411ad798f7a423a
+    labels:
+      com.ignitify.ingress: fallback
+    command: ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
+    volumes:
+      - ./fallback/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./fallback/404.html:/srv/404.html:ro
+      - ./fallback/ignitify-mark.svg:/srv/ignitify-mark.svg:ro
+    tmpfs:
+      - /config
+      - /data
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # The official Caddy binary carries this file capability even though the
+    # fallback listens only on the unprivileged port 8080.
+    cap_add:
+      - NET_BIND_SERVICE
+    networks:
       - ignitify-proxy
 
 volumes:

@@ -1,0 +1,23 @@
+{
+	admin off
+	auto_https off
+}
+
+:8080 {
+	root * /srv
+
+	@brand-mark path /ignitify-mark.svg
+	handle @brand-mark {
+		file_server
+	}
+
+	handle {
+		error 404
+	}
+
+	handle_errors {
+		rewrite /404.html
+		header Content-Type "text/html; charset=utf-8"
+		file_server
+	}
+}

@@ -28,6 +28,8 @@ import {
 import PtyTerminal from "@/components/PtyTerminal.vue";
 import type { ContainerActionKey } from "@/components/runtime/container-actions";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Dialog,
   DialogClose,
@@ -479,7 +481,7 @@ async function removeContainer() {
             </section>
 
             <div v-else-if="action === 'upload'" class="grid gap-3">
-              <label class="grid gap-2 text-sm font-medium" for="container-upload-file">
+              <Label class="grid gap-2 text-sm font-medium" for="container-upload-file">
                 Choose a file
                 <input
                   id="container-upload-file"
@@ -487,16 +489,16 @@ async function removeContainer() {
                   type="file"
                   @change="selectUploadFile"
                 />
-              </label>
-              <label class="grid gap-2 text-sm font-medium" for="container-upload-path">
+              </Label>
+              <Label class="grid gap-2 text-sm font-medium" for="container-upload-path">
                 Destination directory
-                <input
+                <Input
                   id="container-upload-path"
                   v-model="uploadPath"
                   class="w-full rounded-sm border border-input bg-background px-3 py-2 font-mono text-xs"
                   type="text"
                 />
-              </label>
+              </Label>
               <p v-if="selectedFile" class="text-xs text-muted-foreground">
                 {{ selectedFile.name }} / {{ selectedFile.size.toLocaleString() }} bytes
               </p>

@@ -15,6 +15,7 @@ import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 import { RouterLink, useRoute } from "vue-router";
 import { toast } from "vue-sonner";
+import { Button } from "@/components/ui/button";
 import { useAppUpdate } from "@/composables/useAppUpdate";
 import { useAuthStore } from "@/stores/auth";
 
@@ -83,7 +84,8 @@ async function checkForUpdates() {
       class="flex items-center justify-between px-2"
       :class="collapsed ? 'md:justify-center md:px-0' : ''"
     >
-      <button
+      <Button
+        variant="ghost"
         class="flex min-w-0 items-center gap-2.5 text-[var(--sidebar-strong)]"
         :class="collapsed ? 'md:justify-center' : ''"
         type="button"
@@ -97,15 +99,16 @@ async function checkForUpdates() {
           :class="collapsed ? 'md:hidden' : ''"
           >Ignitify</span
         >
-      </button>
-      <button
+      </Button>
+      <Button
+        variant="ghost"
         class="grid size-[30px] place-items-center text-[var(--sidebar-muted)] hover:text-[var(--sidebar-strong)] md:hidden"
         type="button"
         aria-label="Close navigation"
         @click="emit('close')"
       >
         <PanelLeftClose :size="17" :stroke-width="1.5" />
-      </button>
+      </Button>
     </div>
 
     <nav class="mt-[30px] grid gap-[3px]" :aria-label="t('navigation.workspace')">
@@ -161,7 +164,8 @@ async function checkForUpdates() {
         >
           {{ t("appUpdate.version", { version: `v${appVersion}` }) }}
         </span>
-        <button
+        <Button
+          variant="ghost"
           class="grid size-[26px] shrink-0 place-items-center rounded-[3px] hover:bg-[var(--sidebar-active)] hover:text-[var(--sidebar-strong)] disabled:cursor-wait disabled:opacity-70"
           type="button"
           :aria-label="
@@ -172,7 +176,7 @@ async function checkForUpdates() {
           @click="checkForUpdates"
         >
           <RefreshCw :size="14" :stroke-width="1.5" :class="isChecking ? 'animate-spin' : ''" />
-        </button>
+        </Button>
       </div>
       <div
         class="mx-2.5 my-3 h-px bg-[var(--sidebar-border)]"
@@ -195,7 +199,8 @@ async function checkForUpdates() {
             >{{ auth.currentUser?.role || "Administrator" }}</small
           ></span
         >
-        <button
+        <Button
+          variant="ghost"
           class="grid size-[26px] shrink-0 place-items-center text-[var(--sidebar-muted)] hover:text-[var(--sidebar-strong)]"
           :class="collapsed ? 'md:hidden' : ''"
           type="button"
@@ -204,7 +209,7 @@ async function checkForUpdates() {
           @click="auth.logout"
         >
           <LogOut :size="15" :stroke-width="1.5" />
-        </button>
+        </Button>
       </div>
     </div>
   </aside>

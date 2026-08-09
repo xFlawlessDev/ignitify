@@ -22,6 +22,7 @@ pub const ENTRYPOINT: &str = "websecure";
 pub const CERT_RESOLVER: &str = "le";
 pub const INGRESS_LABEL: &str = "com.ignitify.ingress=traefik";
 
+const FALLBACK_LABEL: &str = "com.ignitify.ingress=fallback";
 const HTTP_ENTRYPOINT: &str = "web";
 const TLS_REDIRECT_MIDDLEWARE: &str = "redirect-to-https@file";
 const DYNAMIC_CERTIFICATES_FILE: &str = "certificates.yml";
@@ -42,6 +43,7 @@ struct ServerSettingsSource {
     database: Database,
     cipher: Arc<AgeCipher>,
     dynamic_dir: PathBuf,
+    fallback_page_path: PathBuf,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -99,6 +101,7 @@ impl TraefikIngress {
                 database,
                 cipher,
                 dynamic_dir: dynamic_dir_from_environment(),
+                fallback_page_path: fallback_page_path_from_environment(),
             }),
         }
     }
@@ -109,7 +112,11 @@ impl TraefikIngress {
             .runtime
             .has_running_container_with_label(INGRESS_LABEL)
             .await;
-        matches!(network, Ok(true)) && matches!(ingress, Ok(true))
+        let fallback = self
+            .runtime
+            .has_running_container_with_label(FALLBACK_LABEL)
+            .await;
+        matches!(network, Ok(true)) && matches!(ingress, Ok(true)) && matches!(fallback, Ok(true))
     }
 
     pub async fn ensure_started(&self) -> bool {
@@ -131,6 +138,8 @@ impl TraefikIngress {
     async fn sync_server_settings(&self, source: &ServerSettingsSource) -> ControlResult<()> {
         let settings = source.database.server_settings().get().await?;
         sync_dynamic_certificates(source, &settings).await?;
+        write_fallback_page(&source.fallback_page_path, &settings)
+            .map_err(|_| ControlError::Runtime)?;
         self.reconcile_operator_email(&settings.acme_email).await?;
         let policy = RoutingPolicy::from_settings(&settings);
         let mut current = self
@@ -338,6 +347,22 @@ fn dynamic_dir_from_environment() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("infra/traefik/dynamic"))
 }
 
+fn fallback_page_path_from_environment() -> PathBuf {
+    if let Some(path) = env::var("IGNITIFY_TRAEFIK_FALLBACK_PAGE_FILE")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+    {
+        return PathBuf::from(path);
+    }
+    OperatorConfig::from_environment()
+        .compose_file
+        .parent()
+        .filter(|path| !path.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."))
+        .join("fallback")
+        .join("404.html")
+}
+
 async fn sync_dynamic_certificates(
     source: &ServerSettingsSource,
     settings: &ServerSettingsRecord,
@@ -455,6 +480,75 @@ fn write_restricted(path: &Path, contents: &[u8]) -> std::io::Result<()> {
     restrict_file(path)
 }
 
+fn write_fallback_page(path: &Path, settings: &ServerSettingsRecord) -> std::io::Result<()> {
+    write_restricted(
+        path,
+        render_fallback_page(
+            settings.fallback_page_heading.as_str(),
+            settings.fallback_page_message.as_str(),
+        )
+        .as_bytes(),
+    )
+}
+
+fn render_fallback_page(heading: &str, message: &str) -> String {
+    let heading = escape_html(heading);
+    let message = escape_html(message).replace('\n', "<br>");
+    format!(
+        r#"<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex">
+    <title>{heading} | Ignitify</title>
+    <style>
+      :root {{ color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #0e1215; color: #f1f5f4; }}
+      * {{ box-sizing: border-box; }}
+      body {{ min-height: 100vh; margin: 0; display: grid; place-items: center; padding: 32px 24px; }}
+      main {{ width: min(100%, 620px); }}
+      .brand {{ display: flex; align-items: center; gap: 11px; color: #f1f5f4; font-size: 15px; font-weight: 600; }}
+      .brand-mark {{ width: 34px; height: 34px; padding: 6px; border: 1px solid #46665f; background: #164a42; }}
+      .eyebrow {{ margin: 54px 0 13px; color: #8eaaa4; font-size: 12px; font-weight: 600; letter-spacing: 0; text-transform: uppercase; }}
+      h1 {{ max-width: 13ch; margin: 0; font-size: 42px; font-weight: 600; line-height: 1.08; letter-spacing: 0; }}
+      .message {{ max-width: 48ch; margin: 18px 0 0; color: #b3c1bf; font-size: 16px; line-height: 1.65; }}
+      .status {{ display: flex; align-items: center; gap: 9px; margin-top: 36px; padding-top: 18px; border-top: 1px solid #2b3535; color: #81918f; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; }}
+      .status::before {{ width: 7px; height: 7px; border-radius: 50%; background: #e2ae5d; content: ""; }}
+      @media (max-width: 480px) {{ body {{ padding: 28px 20px; }} .eyebrow {{ margin-top: 42px; }} h1 {{ font-size: 34px; }} .message {{ font-size: 15px; }} }}
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="brand">
+        <img class="brand-mark" src="/ignitify-mark.svg" alt="Ignitify">
+        <span>Ignitify</span>
+      </div>
+      <p class="eyebrow">Ingress response</p>
+      <h1>{heading}</h1>
+      <p class="message">{message}</p>
+      <p class="status">HTTP 404 · No active route</p>
+    </main>
+  </body>
+</html>
+"#,
+    )
+}
+
+fn escape_html(value: &str) -> String {
+    let mut escaped = String::with_capacity(value.len());
+    for character in value.chars() {
+        match character {
+            '&' => escaped.push_str("&amp;"),
+            '<' => escaped.push_str("&lt;"),
+            '>' => escaped.push_str("&gt;"),
+            '"' => escaped.push_str("&quot;"),
+            '\'' => escaped.push_str("&#39;"),
+            _ => escaped.push(character),
+        }
+    }
+    escaped
+}
+
 fn restrict_directory(path: &Path) -> std::io::Result<()> {
     #[cfg(unix)]
     {
@@ -517,7 +611,7 @@ mod tests {
 
     use super::{
         CERT_RESOLVER, ENTRYPOINT, PROXY_NETWORK, RoutingPolicy, TLS_REDIRECT_MIDDLEWARE,
-        clear_dynamic_certificates, render_route, render_route_with_policy,
+        clear_dynamic_certificates, render_fallback_page, render_route, render_route_with_policy,
         write_dynamic_certificates,
     };
 
@@ -621,5 +715,18 @@ mod tests {
     fn route_rejects_invalid_port() {
         let (domain_id, hostname) = ids();
         assert!(render_route(&domain_id, &hostname, 0).is_err());
+    }
+
+    #[test]
+    fn fallback_page_escapes_configured_content() {
+        let page = render_fallback_page(
+            "Application <missing>",
+            "Use <support@example.com>\nNext line",
+        );
+
+        assert!(page.contains("Application &lt;missing&gt;"));
+        assert!(page.contains("Use &lt;support@example.com&gt;<br>Next line"));
+        assert!(page.contains("src=\"/ignitify-mark.svg\""));
+        assert!(!page.contains("<support@example.com>"));
     }
 }

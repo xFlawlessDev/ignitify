@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Globe2, LockKeyhole, ShieldCheck } from "@lucide/vue";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -71,8 +72,8 @@ function updateCustomCertificate(value: string | number) {
 
     <div class="grid gap-5 px-5 py-5">
       <div class="grid gap-2">
-        <label for="application-domain-suffix" class="text-xs font-medium"
-          >Managed domain suffix</label
+        <Label for="application-domain-suffix" class="text-xs font-medium"
+          >Managed domain suffix</Label
         >
         <Input
           id="application-domain-suffix"
@@ -101,7 +102,7 @@ function updateCustomCertificate(value: string | number) {
 
       <div class="grid gap-4 border-t border-border pt-5">
         <div class="grid gap-2">
-          <label for="dns-record-type" class="text-xs font-medium">DNS record type</label>
+          <Label for="dns-record-type" class="text-xs font-medium">DNS record type</Label>
           <Select
             :model-value="props.dnsRecordType"
             @update:model-value="
@@ -119,7 +120,7 @@ function updateCustomCertificate(value: string | number) {
         </div>
 
         <div class="grid gap-2">
-          <label for="dns-record-target" class="text-xs font-medium">DNS record target</label>
+          <Label for="dns-record-target" class="text-xs font-medium">DNS record target</Label>
           <Input
             id="dns-record-target"
             :model-value="props.dnsRecordTarget"
@@ -148,7 +149,7 @@ function updateCustomCertificate(value: string | number) {
         <div class="flex min-w-0 items-start gap-3">
           <LockKeyhole class="mt-0.5 size-4 shrink-0 text-muted-foreground" :stroke-width="1.5" />
           <div>
-            <label for="https-enabled" class="text-xs font-medium">Default HTTPS</label>
+            <Label for="https-enabled" class="text-xs font-medium">Default HTTPS</Label>
             <p class="mt-1 max-w-[48ch] text-[11px] leading-4 text-muted-foreground">
               Use TLS for managed application routes and redirect their HTTP traffic.
             </p>
@@ -171,7 +172,7 @@ function updateCustomCertificate(value: string | number) {
           <div class="flex min-w-0 items-start gap-3">
             <ShieldCheck class="mt-0.5 size-4 shrink-0 text-muted-foreground" :stroke-width="1.5" />
             <div>
-              <label for="automatic-ssl" class="text-xs font-medium">Automatic certificates</label>
+              <Label for="automatic-ssl" class="text-xs font-medium">Automatic certificates</Label>
               <p class="mt-1 max-w-[48ch] text-[11px] leading-4 text-muted-foreground">
                 Request and renew certificates with Let's Encrypt.
               </p>
@@ -188,7 +189,7 @@ function updateCustomCertificate(value: string | number) {
         </div>
 
         <div class="grid gap-2">
-          <label for="certificate-provider" class="text-xs font-medium">Certificate source</label>
+          <Label for="certificate-provider" class="text-xs font-medium">Certificate source</Label>
           <Select
             :disabled="!props.httpsEnabled"
             :model-value="props.certificateProvider"
@@ -208,7 +209,7 @@ function updateCustomCertificate(value: string | number) {
         </div>
 
         <div class="grid gap-2">
-          <label for="acme-email" class="text-xs font-medium">ACME contact email</label>
+          <Label for="acme-email" class="text-xs font-medium">ACME contact email</Label>
           <Input
             id="acme-email"
             type="email"
@@ -230,7 +231,7 @@ function updateCustomCertificate(value: string | number) {
         </div>
 
         <div v-if="props.certificateProvider === 'custom'" class="grid gap-2">
-          <label for="custom-certificate" class="text-xs font-medium">Custom certificate</label>
+          <Label for="custom-certificate" class="text-xs font-medium">Custom certificate</Label>
           <Select
             :disabled="!props.httpsEnabled"
             :model-value="props.customCertificateId ?? undefined"

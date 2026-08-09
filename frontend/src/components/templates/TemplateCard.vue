@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ArrowUpRight, PackageOpen } from "@lucide/vue";
 import { computed, shallowRef, watch } from "vue";
+import { Button } from "@/components/ui/button";
 
 import type { TemplateMetadata } from "@/lib/template-catalog";
 import { templateFileUrl } from "@/lib/template-catalog";
@@ -29,7 +30,8 @@ watch(
 
 <template>
   <article class="group/template-card min-w-0">
-    <button
+    <Button
+      variant="ghost"
       type="button"
       class="flex h-full w-full flex-col rounded-[10px] border border-border bg-card p-5 text-left transition-[border-color,background-color] duration-200 hover:border-signal/70 hover:bg-muted/40 focus-visible:outline-2 focus-visible:outline-ring focus-visible:outline-offset-2"
       :aria-label="`View ${template.name} template`"
@@ -76,7 +78,7 @@ watch(
           {{ tag }}
         </span>
       </div>
-    </button>
+    </Button>
   </article>
 </template>
 

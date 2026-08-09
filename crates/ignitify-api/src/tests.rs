@@ -365,7 +365,7 @@ async fn infrastructure_settings_require_admin_and_persist_validated_updates() {
             "PATCH",
             "/api/v1/settings/infrastructure",
             Some(&token),
-            r#"{"application_domain_suffix":"Apps.Example.com","https_enabled":true,"automatically_provision_ssl":true,"acme_email":"ops@apps.example.com","dns_record_type":"a","dns_record_target":"203.0.113.10","certificate_provider":"lets-encrypt","custom_certificate_id":null}"#,
+            r#"{"application_domain_suffix":"Apps.Example.com","https_enabled":true,"automatically_provision_ssl":true,"acme_email":"ops@apps.example.com","dns_record_type":"a","dns_record_target":"203.0.113.10","fallback_page_heading":"This application is unavailable","fallback_page_message":"Check the address and try again.","certificate_provider":"lets-encrypt","custom_certificate_id":null}"#,
         ))
         .await
         .unwrap();
@@ -376,6 +376,14 @@ async fn infrastructure_settings_require_admin_and_persist_validated_updates() {
     assert_eq!(settings["acme_email"], "ops@apps.example.com");
     assert_eq!(settings["dns_record_type"], "a");
     assert_eq!(settings["dns_record_target"], "203.0.113.10");
+    assert_eq!(
+        settings["fallback_page_heading"],
+        "This application is unavailable"
+    );
+    assert_eq!(
+        settings["fallback_page_message"],
+        "Check the address and try again."
+    );
     assert_eq!(settings["certificate_provider"], "lets-encrypt");
     assert_eq!(settings["application"]["public_origin"], "");
     assert_eq!(settings["application"]["secure_cookies"], false);
@@ -395,6 +403,10 @@ async fn infrastructure_settings_require_admin_and_persist_validated_updates() {
     let body = persisted.into_body().collect().await.unwrap().to_bytes();
     let settings: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(settings["application_domain_suffix"], "apps.example.com");
+    assert_eq!(
+        settings["fallback_page_heading"],
+        "This application is unavailable"
+    );
 
     let invalid = app
         .clone()
@@ -409,6 +421,7 @@ async fn infrastructure_settings_require_admin_and_persist_validated_updates() {
     assert_eq!(invalid.status(), StatusCode::BAD_REQUEST);
 
     let invalid_email = app
+        .clone()
         .oneshot(request(
             "PATCH",
             "/api/v1/settings/infrastructure",
@@ -418,6 +431,17 @@ async fn infrastructure_settings_require_admin_and_persist_validated_updates() {
         .await
         .unwrap();
     assert_eq!(invalid_email.status(), StatusCode::BAD_REQUEST);
+
+    let invalid_fallback = app
+        .oneshot(request(
+            "PATCH",
+            "/api/v1/settings/infrastructure",
+            Some(&token),
+            r#"{"application_domain_suffix":"apps.example.com","https_enabled":true,"automatically_provision_ssl":true,"acme_email":"ops@apps.example.com","dns_record_type":"a","dns_record_target":"203.0.113.10","fallback_page_heading":"","fallback_page_message":"Check the address and try again.","certificate_provider":"lets-encrypt","custom_certificate_id":null}"#,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(invalid_fallback.status(), StatusCode::BAD_REQUEST);
 }
 
 #[tokio::test]
@@ -823,6 +847,9 @@ async fn domain_routes_require_service_port_and_exact_confirmation() {
             acme_email: "ops@apps.example.com".to_owned(),
             dns_record_type: "a".to_owned(),
             dns_record_target: "203.0.113.10".to_owned(),
+            fallback_page_heading: "Application not found".to_owned(),
+            fallback_page_message:
+                "The requested hostname is not connected to an active application.".to_owned(),
             certificate_provider: "lets-encrypt".to_owned(),
             custom_certificate_id: None,
             concurrent_builds: 2,

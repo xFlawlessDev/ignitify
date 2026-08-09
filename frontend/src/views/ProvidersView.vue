@@ -146,7 +146,8 @@ onMounted(load);
           <Plus class="size-4" :stroke-width="1.5" />
           Connect GitHub
         </Button>
-        <button
+        <Button
+          variant="ghost"
           class="grid size-9 shrink-0 place-items-center rounded-[3px] border border-border bg-card text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           type="button"
           aria-label="Refresh providers"
@@ -155,7 +156,7 @@ onMounted(load);
           @click="load"
         >
           <RefreshCw class="size-4" :class="loading ? 'animate-spin' : ''" :stroke-width="1.5" />
-        </button>
+        </Button>
       </div>
     </header>
 

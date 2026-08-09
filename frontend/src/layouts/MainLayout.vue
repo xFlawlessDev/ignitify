@@ -2,6 +2,7 @@
 import { shallowRef } from "vue";
 import AppSidebar from "@/components/AppSidebar.vue";
 import AppTopbar from "@/components/AppTopbar.vue";
+import { Button } from "@/components/ui/button";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useControlPlanePreferences } from "@/composables/useControlPlanePreferences";
 
@@ -18,7 +19,8 @@ const { isSidebarCollapsed, toggleSidebar } = useControlPlanePreferences();
         @close="isSidebarOpen = false"
         @toggle-collapse="toggleSidebar"
       />
-      <button
+      <Button
+        variant="ghost"
         v-if="isSidebarOpen"
         class="fixed inset-0 z-20 size-full bg-black/30 md:hidden"
         type="button"
