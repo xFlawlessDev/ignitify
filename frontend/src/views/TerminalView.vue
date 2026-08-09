@@ -120,15 +120,15 @@ onUnmounted(() => {
 
     <section
       ref="terminalFrame"
-      class="mt-4 flex min-h-[min(650px,calc(100svh_-_240px))] flex-col overflow-hidden rounded-[10px] border border-border bg-[#09090b] fullscreen:min-h-svh fullscreen:border-0 fullscreen:rounded-none max-[700px]:min-h-[min(560px,calc(100svh_-_270px))]"
+      class="mt-4 flex min-h-[min(650px,calc(100svh_-_240px))] flex-col overflow-hidden rounded-[10px] border border-border bg-[#09090b] text-[#f4f4f5] fullscreen:min-h-svh fullscreen:border-0 fullscreen:rounded-none max-[700px]:min-h-[min(560px,calc(100svh_-_270px))]"
       aria-label="Host terminal"
     >
       <div
         class="flex min-h-[43px] items-center justify-between gap-3 border-b border-[#27272a] bg-[#18181b] px-2 py-[5px] pl-3.5"
       >
         <div class="flex min-w-0 items-center gap-2">
-          <TerminalSquare class="size-4 text-muted-foreground" :stroke-width="1.5" />
-          <span class="truncate font-mono text-[11px] text-muted-foreground">host / shell</span>
+          <TerminalSquare class="size-4 text-[#a1a1aa]" :stroke-width="1.5" />
+          <span class="truncate font-mono text-[11px] text-[#a1a1aa]">host / shell</span>
         </div>
         <div class="flex items-center gap-1">
           <Tooltip>
@@ -136,6 +136,7 @@ onUnmounted(() => {
               <Button
                 size="icon-sm"
                 variant="ghost"
+                class="text-[#d4d4d8] hover:bg-[#27272a] hover:text-[#fafafa]"
                 aria-label="Clear terminal"
                 title="Clear terminal"
                 @click="clear"
@@ -150,6 +151,7 @@ onUnmounted(() => {
               <Button
                 size="icon-sm"
                 variant="ghost"
+                class="text-[#d4d4d8] hover:bg-[#27272a] hover:text-[#fafafa]"
                 :aria-label="isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'"
                 :title="isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'"
                 @click="toggleFullscreen"

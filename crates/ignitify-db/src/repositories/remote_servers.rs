@@ -12,6 +12,7 @@ pub struct RemoteServerRecord {
     pub port: i64,
     pub username: String,
     pub deploy_path: String,
+    pub public_key_configured: bool,
     pub is_default: bool,
     pub created_at: String,
     pub updated_at: String,
@@ -25,6 +26,7 @@ pub struct RemoteServerConnection {
     pub username: String,
     pub deploy_path: String,
     pub private_key_ciphertext: String,
+    pub public_key_ciphertext: String,
     pub known_hosts_ciphertext: String,
 }
 
@@ -36,6 +38,7 @@ pub struct NewRemoteServer {
     pub username: String,
     pub deploy_path: String,
     pub private_key_ciphertext: String,
+    pub public_key_ciphertext: String,
     pub known_hosts_ciphertext: String,
     pub is_default: bool,
 }
@@ -48,6 +51,7 @@ pub struct RemoteServerUpdate {
     pub username: String,
     pub deploy_path: String,
     pub private_key_ciphertext: Option<String>,
+    pub public_key_ciphertext: Option<String>,
     pub known_hosts_ciphertext: Option<String>,
     pub is_default: bool,
 }
@@ -64,7 +68,9 @@ impl RemoteServersRepository {
 
     pub async fn list(&self) -> Result<Vec<RemoteServerRecord>> {
         let rows = sqlx::query_as::<_, RemoteServerRow>(
-            "SELECT id, name, host, port, username, deploy_path, is_default, created_at, updated_at
+            "SELECT id, name, host, port, username, deploy_path,
+                    (length(public_key_ciphertext) > 0) AS public_key_configured,
+                    is_default, created_at, updated_at
              FROM remote_servers
              ORDER BY is_default DESC, name COLLATE NOCASE",
         )
@@ -85,8 +91,8 @@ impl RemoteServersRepository {
         let result = sqlx::query(
             "INSERT INTO remote_servers
              (id, name, host, port, username, deploy_path, private_key_ciphertext,
-              known_hosts_ciphertext, is_default, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+              public_key_ciphertext, known_hosts_ciphertext, is_default, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(&input.name)
@@ -95,6 +101,7 @@ impl RemoteServersRepository {
         .bind(&input.username)
         .bind(&input.deploy_path)
         .bind(&input.private_key_ciphertext)
+        .bind(&input.public_key_ciphertext)
         .bind(&input.known_hosts_ciphertext)
         .bind(input.is_default)
         .bind(&now)
@@ -136,6 +143,7 @@ impl RemoteServersRepository {
             "UPDATE remote_servers
              SET name = ?, host = ?, port = ?, username = ?, deploy_path = ?,
                  private_key_ciphertext = COALESCE(?, private_key_ciphertext),
+                 public_key_ciphertext = COALESCE(?, public_key_ciphertext),
                  known_hosts_ciphertext = COALESCE(?, known_hosts_ciphertext),
                  is_default = ?, updated_at = ?
              WHERE id = ?",
@@ -146,6 +154,7 @@ impl RemoteServersRepository {
         .bind(&input.username)
         .bind(&input.deploy_path)
         .bind(&input.private_key_ciphertext)
+        .bind(&input.public_key_ciphertext)
         .bind(&input.known_hosts_ciphertext)
         .bind(input.is_default)
         .bind(&now)
@@ -195,7 +204,7 @@ impl RemoteServersRepository {
     pub async fn active(&self) -> Result<Option<RemoteServerConnection>> {
         let row = sqlx::query_as::<_, RemoteServerConnectionRow>(
             "SELECT id, host, port, username, deploy_path, private_key_ciphertext,
-                    known_hosts_ciphertext
+                    public_key_ciphertext, known_hosts_ciphertext
              FROM remote_servers
              WHERE is_default = 1",
         )
@@ -204,9 +213,24 @@ impl RemoteServersRepository {
         Ok(row.map(RemoteServerConnectionRow::into_connection))
     }
 
+    pub async fn connection(&self, id: &str) -> Result<Option<RemoteServerConnection>> {
+        let row = sqlx::query_as::<_, RemoteServerConnectionRow>(
+            "SELECT id, host, port, username, deploy_path, private_key_ciphertext,
+                    public_key_ciphertext, known_hosts_ciphertext
+             FROM remote_servers
+             WHERE id = ?",
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(RemoteServerConnectionRow::into_connection))
+    }
+
     async fn get(&self, id: &str) -> Result<Option<RemoteServerRecord>> {
         let row = sqlx::query_as::<_, RemoteServerRow>(
-            "SELECT id, name, host, port, username, deploy_path, is_default, created_at, updated_at
+            "SELECT id, name, host, port, username, deploy_path,
+                    (length(public_key_ciphertext) > 0) AS public_key_configured,
+                    is_default, created_at, updated_at
              FROM remote_servers
              WHERE id = ?",
         )
@@ -234,6 +258,7 @@ struct RemoteServerRow {
     port: i64,
     username: String,
     deploy_path: String,
+    public_key_configured: i64,
     is_default: i64,
     created_at: String,
     updated_at: String,
@@ -248,6 +273,7 @@ impl RemoteServerRow {
             port: self.port,
             username: self.username,
             deploy_path: self.deploy_path,
+            public_key_configured: self.public_key_configured != 0,
             is_default: self.is_default != 0,
             created_at: self.created_at,
             updated_at: self.updated_at,
@@ -263,6 +289,7 @@ struct RemoteServerConnectionRow {
     username: String,
     deploy_path: String,
     private_key_ciphertext: String,
+    public_key_ciphertext: String,
     known_hosts_ciphertext: String,
 }
 
@@ -275,6 +302,7 @@ impl RemoteServerConnectionRow {
             username: self.username,
             deploy_path: self.deploy_path,
             private_key_ciphertext: self.private_key_ciphertext,
+            public_key_ciphertext: self.public_key_ciphertext,
             known_hosts_ciphertext: self.known_hosts_ciphertext,
         }
     }

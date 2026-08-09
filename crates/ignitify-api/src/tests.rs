@@ -361,6 +361,17 @@ async fn remote_server_routes_encrypt_ssh_material_and_do_not_expose_it() {
         .await
         .unwrap();
     assert_eq!(unauthenticated.status(), StatusCode::UNAUTHORIZED);
+    let unauthenticated_check = app
+        .clone()
+        .oneshot(request(
+            "POST",
+            "/api/v1/remote-servers/unknown/check",
+            None,
+            "",
+        ))
+        .await
+        .unwrap();
+    assert_eq!(unauthenticated_check.status(), StatusCode::UNAUTHORIZED);
 
     let created = app
         .clone()
@@ -368,7 +379,7 @@ async fn remote_server_routes_encrypt_ssh_material_and_do_not_expose_it() {
             "POST",
             "/api/v1/remote-servers",
             Some(&token),
-            r#"{"name":"Production VM","host":"production.example.com","port":22,"username":"ignitify","deploy_path":"/srv/ignitify","private_key":"-----BEGIN PRIVATE KEY-----\nprivate-key\n-----END PRIVATE KEY-----","known_hosts":"production.example.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExample","is_default":true}"#,
+            r#"{"name":"Production VM","host":"production.example.com","port":22,"username":"ignitify","deploy_path":"/srv/ignitify","private_key":"-----BEGIN PRIVATE KEY-----\nprivate-key\n-----END PRIVATE KEY-----","public_key":"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExample deploy@host","known_hosts":"production.example.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExample","is_default":true}"#,
         ))
         .await
         .unwrap();
@@ -376,6 +387,7 @@ async fn remote_server_routes_encrypt_ssh_material_and_do_not_expose_it() {
     let body = created.into_body().collect().await.unwrap().to_bytes();
     let created: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(created["private_key_configured"], true);
+    assert_eq!(created["public_key_configured"], true);
     assert!(!String::from_utf8_lossy(&body).contains("private-key"));
 
     let servers = app

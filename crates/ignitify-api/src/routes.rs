@@ -108,6 +108,10 @@ pub(crate) fn router(state: AppState) -> Router {
             post(handlers::remote_servers::make_default),
         )
         .route(
+            "/api/v1/remote-servers/{server_id}/check",
+            post(handlers::remote_servers::check),
+        )
+        .route(
             "/api/v1/runtime/containers",
             get(handlers::runtime::containers),
         )

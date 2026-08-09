@@ -9,6 +9,7 @@ export interface RemoteServerSummary {
   username: string;
   deploy_path: string;
   private_key_configured: boolean;
+  public_key_configured: boolean;
   known_hosts_configured: boolean;
   is_default: boolean;
   created_at: string;
@@ -22,8 +23,14 @@ export interface RemoteServerInput {
   username: string;
   deploy_path: string;
   private_key?: string;
+  public_key?: string;
   known_hosts?: string;
   is_default: boolean;
+}
+
+export interface RemoteServerCheckResult {
+  connected: boolean;
+  latency_ms: number;
 }
 
 const endpoint = "/remote-servers";
@@ -63,4 +70,13 @@ export function apiSetDefaultRemoteServer(
   return apiFetch<RemoteServerSummary>(`${endpoint}/${encodeURIComponent(serverId)}/default`, {
     method: "POST",
   });
+}
+
+export function apiCheckRemoteServer(
+  serverId: string,
+): Promise<ApiResult<RemoteServerCheckResult>> {
+  return apiFetch<RemoteServerCheckResult>(
+    `${endpoint}/${encodeURIComponent(serverId)}/check`,
+    { method: "POST" },
+  );
 }

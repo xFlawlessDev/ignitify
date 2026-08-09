@@ -4,7 +4,18 @@ import { Controls } from "@vue-flow/controls";
 import { Handle, Position, VueFlow, type Edge, type Node } from "@vue-flow/core";
 import "@vue-flow/controls/dist/style.css";
 import "@vue-flow/core/dist/style.css";
-import { Check, Container, Pencil, Plus, RefreshCw, Server, Trash2, Upload } from "@lucide/vue";
+import {
+  Check,
+  Container,
+  Copy,
+  Pencil,
+  Plus,
+  RefreshCw,
+  Server,
+  Trash2,
+  Upload,
+  X,
+} from "@lucide/vue";
 import { computed, onMounted, reactive, shallowRef, watch } from "vue";
 import { Button } from "@/components/ui/button";
 import {
@@ -21,6 +32,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  apiCheckRemoteServer,
   apiCreateRemoteServer,
   apiDeleteRemoteServer,
   apiListRemoteServers,
@@ -35,6 +47,15 @@ interface FlowNodeData {
   server?: RemoteServerSummary;
 }
 
+interface ConnectionCheckState {
+  serverId: string;
+  status: "success" | "error";
+  latencyMs?: number;
+  message: string;
+}
+
+type SecretInputMode = "file" | "text";
+
 const servers = shallowRef<RemoteServerSummary[]>([]);
 const selectedServerId = shallowRef<string | null>(null);
 const loading = shallowRef(true);
@@ -47,7 +68,21 @@ const serverPendingDeletion = shallowRef<RemoteServerSummary | null>(null);
 const editingId = shallowRef<string | null>(null);
 const privateKeyFile = shallowRef<File | null>(null);
 const privateKeyInputKey = shallowRef(0);
+const privateKeyMode = shallowRef<SecretInputMode>("file");
+const publicKeyFile = shallowRef<File | null>(null);
+const publicKeyInputKey = shallowRef(0);
+const publicKeyMode = shallowRef<SecretInputMode>("file");
 const showValidation = shallowRef(false);
+const checkingServerId = shallowRef<string | null>(null);
+const connectionCheck = shallowRef<ConnectionCheckState | null>(null);
+const copiedGuideCommand = shallowRef<string | null>(null);
+
+const linuxGuideCommands = {
+  generate: 'ssh-keygen -t ed25519 -f ./ignitify_deploy -C "ignitify-deploy"',
+  install:
+    "ssh-copy-id -i ./ignitify_deploy.pub {user}@{host}\nchmod 700 ~/.ssh\nchmod 600 ~/.ssh/authorized_keys",
+  hostKey: "ssh-keyscan -t ed25519 {host}",
+};
 
 const form = reactive({
   name: "",
@@ -55,12 +90,23 @@ const form = reactive({
   port: 22,
   username: "ignitify",
   deployPath: "/srv/ignitify",
+  privateKeyText: "",
+  publicKeyText: "",
   knownHosts: "",
   isDefault: true,
 });
 
 const selectedServer = computed(
   () => servers.value.find((server) => server.id === selectedServerId.value) ?? null,
+);
+const selectedConnectionCheck = computed(() =>
+  connectionCheck.value?.serverId === selectedServerId.value ? connectionCheck.value : null,
+);
+const privateKeyProvided = computed(() =>
+  privateKeyMode.value === "text" ? !!form.privateKeyText.trim() : !!privateKeyFile.value,
+);
+const publicKeyProvided = computed(() =>
+  publicKeyMode.value === "text" ? !!form.publicKeyText.trim() : !!publicKeyFile.value,
 );
 
 // Vue Flow measures and writes each node's dimensions after it mounts. Keep its
@@ -123,7 +169,16 @@ const formError = computed(() => {
   if (!form.deployPath.trim().startsWith("/")) {
     return "Deployment path must start with /.";
   }
-  if (!editingId.value && !privateKeyFile.value) return "An SSH private key file is required.";
+  if (!editingId.value && !privateKeyProvided.value) return "An SSH private key is required.";
+  if (
+    editingId.value &&
+    selectedServer.value &&
+    !selectedServer.value.public_key_configured &&
+    !publicKeyProvided.value
+  ) {
+    return "An SSH public key is required for this server.";
+  }
+  if (!editingId.value && !publicKeyProvided.value) return "An SSH public key is required.";
   if (!editingId.value && !form.knownHosts.trim()) return "known_hosts is required.";
   return "";
 });
@@ -134,11 +189,17 @@ function resetForm() {
   form.port = 22;
   form.username = "ignitify";
   form.deployPath = "/srv/ignitify";
+  form.privateKeyText = "";
+  form.publicKeyText = "";
   form.knownHosts = "";
   form.isDefault = servers.value.length === 0;
   editingId.value = null;
   privateKeyFile.value = null;
   privateKeyInputKey.value += 1;
+  privateKeyMode.value = "file";
+  publicKeyFile.value = null;
+  publicKeyInputKey.value += 1;
+  publicKeyMode.value = "file";
   showValidation.value = false;
 }
 
@@ -158,21 +219,79 @@ function editServer(server: RemoteServerSummary) {
   form.port = server.port;
   form.username = server.username;
   form.deployPath = server.deploy_path;
+  form.privateKeyText = "";
+  form.publicKeyText = "";
   form.knownHosts = "";
   form.isDefault = server.is_default;
   editingId.value = server.id;
   privateKeyFile.value = null;
   privateKeyInputKey.value += 1;
+  privateKeyMode.value = "file";
+  publicKeyFile.value = null;
+  publicKeyInputKey.value += 1;
+  publicKeyMode.value = "file";
   showValidation.value = false;
   dialogOpen.value = true;
 }
 
 function selectServer(serverId: string) {
+  if (selectedServerId.value !== serverId) connectionCheck.value = null;
   selectedServerId.value = serverId;
+}
+
+function closeInspector() {
+  selectedServerId.value = null;
+  connectionCheck.value = null;
+}
+
+async function checkConnection(server: RemoteServerSummary) {
+  checkingServerId.value = server.id;
+  connectionCheck.value = null;
+  try {
+    const result = await apiCheckRemoteServer(server.id);
+    connectionCheck.value = result.success
+      ? {
+          serverId: server.id,
+          status: "success",
+          latencyMs: result.data.latency_ms,
+          message: "SSH connection verified",
+        }
+      : {
+          serverId: server.id,
+          status: "error",
+          message: result.error ?? "SSH connection failed",
+        };
+  } catch {
+    connectionCheck.value = {
+      serverId: server.id,
+      status: "error",
+      message: "SSH connection check failed",
+    };
+  } finally {
+    checkingServerId.value = null;
+  }
 }
 
 function updatePrivateKey(event: Event) {
   privateKeyFile.value = (event.target as HTMLInputElement).files?.[0] ?? null;
+}
+
+function updatePublicKey(event: Event) {
+  publicKeyFile.value = (event.target as HTMLInputElement).files?.[0] ?? null;
+}
+
+async function copyGuideCommand(command: string) {
+  if (!navigator.clipboard) return;
+
+  try {
+    await navigator.clipboard.writeText(command);
+    copiedGuideCommand.value = command;
+    window.setTimeout(() => {
+      if (copiedGuideCommand.value === command) copiedGuideCommand.value = null;
+    }, 1600);
+  } catch {
+    copiedGuideCommand.value = null;
+  }
 }
 
 async function loadServers() {
@@ -182,8 +301,7 @@ async function loadServers() {
   if (result.success) {
     servers.value = result.data;
     if (!result.data.some((server) => server.id === selectedServerId.value)) {
-      selectedServerId.value =
-        result.data.find((server) => server.is_default)?.id ?? result.data[0]?.id ?? null;
+      selectedServerId.value = null;
     }
   } else {
     requestError.value = result.error ?? "Unable to load remote servers.";
@@ -198,7 +316,18 @@ async function saveServer() {
   saving.value = true;
   requestError.value = "";
   try {
-    const privateKey = privateKeyFile.value ? await privateKeyFile.value.text() : undefined;
+    const privateKey =
+      privateKeyMode.value === "text"
+        ? form.privateKeyText.trim() || undefined
+        : privateKeyFile.value
+          ? await privateKeyFile.value.text()
+          : undefined;
+    const publicKey =
+      publicKeyMode.value === "text"
+        ? form.publicKeyText.trim() || undefined
+        : publicKeyFile.value
+          ? await publicKeyFile.value.text()
+          : undefined;
     const input: RemoteServerInput = {
       name: form.name.trim(),
       host: form.host.trim(),
@@ -206,6 +335,7 @@ async function saveServer() {
       username: form.username.trim(),
       deploy_path: form.deployPath.trim(),
       private_key: privateKey,
+      public_key: publicKey,
       known_hosts: form.knownHosts.trim() || undefined,
       is_default: form.isDefault,
     };
@@ -217,7 +347,6 @@ async function saveServer() {
       return;
     }
     await loadServers();
-    selectedServerId.value = result.data.id;
     updateDialog(false);
   } catch {
     requestError.value = "Unable to read the SSH private key file.";
@@ -256,8 +385,7 @@ async function removeServer() {
     return;
   }
   servers.value = servers.value.filter((item) => item.id !== server.id);
-  selectedServerId.value =
-    servers.value.find((item) => item.is_default)?.id ?? servers.value[0]?.id ?? null;
+  closeInspector();
   serverPendingDeletion.value = null;
   deleteDialogOpen.value = false;
 }
@@ -291,36 +419,33 @@ onMounted(loadServers);
       {{ requestError }}
     </p>
 
-    <div class="mt-6 grid gap-5 xl:grid-cols-[minmax(0,1fr)_292px]">
-      <section class="app-surface overflow-hidden" aria-labelledby="remote-server-map-heading">
-        <header class="app-panel-header flex items-start justify-between gap-4 px-5 py-4">
-          <div class="flex min-w-0 items-start gap-3">
-            <span
-              class="grid size-8 shrink-0 place-items-center rounded-[6px] border border-border bg-muted text-muted-foreground"
-            >
-              <Server class="size-4" :stroke-width="1.5" />
-            </span>
-            <div>
-              <p class="ui-label">Destination map</p>
-              <h2 id="remote-server-map-heading" class="mt-1.5 text-base font-medium">
-                SSH topology
-              </h2>
-              <p class="mt-1.5 text-xs leading-5 text-muted-foreground">
-                Drag the canvas to inspect destinations. Select a host to manage it.
-              </p>
-            </div>
-          </div>
-          <span class="shrink-0 font-mono text-[10px] text-muted-foreground">
-            {{ servers.length }} {{ servers.length === 1 ? "HOST" : "HOSTS" }}
+    <section class="app-surface mt-6 overflow-hidden" aria-labelledby="remote-server-map-heading">
+      <header class="app-panel-header flex items-start justify-between gap-4 px-5 py-4">
+        <div class="flex min-w-0 items-start gap-3">
+          <span
+            class="grid size-8 shrink-0 place-items-center rounded-[6px] border border-border bg-muted text-muted-foreground"
+          >
+            <Server class="size-4" :stroke-width="1.5" />
           </span>
-        </header>
+          <div>
+            <p class="ui-label">Destination map</p>
+            <h2 id="remote-server-map-heading" class="mt-1.5 text-base font-medium">
+              SSH topology
+            </h2>
+          </div>
+        </div>
+        <span class="shrink-0 font-mono text-[10px] text-muted-foreground">
+          {{ servers.length }} {{ servers.length === 1 ? "HOST" : "HOSTS" }}
+        </span>
+      </header>
 
-        <div v-if="loading" class="grid h-[520px] place-items-center text-xs text-muted-foreground">
+      <div class="relative h-[calc(100svh_-_15rem)] min-h-[560px] max-h-[860px]">
+        <div v-if="loading" class="grid size-full place-items-center text-xs text-muted-foreground">
           Loading destinations…
         </div>
         <VueFlow
           v-else
-          class="h-[520px] bg-muted/35 [&_.vue-flow__controls-button:last-child]:border-b-0 [&_.vue-flow__controls-button:hover]:bg-muted [&_.vue-flow__controls-button]:size-[18px] [&_.vue-flow__controls-button]:border-b [&_.vue-flow__controls-button]:border-border [&_.vue-flow__controls-button]:bg-card [&_.vue-flow__controls-button]:text-foreground [&_.vue-flow__controls]:overflow-hidden [&_.vue-flow__controls]:rounded-[3px] [&_.vue-flow__controls]:border [&_.vue-flow__controls]:border-border [&_.vue-flow__controls]:shadow-none [&_.vue-flow__edge-path]:stroke-[1.25] [&_.vue-flow__edge-path]:stroke-border [&_.vue-flow__edge-text]:fill-muted-foreground [&_.vue-flow__edge-text]:font-mono [&_.vue-flow__edge-textbg]:fill-card"
+          class="size-full bg-muted/35 [&_.vue-flow__controls-button:last-child]:border-b-0 [&_.vue-flow__controls-button:hover]:bg-muted [&_.vue-flow__controls-button]:size-[18px] [&_.vue-flow__controls-button]:border-b [&_.vue-flow__controls-button]:border-border [&_.vue-flow__controls-button]:bg-card [&_.vue-flow__controls-button]:text-foreground [&_.vue-flow__controls]:overflow-hidden [&_.vue-flow__controls]:rounded-[3px] [&_.vue-flow__controls]:border [&_.vue-flow__controls]:border-border [&_.vue-flow__controls]:shadow-none [&_.vue-flow__edge-path]:stroke-[1.25] [&_.vue-flow__edge-path]:stroke-border [&_.vue-flow__edge-text]:fill-muted-foreground [&_.vue-flow__edge-text]:font-mono [&_.vue-flow__edge-textbg]:fill-card"
           v-model:nodes="flowNodes"
           v-model:edges="flowEdges"
           :min-zoom="0.55"
@@ -328,9 +453,10 @@ onMounted(loadServers);
           :nodes-draggable="false"
           :nodes-connectable="false"
           :elements-selectable="false"
-          :zoom-on-double-click="false"
-          :default-viewport="{ x: 0, y: 0, zoom: 1 }"
-        >
+            :zoom-on-double-click="false"
+            :fit-view-on-init="true"
+            :default-viewport="{ x: 0, y: 0, zoom: 1 }"
+          >
           <Background :gap="20" :size="1" color="var(--border)" />
           <Controls position="bottom-right" :show-interactive="false" />
 
@@ -358,6 +484,8 @@ onMounted(loadServers);
                 size="sm"
                 class="col-span-full mt-1 w-full"
                 type="button"
+                @pointerdown.stop
+                @mousedown.stop
                 @click.stop="addServer"
               >
                 <Plus class="size-3.5" :stroke-width="1.5" />
@@ -372,6 +500,8 @@ onMounted(loadServers);
               :class="data.server.id === selectedServerId ? 'border-ring' : ''"
               type="button"
               :aria-pressed="data.server.id === selectedServerId"
+              @pointerdown.stop
+              @mousedown.stop
               @click.stop="selectServer(data.server.id)"
             >
               <Handle
@@ -406,94 +536,287 @@ onMounted(loadServers);
             </button>
           </template>
         </VueFlow>
-      </section>
 
-      <aside
-        class="rounded-[10px] border border-border bg-card"
-        aria-labelledby="destination-inspector-heading"
-      >
-        <header class="border-b border-border px-5 py-4">
-          <p class="ui-label">Inspector</p>
-          <h2 id="destination-inspector-heading" class="mt-1.5 text-base font-medium">
-            {{ selectedServer?.name ?? "No destination selected" }}
-          </h2>
-        </header>
-
-        <div v-if="selectedServer" class="divide-y divide-border">
-          <dl class="grid gap-4 px-5 py-4 text-xs">
-            <div class="grid gap-1">
-              <dt class="font-mono text-[10px] text-muted-foreground uppercase">Connection</dt>
-              <dd class="truncate font-mono text-[11px]">
-                {{ selectedServer.username }}@{{ selectedServer.host }}:{{ selectedServer.port }}
-              </dd>
+        <aside
+          v-if="selectedServer"
+          class="absolute inset-x-3 top-3 z-10 max-h-[calc(100%_-_1.5rem)] overflow-y-auto rounded-[8px] border border-border bg-card/95 backdrop-blur-sm sm:left-auto sm:right-4 sm:w-[320px]"
+          aria-labelledby="destination-inspector-heading"
+        >
+          <header
+            class="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-border bg-card/95 px-4 py-3 backdrop-blur-sm"
+          >
+            <div class="min-w-0">
+              <p class="ui-label">Inspector</p>
+              <h2 id="destination-inspector-heading" class="mt-1.5 truncate text-base font-medium">
+                {{ selectedServer.name }}
+              </h2>
             </div>
-            <div class="grid gap-1">
-              <dt class="font-mono text-[10px] text-muted-foreground uppercase">Deploy path</dt>
-              <dd class="truncate font-mono text-[11px]">{{ selectedServer.deploy_path }}</dd>
-            </div>
-            <div class="grid gap-1">
-              <dt class="font-mono text-[10px] text-muted-foreground uppercase">Host trust</dt>
-              <dd class="flex items-center gap-1.5 text-[11px]">
-                <Check class="size-3.5 text-metric-green" :stroke-width="1.8" />
-                known_hosts configured
-              </dd>
-            </div>
-            <div class="grid gap-1">
-              <dt class="font-mono text-[10px] text-muted-foreground uppercase">Runner</dt>
-              <dd class="text-[11px] text-muted-foreground">Not attached</dd>
-            </div>
-          </dl>
-          <div class="grid gap-2 px-5 py-4">
-            <Button
-              v-if="!selectedServer.is_default"
-              variant="outline"
-              class="w-full"
-              size="sm"
-              type="button"
-              @click="setDefault(selectedServer)"
-            >
-              <Check class="size-4" :stroke-width="1.5" />
-              Use as default
-            </Button>
-            <Button
-              variant="outline"
-              class="w-full"
-              size="sm"
-              type="button"
-              @click="editServer(selectedServer)"
-            >
-              <Pencil class="size-4" :stroke-width="1.5" />
-              Edit configuration
-            </Button>
             <Button
               variant="ghost"
-              class="w-full text-destructive hover:bg-destructive/10 hover:text-destructive"
-              size="sm"
+              size="icon-sm"
+              class="shrink-0"
               type="button"
-              @click="requestDelete(selectedServer)"
+              aria-label="Close inspector"
+              title="Close inspector"
+              @click="closeInspector"
             >
-              <Trash2 class="size-4" :stroke-width="1.5" />
-              Remove server
+              <X class="size-4" :stroke-width="1.5" />
             </Button>
+          </header>
+
+          <div class="divide-y divide-border">
+            <dl class="grid gap-4 px-5 py-4 text-xs">
+              <div class="grid gap-1">
+                <dt class="font-mono text-[10px] text-muted-foreground uppercase">Connection</dt>
+                <dd class="truncate font-mono text-[11px]">
+                  {{ selectedServer.username }}@{{ selectedServer.host }}:{{ selectedServer.port }}
+                </dd>
+              </div>
+              <div class="grid gap-1">
+                <dt class="font-mono text-[10px] text-muted-foreground uppercase">Deploy path</dt>
+                <dd class="truncate font-mono text-[11px]">{{ selectedServer.deploy_path }}</dd>
+              </div>
+              <div class="grid gap-1">
+                <dt class="font-mono text-[10px] text-muted-foreground uppercase">Host trust</dt>
+                <dd class="flex items-center gap-1.5 text-[11px]">
+                  <Check class="size-3.5 text-metric-green" :stroke-width="1.8" />
+                  known_hosts configured
+                </dd>
+              </div>
+              <div class="grid gap-1">
+                <dt class="font-mono text-[10px] text-muted-foreground uppercase">SSH identity</dt>
+                <dd class="flex items-center gap-1.5 text-[11px]">
+                  <Check
+                    v-if="selectedServer.public_key_configured"
+                    class="size-3.5 text-metric-green"
+                    :stroke-width="1.8"
+                  />
+                  <span
+                    class="size-1.5 rounded-full"
+                    :class="
+                      selectedServer.public_key_configured
+                        ? 'bg-metric-green'
+                        : 'bg-muted-foreground'
+                    "
+                  />
+                  {{
+                    selectedServer.public_key_configured
+                      ? "public key configured"
+                      : "public key missing"
+                  }}
+                </dd>
+              </div>
+              <div class="grid gap-1">
+                <dt class="font-mono text-[10px] text-muted-foreground uppercase">Runner</dt>
+                <dd class="text-[11px] text-muted-foreground">Not attached</dd>
+              </div>
+            </dl>
+            <div class="grid gap-2 px-5 py-4">
+              <Button
+                variant="outline"
+                class="w-full"
+                size="sm"
+                type="button"
+                :disabled="checkingServerId === selectedServer.id"
+                @click="checkConnection(selectedServer)"
+              >
+                <RefreshCw
+                  class="size-4"
+                  :class="checkingServerId === selectedServer.id ? 'animate-spin' : ''"
+                  :stroke-width="1.5"
+                />
+                {{
+                  checkingServerId === selectedServer.id
+                    ? "Checking connection"
+                    : "Check connection"
+                }}
+              </Button>
+              <p
+                v-if="selectedConnectionCheck"
+                class="border-l-2 pl-3 text-[11px] leading-4"
+                :class="
+                  selectedConnectionCheck.status === 'success'
+                    ? 'border-metric-green text-metric-green'
+                    : 'border-destructive text-destructive'
+                "
+                role="status"
+              >
+                <span>{{ selectedConnectionCheck.message }}</span>
+                <span
+                  v-if="selectedConnectionCheck.latencyMs !== undefined"
+                  class="text-muted-foreground"
+                >
+                  · {{ selectedConnectionCheck.latencyMs }} ms
+                </span>
+              </p>
+              <Button
+                v-if="!selectedServer.is_default"
+                variant="outline"
+                class="w-full"
+                size="sm"
+                type="button"
+                @click="setDefault(selectedServer)"
+              >
+                <Check class="size-4" :stroke-width="1.5" />
+                Use as default
+              </Button>
+              <Button
+                variant="outline"
+                class="w-full"
+                size="sm"
+                type="button"
+                @click="editServer(selectedServer)"
+              >
+                <Pencil class="size-4" :stroke-width="1.5" />
+                Edit configuration
+              </Button>
+              <Button
+                variant="ghost"
+                class="w-full text-destructive hover:bg-destructive/10 hover:text-destructive"
+                size="sm"
+                type="button"
+                @click="requestDelete(selectedServer)"
+              >
+                <Trash2 class="size-4" :stroke-width="1.5" />
+                Remove server
+              </Button>
+            </div>
           </div>
-        </div>
-        <div v-else class="px-5 py-8 text-xs leading-5 text-muted-foreground">
-          Add a destination, then select its card from the topology.
-        </div>
-      </aside>
-    </div>
+        </aside>
+      </div>
+    </section>
 
     <Dialog :open="dialogOpen" @update:open="updateDialog">
-      <DialogContent class="rounded-[10px] shadow-none sm:max-w-2xl">
+      <DialogContent
+        class="max-h-[min(90dvh,760px)] overflow-y-auto rounded-[10px] shadow-none sm:max-w-2xl"
+      >
         <DialogHeader>
           <DialogTitle class="text-base font-medium">
             {{ editingId ? "Edit remote server" : "Add remote server" }}
           </DialogTitle>
           <DialogDescription class="text-xs leading-5">
-            Private keys and host trust records are encrypted before they are stored. Leave secret
-            fields empty when editing to preserve their current values.
+            Private keys, public keys, and host trust records are encrypted before they are stored.
+            Leave credential fields empty when editing to preserve their current values.
           </DialogDescription>
         </DialogHeader>
+
+        <details class="border-y border-border py-3 text-xs">
+          <summary class="cursor-pointer font-medium text-foreground">
+            Linux SSH setup guide
+          </summary>
+          <div
+            class="mt-3 grid max-h-[min(42vh,320px)] gap-3 overflow-y-auto pr-1 text-[11px] leading-5 text-muted-foreground"
+          >
+            <ol class="grid gap-3 pl-4">
+              <li>
+                <span class="font-medium text-foreground">Create a deploy key</span> on the Ignitify
+                host or your workstation. This creates the private key and matching
+                <code class="font-mono text-foreground">.pub</code> file.
+                <div class="mt-1.5 flex min-w-0 items-start gap-1.5">
+                  <pre
+                    class="min-w-0 flex-1 overflow-x-auto rounded-[4px] border border-border bg-muted/50 p-2 font-mono text-[10px] leading-4 text-foreground"
+                  ><code>{{ linuxGuideCommands.generate }}</code></pre>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    class="mt-0.5 size-7 shrink-0 rounded-[4px]"
+                    type="button"
+                    :aria-label="
+                      copiedGuideCommand === linuxGuideCommands.generate
+                        ? 'Copied'
+                        : 'Copy key generation command'
+                    "
+                    :title="
+                      copiedGuideCommand === linuxGuideCommands.generate ? 'Copied' : 'Copy command'
+                    "
+                    @click="copyGuideCommand(linuxGuideCommands.generate)"
+                  >
+                    <Check
+                      v-if="copiedGuideCommand === linuxGuideCommands.generate"
+                      class="size-3.5 text-metric-green"
+                      :stroke-width="1.8"
+                    />
+                    <Copy v-else class="size-3.5" :stroke-width="1.5" />
+                  </Button>
+                </div>
+              </li>
+              <li>
+                <span class="font-medium text-foreground">Install the public key</span> on the
+                remote Linux account that will run deployments.
+                <div class="mt-1.5 flex min-w-0 items-start gap-1.5">
+                  <pre
+                    class="min-w-0 flex-1 overflow-x-auto rounded-[4px] border border-border bg-muted/50 p-2 font-mono text-[10px] leading-4 text-foreground"
+                  ><code>{{ linuxGuideCommands.install }}</code></pre>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    class="mt-0.5 size-7 shrink-0 rounded-[4px]"
+                    type="button"
+                    :aria-label="
+                      copiedGuideCommand === linuxGuideCommands.install
+                        ? 'Copied'
+                        : 'Copy public key installation command'
+                    "
+                    :title="
+                      copiedGuideCommand === linuxGuideCommands.install ? 'Copied' : 'Copy command'
+                    "
+                    @click="copyGuideCommand(linuxGuideCommands.install)"
+                  >
+                    <Check
+                      v-if="copiedGuideCommand === linuxGuideCommands.install"
+                      class="size-3.5 text-metric-green"
+                      :stroke-width="1.8"
+                    />
+                    <Copy v-else class="size-3.5" :stroke-width="1.5" />
+                  </Button>
+                </div>
+              </li>
+              <li>
+                <span class="font-medium text-foreground">Pin the server host key</span> before
+                connecting. Verify the fingerprint with your provider, then paste this output in the
+                <code class="font-mono text-foreground">known_hosts</code> field.
+                <div class="mt-1.5 flex min-w-0 items-start gap-1.5">
+                  <pre
+                    class="min-w-0 flex-1 overflow-x-auto rounded-[4px] border border-border bg-muted/50 p-2 font-mono text-[10px] leading-4 text-foreground"
+                  ><code>{{ linuxGuideCommands.hostKey }}</code></pre>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    class="mt-0.5 size-7 shrink-0 rounded-[4px]"
+                    type="button"
+                    :aria-label="
+                      copiedGuideCommand === linuxGuideCommands.hostKey
+                        ? 'Copied'
+                        : 'Copy host key command'
+                    "
+                    :title="
+                      copiedGuideCommand === linuxGuideCommands.hostKey ? 'Copied' : 'Copy command'
+                    "
+                    @click="copyGuideCommand(linuxGuideCommands.hostKey)"
+                  >
+                    <Check
+                      v-if="copiedGuideCommand === linuxGuideCommands.hostKey"
+                      class="size-3.5 text-metric-green"
+                      :stroke-width="1.8"
+                    />
+                    <Copy v-else class="size-3.5" :stroke-width="1.5" />
+                  </Button>
+                </div>
+              </li>
+            </ol>
+            <div class="grid gap-1 border-l-2 border-border pl-3">
+              <p class="font-medium text-foreground">Field mapping</p>
+              <p>
+                <code class="font-mono text-foreground">Private key</code>: file without
+                <code class="font-mono text-foreground">.pub</code> or its full private-key text.
+                <code class="font-mono text-foreground">Public key</code>: matching
+                <code class="font-mono text-foreground">.pub</code> line.
+                <code class="font-mono text-foreground">known_hosts</code>: remote host key; it is
+                different from the client public key.
+              </p>
+            </div>
+          </div>
+        </details>
 
         <form class="grid gap-4" @submit.prevent="saveServer">
           <div class="grid gap-4 sm:grid-cols-2">
@@ -552,31 +875,119 @@ onMounted(loadServers);
             </div>
           </div>
 
-          <div
-            class="grid gap-4 border-t border-border pt-4 sm:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]"
-          >
+          <div class="grid gap-4 border-t border-border pt-4 sm:grid-cols-2">
             <div class="grid content-start gap-2">
-              <Label for="remote-server-key" class="text-xs font-medium">SSH private key</Label>
-              <Label
-                for="remote-server-key"
-                class="flex h-9 cursor-pointer items-center gap-2 rounded-[3px] border border-input px-3 text-xs text-muted-foreground hover:bg-muted"
-              >
-                <Upload class="size-4 shrink-0" :stroke-width="1.5" />
-                <span class="truncate">{{
-                  privateKeyFile?.name ?? (editingId ? "Keep current key" : "Choose key file")
-                }}</span>
-              </Label>
-              <input
-                :key="privateKeyInputKey"
-                id="remote-server-key"
-                class="sr-only"
-                type="file"
-                accept=".pem,.key,.pub"
-                @change="updatePrivateKey"
+              <div class="flex items-center justify-between gap-3">
+                <Label class="text-xs font-medium">SSH private key</Label>
+                <div class="inline-flex rounded-[4px] border border-border p-0.5" role="tablist">
+                  <button
+                    class="rounded-[3px] px-2 py-1 font-mono text-[10px] text-muted-foreground transition-colors hover:bg-muted"
+                    :class="privateKeyMode === 'file' ? 'bg-muted text-foreground' : ''"
+                    type="button"
+                    role="tab"
+                    :aria-selected="privateKeyMode === 'file'"
+                    @click="privateKeyMode = 'file'"
+                  >
+                    File
+                  </button>
+                  <button
+                    class="rounded-[3px] px-2 py-1 font-mono text-[10px] text-muted-foreground transition-colors hover:bg-muted"
+                    :class="privateKeyMode === 'text' ? 'bg-muted text-foreground' : ''"
+                    type="button"
+                    role="tab"
+                    :aria-selected="privateKeyMode === 'text'"
+                    @click="privateKeyMode = 'text'"
+                  >
+                    Text
+                  </button>
+                </div>
+              </div>
+              <template v-if="privateKeyMode === 'file'">
+                <Label
+                  for="remote-server-key"
+                  class="flex h-9 cursor-pointer items-center gap-2 rounded-[3px] border border-input px-3 text-xs text-muted-foreground hover:bg-muted"
+                >
+                  <Upload class="size-4 shrink-0" :stroke-width="1.5" />
+                  <span class="truncate">{{
+                    privateKeyFile?.name ?? (editingId ? "Keep current key" : "Choose key file")
+                  }}</span>
+                </Label>
+                <input
+                  :key="privateKeyInputKey"
+                  id="remote-server-key"
+                  class="sr-only"
+                  type="file"
+                  accept=".pem,.key"
+                  @change="updatePrivateKey"
+                />
+              </template>
+              <Textarea
+                v-else
+                v-model="form.privateKeyText"
+                class="min-h-[112px] rounded-[3px] font-mono text-[10px] leading-4"
+                placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
+                autocomplete="off"
+                spellcheck="false"
               />
             </div>
-            <div class="grid gap-2">
-              <Label for="remote-server-known-hosts" class="text-xs font-medium">known_hosts</Label>
+            <div class="grid content-start gap-2">
+              <div class="flex items-center justify-between gap-3">
+                <Label class="text-xs font-medium">SSH public key</Label>
+                <div class="inline-flex rounded-[4px] border border-border p-0.5" role="tablist">
+                  <button
+                    class="rounded-[3px] px-2 py-1 font-mono text-[10px] text-muted-foreground transition-colors hover:bg-muted"
+                    :class="publicKeyMode === 'file' ? 'bg-muted text-foreground' : ''"
+                    type="button"
+                    role="tab"
+                    :aria-selected="publicKeyMode === 'file'"
+                    @click="publicKeyMode = 'file'"
+                  >
+                    File
+                  </button>
+                  <button
+                    class="rounded-[3px] px-2 py-1 font-mono text-[10px] text-muted-foreground transition-colors hover:bg-muted"
+                    :class="publicKeyMode === 'text' ? 'bg-muted text-foreground' : ''"
+                    type="button"
+                    role="tab"
+                    :aria-selected="publicKeyMode === 'text'"
+                    @click="publicKeyMode = 'text'"
+                  >
+                    Text
+                  </button>
+                </div>
+              </div>
+              <template v-if="publicKeyMode === 'file'">
+                <Label
+                  for="remote-server-public-key"
+                  class="flex h-9 cursor-pointer items-center gap-2 rounded-[3px] border border-input px-3 text-xs text-muted-foreground hover:bg-muted"
+                >
+                  <Upload class="size-4 shrink-0" :stroke-width="1.5" />
+                  <span class="truncate">{{
+                    publicKeyFile?.name ?? (editingId ? "Keep current key" : "Choose .pub file")
+                  }}</span>
+                </Label>
+                <input
+                  :key="publicKeyInputKey"
+                  id="remote-server-public-key"
+                  class="sr-only"
+                  type="file"
+                  accept=".pub,.txt"
+                  @change="updatePublicKey"
+                />
+              </template>
+              <Textarea
+                v-else
+                v-model="form.publicKeyText"
+                class="min-h-[112px] rounded-[3px] font-mono text-[10px] leading-4"
+                placeholder="ssh-ed25519 AAAAC3... user@host"
+                autocomplete="off"
+                spellcheck="false"
+              />
+            </div>
+            <div class="grid gap-2 sm:col-span-2">
+              <Label for="remote-server-known-hosts" class="text-xs font-medium"
+                >known_hosts (server host key)</Label
+              >
               <Textarea
                 id="remote-server-known-hosts"
                 v-model="form.knownHosts"

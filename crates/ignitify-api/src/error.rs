@@ -48,6 +48,8 @@ pub(crate) enum ApiError {
     ProviderCapabilityUnavailable,
     #[error("provider remote request failed")]
     ProviderRemote(#[from] reqwest::Error),
+    #[error("remote server connection failed")]
+    RemoteServerCheckFailed,
 }
 
 impl IntoResponse for ApiError {
@@ -169,6 +171,10 @@ impl IntoResponse for ApiError {
             Self::ProviderRemote(_) => (
                 StatusCode::BAD_GATEWAY,
                 "provider integration request failed".to_owned(),
+            ),
+            Self::RemoteServerCheckFailed => (
+                StatusCode::BAD_GATEWAY,
+                "remote server connection failed".to_owned(),
             ),
             Self::Terminal(_) => (
                 StatusCode::SERVICE_UNAVAILABLE,

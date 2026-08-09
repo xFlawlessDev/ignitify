@@ -228,6 +228,7 @@ async fn remote_server_default_and_ssh_secrets_are_durable() {
             username: "ignitify".to_owned(),
             deploy_path: "/srv/ignitify".to_owned(),
             private_key_ciphertext: "encrypted-private-key-a".to_owned(),
+            public_key_ciphertext: "encrypted-public-key-a".to_owned(),
             known_hosts_ciphertext: "encrypted-known-hosts-a".to_owned(),
             is_default: true,
         })
@@ -242,6 +243,7 @@ async fn remote_server_default_and_ssh_secrets_are_durable() {
             username: "deploy".to_owned(),
             deploy_path: "/opt/ignitify".to_owned(),
             private_key_ciphertext: "encrypted-private-key-b".to_owned(),
+            public_key_ciphertext: "encrypted-public-key-b".to_owned(),
             known_hosts_ciphertext: "encrypted-known-hosts-b".to_owned(),
             is_default: true,
         })
@@ -256,6 +258,7 @@ async fn remote_server_default_and_ssh_secrets_are_durable() {
     let active = database.remote_servers().active().await.unwrap().unwrap();
     assert_eq!(active.host, "staging.example.com");
     assert_eq!(active.private_key_ciphertext, "encrypted-private-key-b");
+    assert_eq!(active.public_key_ciphertext, "encrypted-public-key-b");
     assert_eq!(active.known_hosts_ciphertext, "encrypted-known-hosts-b");
 
     let restored = database

@@ -4,6 +4,30 @@ import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { onMounted, onUnmounted, useTemplateRef, watch } from "vue";
 
+const TERMINAL_THEME = {
+  background: "#09090b",
+  foreground: "#f4f4f5",
+  cursor: "#f4f4f5",
+  cursorAccent: "#09090b",
+  selectionBackground: "#3f3f46",
+  black: "#71717a",
+  red: "#f87171",
+  green: "#a3e635",
+  yellow: "#facc15",
+  blue: "#60a5fa",
+  magenta: "#e879f9",
+  cyan: "#67e8f9",
+  white: "#e4e4e7",
+  brightBlack: "#a1a1aa",
+  brightRed: "#fca5a5",
+  brightGreen: "#bef264",
+  brightYellow: "#fde047",
+  brightBlue: "#93c5fd",
+  brightMagenta: "#f0abfc",
+  brightCyan: "#a5f3fc",
+  brightWhite: "#fafafa",
+};
+
 const props = defineProps<{
   id: string;
   status: "connecting" | "running" | "exited" | "error";
@@ -54,7 +78,7 @@ onMounted(() => {
     fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
     fontSize: 12,
     scrollback: 5000,
-    theme: { background: "#09090b", foreground: "#e4e4e7" },
+    theme: TERMINAL_THEME,
   });
   fitAddon = new FitAddon();
   terminal.loadAddon(fitAddon);
@@ -89,7 +113,7 @@ onUnmounted(() => {
   <div class="min-h-0 flex-1 overflow-hidden p-3 sm:p-4">
     <div
       ref="host"
-      class="size-full overflow-hidden [&_.xterm-screen]:max-h-full [&_.xterm-screen]:overflow-hidden [&_.xterm]:h-full"
+      class="size-full overflow-hidden text-[#f4f4f5] [&_.xterm-screen]:max-h-full [&_.xterm-screen]:overflow-hidden [&_.xterm]:h-full"
       :data-status="status"
       @pointerdown="focusTerminal"
     />
