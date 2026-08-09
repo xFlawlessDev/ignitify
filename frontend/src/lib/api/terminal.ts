@@ -4,8 +4,9 @@ import { getToken } from "./core";
 
 const TERMINAL_PROTOCOL = "ignitify-terminal";
 
-export async function createTerminalSocket(): Promise<WebSocket> {
-  return createSocket("/terminal", "host terminal");
+export async function createTerminalSocket(stepUpToken: string): Promise<WebSocket> {
+  if (!stepUpToken) throw new Error("Reauthenticate to open the host terminal");
+  return createSocket("/terminal", "host terminal", stepUpToken);
 }
 
 export async function createContainerTerminalSocket(containerId: string): Promise<WebSocket> {
@@ -15,7 +16,11 @@ export async function createContainerTerminalSocket(containerId: string): Promis
   );
 }
 
-async function createSocket(path: string, name: string): Promise<WebSocket> {
+async function createSocket(
+  path: string,
+  name: string,
+  stepUpToken?: string,
+): Promise<WebSocket> {
   const actor = await apiGetMe();
   if (!actor.success) {
     throw new Error(actor.error ?? "Could not authenticate the terminal session");
@@ -26,5 +31,7 @@ async function createSocket(path: string, name: string): Promise<WebSocket> {
 
   const url = new URL(`${API_BASE}${path}`, window.location.origin);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-  return new WebSocket(url, [TERMINAL_PROTOCOL, `bearer.${token}`]);
+  const protocols = [TERMINAL_PROTOCOL, `bearer.${token}`];
+  if (stepUpToken) protocols.push(`stepup.${stepUpToken}`);
+  return new WebSocket(url, protocols);
 }

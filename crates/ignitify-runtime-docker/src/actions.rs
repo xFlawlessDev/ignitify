@@ -8,7 +8,7 @@ use bollard::{
 use futures_util::StreamExt;
 use tokio::io::{AsyncWrite, AsyncWriteExt};
 
-use super::{DockerRuntime, Error, Result, is_not_found};
+use super::{DockerRuntime, Error, MANAGED_LABEL, Result, is_not_found};
 
 const MAX_LOG_BYTES: usize = 256 * 1024;
 
@@ -77,12 +77,13 @@ pub struct ContainerTerminalSession {
 impl DockerRuntime {
     pub async fn container_details(&self, container_id: &str) -> Result<ContainerDetails> {
         validate_container_reference(container_id)?;
-        let inspected = self.inspect_container(container_id).await?;
+        let inspected = self.inspect_managed_container(container_id).await?;
         Ok(details_from_inspect(inspected, container_id))
     }
 
     pub async fn container_logs(&self, container_id: &str) -> Result<String> {
         validate_container_reference(container_id)?;
+        self.inspect_managed_container(container_id).await?;
         let mut output = Vec::new();
         let mut logs = self.docker.logs(
             container_id,
@@ -109,6 +110,7 @@ impl DockerRuntime {
 
     pub async fn remove_container(&self, container_id: &str) -> Result<()> {
         validate_container_reference(container_id)?;
+        self.inspect_managed_container(container_id).await?;
         match self
             .docker
             .remove_container(
@@ -134,6 +136,7 @@ impl DockerRuntime {
         data: &[u8],
     ) -> Result<()> {
         validate_container_reference(container_id)?;
+        self.inspect_managed_container(container_id).await?;
         validate_upload_path(destination)?;
         validate_file_name(file_name)?;
         let archive = single_file_tar(file_name, data);
@@ -152,7 +155,7 @@ impl DockerRuntime {
 
     pub async fn open_terminal(&self, container_id: &str) -> Result<ContainerTerminalSession> {
         validate_container_reference(container_id)?;
-        let inspected = self.inspect_container(container_id).await?;
+        let inspected = self.inspect_managed_container(container_id).await?;
         let running = inspected
             .state
             .as_ref()
@@ -208,6 +211,24 @@ impl DockerRuntime {
                     error.into()
                 }
             })
+    }
+
+    async fn inspect_managed_container(
+        &self,
+        container_id: &str,
+    ) -> Result<ContainerInspectResponse> {
+        let inspected = self.inspect_container(container_id).await?;
+        let managed = inspected
+            .config
+            .as_ref()
+            .and_then(|config| config.labels.as_ref())
+            .and_then(|labels| labels.get(MANAGED_LABEL))
+            .is_some_and(|value| value == "true");
+        if managed {
+            Ok(inspected)
+        } else {
+            Err(Error::ContainerNotManaged)
+        }
     }
 }
 

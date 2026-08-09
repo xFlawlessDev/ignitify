@@ -44,6 +44,7 @@ pub struct GitSourceBuild {
     railpack_frontend_image: String,
     static_build_image: String,
     static_runtime_image: String,
+    allow_local_builds: bool,
     command_timeout: std::time::Duration,
     build_limiter: Arc<BuildLimiter>,
 }
@@ -68,6 +69,8 @@ impl GitSourceBuild {
                 .unwrap_or_else(|| DEFAULT_STATIC_BUILD_IMAGE.to_owned()),
             static_runtime_image: env_value("IGNITIFY_STATIC_RUNTIME_IMAGE")
                 .unwrap_or_else(|| DEFAULT_CADDY_IMAGE.to_owned()),
+            allow_local_builds: env_value("IGNITIFY_ALLOW_LOCAL_BUILDS")
+                .is_some_and(|value| value == "true"),
             command_timeout: command_timeout(),
             build_limiter: Arc::new(BuildLimiter::default()),
         })
@@ -307,6 +310,9 @@ impl GitSourceBuild {
             return self
                 .build_remote_image(deployment_id, builder, source, checkout, &remote)
                 .await;
+        }
+        if !self.allow_local_builds {
+            return Err(BuildError::LocalBuilderDisabled);
         }
         let tag = format!("ignitify-build:{deployment_id}");
         match builder {
@@ -765,6 +771,8 @@ enum BuildError {
     InvalidSource,
     #[error("SPA source builds are not supported")]
     UnsupportedBuilder,
+    #[error("a remote builder is required because local Docker builds are disabled")]
+    LocalBuilderDisabled,
     #[error("static source builds require internal port 80")]
     StaticPort,
     #[error("Git Compose source requires a Compose service configuration")]

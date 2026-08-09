@@ -197,6 +197,6 @@ fn submission_record(outcome: DeploymentSubmission) -> Result<DeploymentRecord, 
 fn deployment_actor(actor: &ignitify_auth::AuthenticatedUser) -> DeploymentActor<'_> {
     DeploymentActor {
         id: &actor.id,
-        is_admin: actor.has_admin_access(),
+        is_admin: actor.has_platform_operator_access(),
     }
 }

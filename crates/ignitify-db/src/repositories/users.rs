@@ -4,6 +4,31 @@ use uuid::Uuid;
 
 use crate::{Result, UserRecord, UserRole};
 
+#[derive(Debug, Clone, Default)]
+pub struct AuditContext {
+    pub source_ip: Option<String>,
+    pub session_family_id: Option<String>,
+    pub request_id: Option<String>,
+    pub user_agent: Option<String>,
+    pub outcome: AuditOutcome,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub enum AuditOutcome {
+    #[default]
+    Success,
+    Failure,
+}
+
+impl AuditOutcome {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Success => "success",
+            Self::Failure => "failure",
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct UsersRepository {
     pool: SqlitePool,
@@ -95,10 +120,31 @@ impl UsersRepository {
     }
 
     pub async fn audit(&self, user_id: &str, action: &str) -> Result<()> {
-        sqlx::query("INSERT INTO audit_logs (id, user_id, action, created_at) VALUES (?, ?, ?, ?)")
+        self.audit_event(Some(user_id), action, None, None, &AuditContext::default())
+            .await
+    }
+
+    pub async fn audit_event(
+        &self,
+        user_id: Option<&str>,
+        action: &str,
+        resource_type: Option<&str>,
+        resource_id: Option<&str>,
+        context: &AuditContext,
+    ) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO audit_logs (id, user_id, action, resource_type, resource_id, source_ip, session_family_id, request_id, user_agent, outcome, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
             .bind(Uuid::new_v4().to_string())
             .bind(user_id)
             .bind(action)
+            .bind(resource_type)
+            .bind(resource_id)
+            .bind(&context.source_ip)
+            .bind(&context.session_family_id)
+            .bind(&context.request_id)
+            .bind(&context.user_agent)
+            .bind(context.outcome.as_str())
             .bind(Utc::now().to_rfc3339())
             .execute(&self.pool)
             .await?;

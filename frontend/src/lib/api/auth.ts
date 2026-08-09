@@ -1,4 +1,9 @@
-import type { AuthSession, MessageResponse, AuthenticatedUser } from "../types";
+import type {
+  AuthSession,
+  MessageResponse,
+  AuthenticatedUser,
+  StepUpSession,
+} from "../types";
 
 import { apiFetch } from "./core";
 import type { ApiResult } from "./core";
@@ -9,6 +14,7 @@ import type { ApiResult } from "./core";
 
 export interface BootstrapStatus {
   required: boolean;
+  enabled: boolean;
 }
 
 export async function apiBootstrapStatus(): Promise<ApiResult<BootstrapStatus>> {
@@ -18,11 +24,15 @@ export async function apiBootstrapStatus(): Promise<ApiResult<BootstrapStatus>> 
 export async function apiBootstrap(
   username: string,
   password: string,
+  bootstrapSecret: string,
 ): Promise<ApiResult<AuthSession>> {
   return apiFetch<AuthSession>("/auth/bootstrap", {
     method: "POST",
     credentials: "same-origin",
-    headers: { "X-Ignitify-Request": "1" },
+    headers: {
+      "X-Ignitify-Request": "1",
+      "X-Ignitify-Bootstrap-Secret": bootstrapSecret,
+    },
     body: JSON.stringify({ username, password }),
   });
 }
@@ -36,6 +46,15 @@ export async function apiLogin(
     credentials: "same-origin",
     headers: { "X-Ignitify-Request": "1" },
     body: JSON.stringify({ username, password }),
+  });
+}
+
+export async function apiStepUp(password: string): Promise<ApiResult<StepUpSession>> {
+  return apiFetch<StepUpSession>("/auth/step-up", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "X-Ignitify-Request": "1" },
+    body: JSON.stringify({ password }),
   });
 }
 

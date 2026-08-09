@@ -1,4 +1,4 @@
-export type UserRole = "admin" | "user";
+export type UserRole = "platform_operator" | "admin" | "user";
 
 export interface AuthenticatedUser {
   id: string;
@@ -14,6 +14,11 @@ export interface AuthSession {
   token_type: "Bearer";
   expires_at: string;
   user: AuthenticatedUser;
+}
+
+export interface StepUpSession {
+  access_token: string;
+  expires_at: string;
 }
 
 export interface MessageResponse {

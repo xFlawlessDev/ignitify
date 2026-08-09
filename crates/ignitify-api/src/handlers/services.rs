@@ -322,7 +322,7 @@ fn input(request: ServiceRequest) -> Result<ServiceInput, ApiError> {
 fn service_actor(actor: &ignitify_auth::AuthenticatedUser) -> ServiceActor<'_> {
     ServiceActor {
         id: &actor.id,
-        is_admin: actor.has_admin_access(),
+        is_admin: actor.has_platform_operator_access(),
     }
 }
 

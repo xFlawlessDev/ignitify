@@ -202,6 +202,15 @@ impl DockerRuntime {
             Err(error) if is_not_found(&error) => return Ok(None),
             Err(error) => return Err(error.into()),
         };
+        let managed = inspected
+            .config
+            .as_ref()
+            .and_then(|config| config.labels.as_ref())
+            .and_then(|labels| labels.get(MANAGED_LABEL))
+            .is_some_and(|value| value == "true");
+        if !managed {
+            return Ok(None);
+        }
         let state = inspected
             .state
             .as_ref()
@@ -221,13 +230,6 @@ impl DockerRuntime {
             (None, None)
         };
         let host_config = inspected.host_config.as_ref();
-        let managed = inspected
-            .config
-            .as_ref()
-            .and_then(|config| config.labels.as_ref())
-            .and_then(|labels| labels.get(MANAGED_LABEL))
-            .is_some_and(|value| value == "true");
-
         Ok(Some(RuntimeContainer {
             id,
             name: inspected
@@ -734,6 +736,8 @@ pub enum Error {
     Connection,
     #[error("container not found")]
     ContainerNotFound,
+    #[error("container is not managed by Ignitify")]
+    ContainerNotManaged,
     #[error("container is not running")]
     ContainerNotRunning,
     #[error("invalid container reference")]

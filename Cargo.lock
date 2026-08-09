@@ -1496,6 +1496,7 @@ dependencies = [
  "rand 0.8.7",
  "serde",
  "sha2 0.10.9",
+ "subtle",
  "thiserror 2.0.19",
  "tokio",
 ]
@@ -1559,6 +1560,7 @@ dependencies = [
  "sysinfo",
  "thiserror 2.0.19",
  "tokio",
+ "url",
  "uuid",
 ]
 

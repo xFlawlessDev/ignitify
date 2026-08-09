@@ -1,23 +1,32 @@
+use std::{sync::Arc, time::Duration};
+
 use axum::{
     extract::{
-        Path, State,
+        ConnectInfo, Extension, Path, State,
         ws::{Message, WebSocket, WebSocketUpgrade},
     },
     http::HeaderMap,
     response::IntoResponse,
 };
 use futures_util::{SinkExt, StreamExt};
+use ignitify_auth::AuthService;
+use ignitify_db::AuditOutcome;
 use ignitify_runtime_docker::{ContainerTerminalEvent, ContainerTerminalSession};
 use ignitify_terminal::{TerminalEvent, TerminalSession};
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    audit,
     error::ApiError,
-    extract::{require_trusted_websocket_origin, require_websocket_actor},
+    extract::{
+        require_trusted_websocket_origin, require_websocket_actor, require_websocket_step_up,
+    },
     state::AppState,
 };
 
 const TERMINAL_PROTOCOL: &str = "ignitify-terminal";
+const TERMINAL_REVALIDATION_INTERVAL: Duration = Duration::from_secs(15);
+const TERMINAL_MAX_DURATION: Duration = Duration::from_secs(15 * 60);
 
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -34,50 +43,126 @@ enum TerminalServerMessage {
 
 pub(crate) async fn open(
     State(state): State<AppState>,
+    peer: Option<Extension<ConnectInfo<std::net::SocketAddr>>>,
     headers: HeaderMap,
     websocket: WebSocketUpgrade,
 ) -> Result<impl IntoResponse, ApiError> {
-    let actor = require_websocket_actor(&state, &headers).await?;
-    if !actor.has_admin_access() {
+    let websocket_actor = require_websocket_actor(&state, &headers).await?;
+    if !websocket_actor.actor.has_platform_operator_access() {
         return Err(ApiError::Forbidden);
     }
     require_trusted_websocket_origin(&state, &headers)?;
     if !requests_terminal_protocol(&headers) {
         return Err(ApiError::BadRequest("invalid terminal protocol"));
     }
+    if !state.host_terminal_enabled {
+        return Err(ApiError::HostTerminalDisabled);
+    }
+    require_websocket_step_up(&state, &headers, &websocket_actor.actor).await?;
+    let permit = state
+        .terminal_sessions
+        .clone()
+        .try_acquire_owned()
+        .map_err(|_| ApiError::TooManyRequests)?;
 
     let session = state.terminal.open()?;
+    audit::record(
+        &state,
+        Some(&websocket_actor.actor),
+        &headers,
+        peer.as_deref(),
+        "terminal.host.open",
+        Some("host"),
+        None,
+        AuditOutcome::Success,
+    )
+    .await?;
+    let auth = state.auth.clone();
+    let bearer_token = websocket_actor.bearer_token;
     Ok(websocket
         .protocols([TERMINAL_PROTOCOL])
-        .on_upgrade(move |socket| serve(socket, session)))
+        .on_upgrade(move |socket| serve(socket, session, auth, bearer_token, permit)))
 }
 
 pub(crate) async fn container(
     State(state): State<AppState>,
+    peer: Option<Extension<ConnectInfo<std::net::SocketAddr>>>,
     headers: HeaderMap,
     Path(container_id): Path<String>,
     websocket: WebSocketUpgrade,
 ) -> Result<impl IntoResponse, ApiError> {
-    let actor = require_websocket_actor(&state, &headers).await?;
-    if !actor.has_admin_access() {
+    let websocket_actor = require_websocket_actor(&state, &headers).await?;
+    if !websocket_actor.actor.has_platform_operator_access() {
         return Err(ApiError::Forbidden);
     }
     require_trusted_websocket_origin(&state, &headers)?;
     if !requests_terminal_protocol(&headers) {
         return Err(ApiError::BadRequest("invalid terminal protocol"));
     }
+    let permit = state
+        .terminal_sessions
+        .clone()
+        .try_acquire_owned()
+        .map_err(|_| ApiError::TooManyRequests)?;
 
     let session = state.docker_runtime()?.open_terminal(&container_id).await?;
+    audit::record(
+        &state,
+        Some(&websocket_actor.actor),
+        &headers,
+        peer.as_deref(),
+        "terminal.container.open",
+        Some("container"),
+        Some(&container_id),
+        AuditOutcome::Success,
+    )
+    .await?;
+    let auth = state.auth.clone();
+    let bearer_token = websocket_actor.bearer_token;
     Ok(websocket
         .protocols([TERMINAL_PROTOCOL])
-        .on_upgrade(move |socket| serve_container(socket, session)))
+        .on_upgrade(move |socket| serve_container(socket, session, auth, bearer_token, permit)))
 }
 
-async fn serve(socket: WebSocket, mut terminal: TerminalSession) {
+async fn serve(
+    socket: WebSocket,
+    mut terminal: TerminalSession,
+    auth: Arc<AuthService>,
+    bearer_token: String,
+    _permit: tokio::sync::OwnedSemaphorePermit,
+) {
     let (mut sender, mut receiver) = socket.split();
+    let mut revalidation = tokio::time::interval_at(
+        tokio::time::Instant::now() + TERMINAL_REVALIDATION_INTERVAL,
+        TERMINAL_REVALIDATION_INTERVAL,
+    );
+    let timeout = tokio::time::sleep(TERMINAL_MAX_DURATION);
+    tokio::pin!(timeout);
 
     loop {
         tokio::select! {
+            _ = revalidation.tick() => {
+                if !terminal_access_is_valid(&auth, &bearer_token).await {
+                    send_server_message(
+                        &mut sender,
+                        TerminalServerMessage::Error {
+                            message: "Terminal session has expired.",
+                        },
+                    )
+                    .await;
+                    break;
+                }
+            }
+            _ = &mut timeout => {
+                send_server_message(
+                    &mut sender,
+                    TerminalServerMessage::Error {
+                        message: "Terminal session reached its time limit.",
+                    },
+                )
+                .await;
+                break;
+            }
             event = terminal.next_event() => {
                 match event {
                     Some(TerminalEvent::Output(output)) => {
@@ -126,11 +211,45 @@ async fn serve(socket: WebSocket, mut terminal: TerminalSession) {
     let _ = sender.send(Message::Close(None)).await;
 }
 
-async fn serve_container(socket: WebSocket, mut terminal: ContainerTerminalSession) {
+async fn serve_container(
+    socket: WebSocket,
+    mut terminal: ContainerTerminalSession,
+    auth: Arc<AuthService>,
+    bearer_token: String,
+    _permit: tokio::sync::OwnedSemaphorePermit,
+) {
     let (mut sender, mut receiver) = socket.split();
+    let mut revalidation = tokio::time::interval_at(
+        tokio::time::Instant::now() + TERMINAL_REVALIDATION_INTERVAL,
+        TERMINAL_REVALIDATION_INTERVAL,
+    );
+    let timeout = tokio::time::sleep(TERMINAL_MAX_DURATION);
+    tokio::pin!(timeout);
 
     loop {
         tokio::select! {
+            _ = revalidation.tick() => {
+                if !terminal_access_is_valid(&auth, &bearer_token).await {
+                    send_server_message(
+                        &mut sender,
+                        TerminalServerMessage::Error {
+                            message: "Terminal session has expired.",
+                        },
+                    )
+                    .await;
+                    break;
+                }
+            }
+            _ = &mut timeout => {
+                send_server_message(
+                    &mut sender,
+                    TerminalServerMessage::Error {
+                        message: "Terminal session reached its time limit.",
+                    },
+                )
+                .await;
+                break;
+            }
             event = terminal.next_event() => {
                 match event {
                     Ok(Some(ContainerTerminalEvent::Output(output))) => {
@@ -176,6 +295,12 @@ async fn serve_container(socket: WebSocket, mut terminal: ContainerTerminalSessi
     }
 
     let _ = sender.send(Message::Close(None)).await;
+}
+
+async fn terminal_access_is_valid(auth: &AuthService, bearer_token: &str) -> bool {
+    auth.authenticate_bearer(bearer_token)
+        .await
+        .is_ok_and(|actor| actor.has_platform_operator_access())
 }
 
 async fn send_server_message(

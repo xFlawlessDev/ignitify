@@ -3,10 +3,20 @@ import { Eraser, Maximize2, Minimize2, RefreshCw, TerminalSquare } from "@lucide
 import { computed, onMounted, onUnmounted, shallowRef, useTemplateRef } from "vue";
 import PtyTerminal from "@/components/PtyTerminal.vue";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { usePtyTerminal, type PtyTerminalStatus } from "@/composables/usePtyTerminal";
+import { apiStepUp } from "@/lib/api";
+import { createTerminalSocket } from "@/lib/api/terminal";
 
-const { clear, connect, error, id, input, output, resize, status } = usePtyTerminal();
+const stepUpPassword = shallowRef("");
+const stepUpToken = shallowRef("");
+const stepUpError = shallowRef<string | null>(null);
+const stepUpLoading = shallowRef(false);
+const { clear, connect, error, id, input, output, resize, status } = usePtyTerminal({
+  createSocket: () => createTerminalSocket(stepUpToken.value),
+});
 const terminalFrame = useTemplateRef<HTMLElement>("terminalFrame");
 
 const statusLabel = computed(() => {
@@ -40,9 +50,22 @@ function toggleFullscreen() {
   }
 }
 
+async function openTerminal(): Promise<void> {
+  stepUpLoading.value = true;
+  stepUpError.value = null;
+  const result = await apiStepUp(stepUpPassword.value);
+  stepUpLoading.value = false;
+  if (!result.success) {
+    stepUpError.value = result.error ?? "Could not verify your password";
+    return;
+  }
+  stepUpPassword.value = "";
+  stepUpToken.value = result.data.access_token;
+  await connect();
+}
+
 onMounted(() => {
   document.addEventListener("fullscreenchange", syncFullscreen);
-  void connect();
 });
 
 onUnmounted(() => {
@@ -60,11 +83,29 @@ onUnmounted(() => {
           Interactive shell on the control-plane host.
         </p>
       </div>
-      <Button class="shrink-0 max-[700px]:w-full" variant="outline" @click="connect">
+      <Button class="shrink-0 max-[700px]:w-full" variant="outline" @click="openTerminal">
         <RefreshCw class="size-4" :stroke-width="1.5" />
         Reconnect
       </Button>
     </header>
+
+    <form class="mt-4 flex flex-wrap items-end gap-3" @submit.prevent="openTerminal">
+      <Label class="grid min-w-[min(100%,18rem)] flex-1 gap-2">
+        <span class="ui-label">Confirm password</span>
+        <Input
+          v-model="stepUpPassword"
+          type="password"
+          autocomplete="current-password"
+          required
+        />
+      </Label>
+      <Button class="max-[700px]:w-full" :disabled="stepUpLoading">
+        {{ stepUpLoading ? "Verifying..." : "Open terminal" }}
+      </Button>
+      <p v-if="stepUpError" class="basis-full text-sm text-destructive" role="alert">
+        {{ stepUpError }}
+      </p>
+    </form>
 
     <div
       class="mt-4 flex flex-wrap items-center gap-2 font-mono text-[10px] text-muted-foreground"

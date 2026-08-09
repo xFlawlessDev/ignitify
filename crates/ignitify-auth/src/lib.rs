@@ -13,19 +13,21 @@ use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode}
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use subtle::ConstantTimeEq;
 use thiserror::Error;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum UserRole {
-    Admin,
+    #[serde(rename = "platform_operator", alias = "admin")]
+    PlatformOperator,
     User,
 }
 
 impl From<ignitify_db::UserRole> for UserRole {
     fn from(role: ignitify_db::UserRole) -> Self {
         match role {
-            ignitify_db::UserRole::Admin => Self::Admin,
+            ignitify_db::UserRole::Admin => Self::PlatformOperator,
             ignitify_db::UserRole::User => Self::User,
         }
     }
@@ -39,13 +41,18 @@ pub struct AuthenticatedUser {
     pub tenant_id: Option<String>,
     pub api_key_id: Option<String>,
     pub scopes: Vec<String>,
+    #[serde(skip)]
+    pub session_family_id: Option<String>,
 }
 
 impl AuthenticatedUser {
-    pub fn has_admin_access(&self) -> bool {
-        matches!(self.role, UserRole::Admin)
+    pub fn has_platform_operator_access(&self) -> bool {
+        matches!(self.role, UserRole::PlatformOperator)
             && (self.api_key_id.is_none()
-                || self.scopes.iter().any(|scope| scope.trim() == "admin:*"))
+                || self
+                    .scopes
+                    .iter()
+                    .any(|scope| matches!(scope.trim(), "platform:*" | "admin:*")))
     }
 }
 
@@ -70,6 +77,7 @@ pub struct AuthConfig {
     pub api_key_prefix: String,
     pub secure_cookies: bool,
     pub trusted_origins: Vec<String>,
+    pub bootstrap_secret: Option<String>,
 }
 
 impl Default for AuthConfig {
@@ -80,11 +88,12 @@ impl Default for AuthConfig {
             refresh_token_ttl_days: 7,
             refresh_absolute_ttl_days: 30,
             api_key_prefix: "ignitify_".to_owned(),
-            secure_cookies: false,
+            secure_cookies: true,
             trusted_origins: vec![
                 "http://localhost:6565".to_owned(),
                 "http://127.0.0.1:6565".to_owned(),
             ],
+            bootstrap_secret: None,
         }
     }
 }
@@ -93,6 +102,8 @@ impl Default for AuthConfig {
 pub enum AuthError {
     #[error("bootstrap has already been completed")]
     AlreadyBootstrapped,
+    #[error("bootstrap is unavailable")]
+    BootstrapUnavailable,
     #[error("invalid credentials")]
     InvalidCredentials,
     #[error("user is inactive")]
@@ -124,12 +135,25 @@ pub struct BootstrapRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StepUpRequest {
+    pub password: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StepUpSession {
+    pub access_token: String,
+    pub expires_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct Claims {
     sub: String,
     username: String,
     role: UserRole,
     auth_version: i64,
     session_family_id: String,
+    #[serde(default)]
+    step_up: bool,
     exp: usize,
     iat: usize,
 }
@@ -153,7 +177,22 @@ impl AuthService {
         Ok(self.database.users().count().await? == 0)
     }
 
-    pub async fn bootstrap_admin(&self, username: &str, password: &str) -> Result<AuthSession> {
+    pub fn bootstrap_enabled(&self) -> bool {
+        self.config
+            .bootstrap_secret
+            .as_deref()
+            .is_some_and(|secret| (32..=1024).contains(&secret.len()))
+    }
+
+    pub async fn bootstrap_admin(
+        &self,
+        bootstrap_secret: &str,
+        username: &str,
+        password: &str,
+    ) -> Result<AuthSession> {
+        if !self.bootstrap_secret_matches(bootstrap_secret) {
+            return Err(AuthError::BootstrapUnavailable);
+        }
         let username = validate_credentials(username, password)?;
         let password_hash = hash_password(password)?;
         let Some(user) = self
@@ -165,10 +204,6 @@ impl AuthService {
             return Err(AuthError::AlreadyBootstrapped);
         };
         self.database.users().set_last_login(&user.id).await?;
-        self.database
-            .users()
-            .audit(&user.id, "auth.bootstrap")
-            .await?;
         self.issue_session(user).await
     }
 
@@ -182,7 +217,6 @@ impl AuthService {
         }
         ensure_active(&user)?;
         self.database.users().set_last_login(&user.id).await?;
-        self.database.users().audit(&user.id, "auth.login").await?;
         self.issue_session(user).await
     }
 
@@ -231,6 +265,68 @@ impl AuthService {
 
     pub async fn authenticate_bearer(&self, token: &str) -> Result<AuthenticatedUser> {
         let claims = self.decode_claims(token)?;
+        if claims.step_up {
+            return Err(AuthError::InvalidToken);
+        }
+        self.authenticate_claims(claims).await
+    }
+
+    pub async fn create_step_up_session(
+        &self,
+        actor: &AuthenticatedUser,
+        password: &str,
+    ) -> Result<StepUpSession> {
+        let family_id = actor
+            .session_family_id
+            .as_deref()
+            .ok_or(AuthError::InvalidToken)?;
+        let Some(user) = self.database.users().get_by_id(&actor.id).await? else {
+            return Err(AuthError::InvalidToken);
+        };
+        ensure_active(&user)?;
+        if !verify_password(&user.password_hash, password)
+            || !self
+                .database
+                .refresh_tokens()
+                .has_live_family(&user.id, family_id)
+                .await?
+        {
+            return Err(AuthError::InvalidCredentials);
+        }
+        let expires_at = Utc::now() + Duration::minutes(5);
+        let claims = Claims {
+            sub: user.id,
+            username: user.username,
+            role: user.role.into(),
+            auth_version: user.auth_version,
+            session_family_id: family_id.to_owned(),
+            step_up: true,
+            exp: expires_at.timestamp() as usize,
+            iat: Utc::now().timestamp() as usize,
+        };
+        let access_token = encode(
+            &Header::default(),
+            &claims,
+            &EncodingKey::from_secret(self.config.jwt_secret.as_bytes()),
+        )?;
+        Ok(StepUpSession {
+            access_token,
+            expires_at,
+        })
+    }
+
+    pub async fn authenticate_step_up(&self, token: &str, actor: &AuthenticatedUser) -> Result<()> {
+        let claims = self.decode_claims(token)?;
+        if !claims.step_up
+            || claims.sub != actor.id
+            || actor.session_family_id.as_deref() != Some(claims.session_family_id.as_str())
+        {
+            return Err(AuthError::InvalidToken);
+        }
+        self.authenticate_claims(claims).await.map(|_| ())
+    }
+
+    async fn authenticate_claims(&self, claims: Claims) -> Result<AuthenticatedUser> {
         let Some(user) = self.database.users().get_by_id(&claims.sub).await? else {
             return Err(AuthError::InvalidToken);
         };
@@ -244,7 +340,10 @@ impl AuthService {
         {
             return Err(AuthError::InvalidToken);
         }
-        Ok(authenticated_user(&user))
+        Ok(authenticated_user_with_session(
+            &user,
+            Some(claims.session_family_id),
+        ))
     }
 
     async fn issue_session(&self, user: UserRecord) -> Result<AuthSession> {
@@ -275,7 +374,8 @@ impl AuthService {
             username: user.username.clone(),
             role: user.role.clone().into(),
             auth_version: user.auth_version,
-            session_family_id: family_id,
+            session_family_id: family_id.clone(),
+            step_up: false,
             exp: expires_at.timestamp() as usize,
             iat: Utc::now().timestamp() as usize,
         };
@@ -288,7 +388,7 @@ impl AuthService {
             access_token,
             token_type: "Bearer".to_owned(),
             expires_at,
-            user: authenticated_user(&user),
+            user: authenticated_user_with_session(&user, Some(family_id)),
             refresh_token: Some(refresh_token),
             refresh_token_expires_at: Some(refresh_expires_at),
         })
@@ -302,6 +402,18 @@ impl AuthService {
         )
         .map(|decoded| decoded.claims)
         .map_err(|_| AuthError::InvalidToken)
+    }
+
+    fn bootstrap_secret_matches(&self, provided: &str) -> bool {
+        let Some(expected) = self.config.bootstrap_secret.as_deref() else {
+            return false;
+        };
+        if !(32..=1024).contains(&expected.len()) || provided.len() > 1024 {
+            return false;
+        }
+        let expected_hash = Sha256::digest(expected.as_bytes());
+        let provided_hash = Sha256::digest(provided.as_bytes());
+        expected_hash.ct_eq(&provided_hash).into()
     }
 }
 
@@ -341,7 +453,10 @@ fn hash_token(value: &str) -> String {
     format!("{:x}", hasher.finalize())
 }
 
-fn authenticated_user(user: &UserRecord) -> AuthenticatedUser {
+fn authenticated_user_with_session(
+    user: &UserRecord,
+    session_family_id: Option<String>,
+) -> AuthenticatedUser {
     AuthenticatedUser {
         id: user.id.clone(),
         username: user.username.clone(),
@@ -349,6 +464,7 @@ fn authenticated_user(user: &UserRecord) -> AuthenticatedUser {
         tenant_id: None,
         api_key_id: None,
         scopes: Vec::new(),
+        session_family_id,
     }
 }
 
@@ -376,6 +492,9 @@ mod tests {
             database,
             AuthConfig {
                 jwt_secret: "test-secret".to_owned(),
+                bootstrap_secret: Some(
+                    "test-bootstrap-secret-that-is-at-least-32-bytes".to_owned(),
+                ),
                 ..AuthConfig::default()
             },
         )
@@ -385,7 +504,11 @@ mod tests {
     async fn refresh_reuse_revokes_token_family() {
         let service = service().await;
         let session = service
-            .bootstrap_admin("admin", "password123")
+            .bootstrap_admin(
+                "test-bootstrap-secret-that-is-at-least-32-bytes",
+                "admin",
+                "password123",
+            )
             .await
             .unwrap();
         let old_refresh = session.refresh_token.unwrap();
@@ -401,5 +524,18 @@ mod tests {
             service.refresh_session(&successor).await,
             Err(AuthError::InvalidToken)
         ));
+    }
+
+    #[tokio::test]
+    async fn bootstrap_rejects_a_missing_or_incorrect_secret() {
+        let service = service().await;
+
+        assert!(matches!(
+            service
+                .bootstrap_admin("incorrect", "admin", "password123")
+                .await,
+            Err(AuthError::BootstrapUnavailable)
+        ));
+        assert!(service.bootstrap_required().await.unwrap());
     }
 }

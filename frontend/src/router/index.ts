@@ -42,13 +42,13 @@ const router = createRouter({
       path: "/providers",
       name: "Providers",
       component: () => import("@/views/ProvidersView.vue"),
-      meta: { requiresAuth: true, breadcrumb: "navigation.providers" },
+      meta: { requiresAuth: true, requiresAdmin: true, breadcrumb: "navigation.providers" },
     },
     {
       path: "/containers",
       name: "DockerContainers",
       component: () => import("@/views/DockerContainersView.vue"),
-      meta: { requiresAuth: true, breadcrumb: "navigation.docker" },
+      meta: { requiresAuth: true, requiresAdmin: true, breadcrumb: "navigation.docker" },
     },
     {
       path: "/terminal",

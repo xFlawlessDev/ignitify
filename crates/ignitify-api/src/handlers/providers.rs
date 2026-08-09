@@ -2,15 +2,15 @@ use std::sync::Arc;
 
 use axum::{
     Json,
-    extract::{Path, Query, State},
+    extract::{ConnectInfo, Extension, Path, Query, State},
     http::{HeaderMap, StatusCode, header},
     response::Redirect,
 };
 use ignitify_auth::AuthenticatedUser;
 use ignitify_control_plane::AgeCipher;
 use ignitify_db::{
-    NewProvider, ProviderAuthMode, ProviderKind, ProviderMutationOutcome, ProviderRecord,
-    ProviderUpdate,
+    AuditContext, AuditOutcome, NewProvider, ProviderAuthMode, ProviderKind,
+    ProviderMutationOutcome, ProviderRecord, ProviderUpdate,
 };
 use serde::{Deserialize, Serialize};
 use url::Url;
@@ -18,6 +18,7 @@ use uuid::Uuid;
 use zeroize::Zeroizing;
 
 use crate::{
+    audit,
     error::ApiError,
     extract::{require_actor, require_same_origin_request},
     state::{AppState, GITHUB_MANIFEST_STATE_TTL},
@@ -116,7 +117,7 @@ pub(crate) async fn list(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<Vec<ProviderResponse>>, ApiError> {
-    require_actor(&state, &headers).await?;
+    require_admin(&state, &headers).await?;
     let providers = state
         .database
         .providers()
@@ -130,6 +131,7 @@ pub(crate) async fn list(
 
 pub(crate) async fn start_github_manifest(
     State(state): State<AppState>,
+    peer: Option<Extension<ConnectInfo<std::net::SocketAddr>>>,
     headers: HeaderMap,
     Json(request): Json<GithubManifestRequest>,
 ) -> Result<Json<GithubManifestStartResponse>, ApiError> {
@@ -179,7 +181,7 @@ pub(crate) async fn start_github_manifest(
         states.insert(
             state_token.clone(),
             crate::state::GithubManifestPending {
-                user_id: actor.id,
+                user_id: actor.id.clone(),
                 name: name.clone(),
                 base_url: base_url.clone(),
                 frontend_origin: origin.clone(),
@@ -187,6 +189,18 @@ pub(crate) async fn start_github_manifest(
             },
         );
     }
+
+    audit::record(
+        &state,
+        Some(&actor),
+        &headers,
+        peer.as_deref(),
+        "provider.github_manifest.start",
+        Some("provider"),
+        None,
+        AuditOutcome::Success,
+    )
+    .await?;
 
     let manifest = serde_json::json!({
         "name": name,
@@ -265,10 +279,21 @@ pub(crate) async fn github_manifest_callback(
         username: None,
         credentials_ciphertext: encrypt_credentials(&state, credentials)?,
     };
-    state
+    let provider = state
         .database
         .providers()
         .create(&pending.user_id, input)
+        .await?;
+    state
+        .database
+        .users()
+        .audit_event(
+            Some(&pending.user_id),
+            "provider.github_manifest.connect",
+            Some("provider"),
+            Some(&provider.id),
+            &AuditContext::default(),
+        )
         .await?;
 
     Ok(Redirect::to(&github_result_redirect(
@@ -326,6 +351,7 @@ fn github_manifest_name(base_name: &str) -> String {
 
 pub(crate) async fn create(
     State(state): State<AppState>,
+    peer: Option<Extension<ConnectInfo<std::net::SocketAddr>>>,
     headers: HeaderMap,
     Json(request): Json<ProviderRequest>,
 ) -> Result<(StatusCode, Json<ProviderResponse>), ApiError> {
@@ -333,16 +359,28 @@ pub(crate) async fn create(
     require_same_origin_request(&state, &headers)?;
     let input = prepare_input(&state, request)?;
     let provider = state.database.providers().create(&actor.id, input).await?;
+    audit::record(
+        &state,
+        Some(&actor),
+        &headers,
+        peer.as_deref(),
+        "provider.create",
+        Some("provider"),
+        Some(&provider.id),
+        AuditOutcome::Success,
+    )
+    .await?;
     Ok((StatusCode::CREATED, Json(provider.into())))
 }
 
 pub(crate) async fn update(
     State(state): State<AppState>,
+    peer: Option<Extension<ConnectInfo<std::net::SocketAddr>>>,
     headers: HeaderMap,
     Path(provider_id): Path<String>,
     Json(request): Json<ProviderRequest>,
 ) -> Result<Json<ProviderResponse>, ApiError> {
-    require_admin(&state, &headers).await?;
+    let actor = require_admin(&state, &headers).await?;
     require_same_origin_request(&state, &headers)?;
     let input = prepare_update(&state, request)?;
     match state
@@ -351,19 +389,44 @@ pub(crate) async fn update(
         .update(&provider_id, input)
         .await?
     {
-        ProviderMutationOutcome::Updated(provider) => Ok(Json((*provider).into())),
+        ProviderMutationOutcome::Updated(provider) => {
+            audit::record(
+                &state,
+                Some(&actor),
+                &headers,
+                peer.as_deref(),
+                "provider.update",
+                Some("provider"),
+                Some(&provider_id),
+                AuditOutcome::Success,
+            )
+            .await?;
+            Ok(Json((*provider).into()))
+        }
         ProviderMutationOutcome::Missing => Err(ApiError::NotFound),
     }
 }
 
 pub(crate) async fn remove(
     State(state): State<AppState>,
+    peer: Option<Extension<ConnectInfo<std::net::SocketAddr>>>,
     headers: HeaderMap,
     Path(provider_id): Path<String>,
 ) -> Result<StatusCode, ApiError> {
-    require_admin(&state, &headers).await?;
+    let actor = require_admin(&state, &headers).await?;
     require_same_origin_request(&state, &headers)?;
     if state.database.providers().delete(&provider_id).await? {
+        audit::record(
+            &state,
+            Some(&actor),
+            &headers,
+            peer.as_deref(),
+            "provider.remove",
+            Some("provider"),
+            Some(&provider_id),
+            AuditOutcome::Success,
+        )
+        .await?;
         Ok(StatusCode::NO_CONTENT)
     } else {
         Err(ApiError::NotFound)
@@ -375,7 +438,7 @@ async fn require_admin(
     headers: &HeaderMap,
 ) -> Result<AuthenticatedUser, ApiError> {
     let actor = require_actor(state, headers).await?;
-    if actor.has_admin_access() {
+    if actor.has_platform_operator_access() {
         Ok(actor)
     } else {
         Err(ApiError::Forbidden)

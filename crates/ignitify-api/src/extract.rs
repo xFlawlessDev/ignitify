@@ -17,9 +17,27 @@ pub(crate) async fn require_actor(
 pub(crate) async fn require_websocket_actor(
     state: &AppState,
     headers: &HeaderMap,
-) -> Result<AuthenticatedUser, ApiError> {
+) -> Result<WebSocketActor, ApiError> {
     let token = websocket_bearer_token(headers).ok_or(AuthError::InvalidToken)?;
-    Ok(state.auth.authenticate_bearer(token).await?)
+    Ok(WebSocketActor {
+        actor: state.auth.authenticate_bearer(token).await?,
+        bearer_token: token.to_owned(),
+    })
+}
+
+pub(crate) async fn require_websocket_step_up(
+    state: &AppState,
+    headers: &HeaderMap,
+    actor: &AuthenticatedUser,
+) -> Result<(), ApiError> {
+    let token = websocket_protocol_token(headers, "stepup.").ok_or(AuthError::InvalidToken)?;
+    state.auth.authenticate_step_up(token, actor).await?;
+    Ok(())
+}
+
+pub(crate) struct WebSocketActor {
+    pub(crate) actor: AuthenticatedUser,
+    pub(crate) bearer_token: String,
 }
 
 pub(crate) fn require_trusted_websocket_origin(
@@ -49,7 +67,11 @@ pub(crate) fn require_same_origin_request(
         return Err(AuthError::InvalidRequest.into());
     }
     let Some(origin) = headers.get(header::ORIGIN) else {
-        return Ok(());
+        return if state.require_explicit_origin {
+            Err(AuthError::InvalidRequest.into())
+        } else {
+            Ok(())
+        };
     };
     let origin = origin.to_str().map_err(|_| AuthError::InvalidRequest)?;
     if state
@@ -106,7 +128,7 @@ fn refresh_cookie_header(token: &str, secure: bool) -> String {
 fn cookie(token: &str, max_age: &str, secure: bool) -> String {
     let secure = if secure { "; Secure" } else { "" };
     format!(
-        "ignitify_refresh={token}; Path=/api/v1/auth; HttpOnly; SameSite=Lax; {max_age}{secure}"
+        "ignitify_refresh={token}; Path=/api/v1/auth; HttpOnly; SameSite=Strict; {max_age}{secure}"
     )
 }
 
@@ -120,12 +142,16 @@ fn bearer_token(headers: &HeaderMap) -> Option<&str> {
 }
 
 fn websocket_bearer_token(headers: &HeaderMap) -> Option<&str> {
+    websocket_protocol_token(headers, "bearer.")
+}
+
+fn websocket_protocol_token<'a>(headers: &'a HeaderMap, prefix: &str) -> Option<&'a str> {
     headers
         .get(header::SEC_WEBSOCKET_PROTOCOL)?
         .to_str()
         .ok()?
         .split(',')
         .map(str::trim)
-        .find_map(|protocol| protocol.strip_prefix("bearer."))
+        .find_map(|protocol| protocol.strip_prefix(prefix))
         .filter(|token| !token.is_empty())
 }

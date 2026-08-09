@@ -35,6 +35,7 @@ async fn state() -> AppState {
         database.clone(),
         AuthConfig {
             jwt_secret: "test-secret".to_owned(),
+            bootstrap_secret: Some("test-bootstrap-secret-that-is-at-least-32-bytes".to_owned()),
             ..AuthConfig::default()
         },
     )
@@ -59,6 +60,11 @@ async fn state() -> AppState {
         system_metrics: Arc::new(StaticSystemMetrics(None)),
         docker_runtime: None,
         terminal: ignitify_terminal::TerminalService,
+        host_terminal_enabled: false,
+        terminal_sessions: Arc::new(tokio::sync::Semaphore::new(4)),
+        login_rate_limiter: crate::state::LoginRateLimiter::default(),
+        require_explicit_origin: false,
+        trust_proxy_headers: false,
         secure_cookies: false,
         trusted_origins: Arc::from([]),
         provider_cipher: Some(Arc::new(
@@ -409,7 +415,11 @@ async fn backup_s3_destination_routes_encrypt_credentials_and_require_admin() {
 async fn session_token(state: &AppState) -> String {
     state
         .auth
-        .bootstrap_admin("owner", "password123")
+        .bootstrap_admin(
+            "test-bootstrap-secret-that-is-at-least-32-bytes",
+            "owner",
+            "password123",
+        )
         .await
         .unwrap()
         .access_token
@@ -992,6 +1002,9 @@ async fn domain_routes_require_service_port_and_exact_confirmation() {
         state.system_metrics.clone(),
         state.docker_runtime.clone(),
         state.terminal,
+        state.host_terminal_enabled,
+        state.require_explicit_origin,
+        state.trust_proxy_headers,
         state.secure_cookies,
         state.trusted_origins.clone(),
         state.provider_cipher.clone(),

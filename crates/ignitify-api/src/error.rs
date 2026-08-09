@@ -28,6 +28,12 @@ pub(crate) enum ApiError {
     NotFound,
     #[error("forbidden")]
     Forbidden,
+    #[error("host terminal is disabled")]
+    HostTerminalDisabled,
+    #[error("too many active terminal sessions")]
+    TooManyRequests,
+    #[error("too many authentication attempts")]
+    AuthenticationRateLimited,
     #[error("invalid request")]
     BadRequest(&'static str),
     #[error("compose policy rejected input: {0}")]
@@ -62,6 +68,9 @@ impl IntoResponse for ApiError {
                 StatusCode::CONFLICT,
                 "project name already exists".to_owned(),
             ),
+            Self::Auth(AuthError::BootstrapUnavailable) => {
+                (StatusCode::FORBIDDEN, "bootstrap is unavailable".to_owned())
+            }
             Self::Database(DatabaseError::ProjectConfirmationMismatch) => (
                 StatusCode::BAD_REQUEST,
                 "project removal confirmation does not match name".to_owned(),
@@ -124,6 +133,18 @@ impl IntoResponse for ApiError {
             }
             Self::NotFound => (StatusCode::NOT_FOUND, "not found".to_owned()),
             Self::Forbidden => (StatusCode::FORBIDDEN, "forbidden".to_owned()),
+            Self::HostTerminalDisabled => (
+                StatusCode::FORBIDDEN,
+                "host terminal is disabled".to_owned(),
+            ),
+            Self::TooManyRequests => (
+                StatusCode::TOO_MANY_REQUESTS,
+                "too many active terminal sessions".to_owned(),
+            ),
+            Self::AuthenticationRateLimited => (
+                StatusCode::TOO_MANY_REQUESTS,
+                "too many authentication attempts".to_owned(),
+            ),
             Self::BadRequest(message) => (StatusCode::BAD_REQUEST, message.to_owned()),
             Self::ActiveDeploymentConflict => (
                 StatusCode::CONFLICT,
@@ -152,6 +173,9 @@ impl IntoResponse for ApiError {
             Self::DockerRuntime(DockerRuntimeError::ContainerNotFound) => {
                 (StatusCode::NOT_FOUND, "not found".to_owned())
             }
+            Self::DockerRuntime(DockerRuntimeError::ContainerNotManaged) => {
+                (StatusCode::NOT_FOUND, "not found".to_owned())
+            }
             Self::DockerRuntime(
                 DockerRuntimeError::InvalidContainerReference
                 | DockerRuntimeError::InvalidUploadPath,
@@ -173,7 +197,13 @@ impl IntoResponse for ApiError {
                 "internal server error".to_owned(),
             ),
         };
-        (status, Json(serde_json::json!({ "error": message }))).into_response()
+        let mut response = (status, Json(serde_json::json!({ "error": message }))).into_response();
+        if status == StatusCode::TOO_MANY_REQUESTS {
+            response
+                .headers_mut()
+                .insert("retry-after", axum::http::HeaderValue::from_static("900"));
+        }
+        response
     }
 }
 

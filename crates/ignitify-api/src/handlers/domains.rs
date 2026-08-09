@@ -106,7 +106,7 @@ pub(crate) async fn create(
         .get(
             ignitify_db::ServiceActor {
                 id: &actor.id,
-                is_admin: actor.has_admin_access(),
+                is_admin: actor.has_platform_operator_access(),
             },
             &service_id,
         )
@@ -199,6 +199,6 @@ pub(crate) async fn verify(
 fn domain_actor(actor: &ignitify_auth::AuthenticatedUser) -> DomainActor<'_> {
     DomainActor {
         id: &actor.id,
-        is_admin: actor.has_admin_access(),
+        is_admin: actor.has_platform_operator_access(),
     }
 }

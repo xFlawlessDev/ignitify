@@ -123,6 +123,6 @@ impl From<ProjectEnvironmentVariableRequest> for ProjectEnvironmentVariableInput
 fn project_actor(actor: &AuthenticatedUser) -> ProjectActor<'_> {
     ProjectActor {
         id: &actor.id,
-        is_admin: actor.has_admin_access(),
+        is_admin: actor.has_platform_operator_access(),
     }
 }

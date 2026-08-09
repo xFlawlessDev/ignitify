@@ -3,7 +3,7 @@ mod operations;
 mod runtime_secrets;
 mod system_metrics;
 
-use std::{env, path::PathBuf, sync::Arc};
+use std::{env, net::SocketAddr, path::PathBuf, sync::Arc};
 
 use ignitify_auth::{AuthConfig, AuthService};
 use ignitify_control_plane::{
@@ -17,6 +17,7 @@ use ignitify_runtime_compose::ComposeRuntime;
 use ignitify_runtime_docker::DockerRuntime;
 use ignitify_source_git::GitSourceBuild;
 use tokio::net::TcpListener;
+use url::Url;
 
 use crate::error::{CoreError, Result};
 
@@ -29,8 +30,8 @@ type RuntimeCapabilities = (
     Option<DockerRuntime>,
 );
 
-fn trusted_origins() -> Arc<[String]> {
-    env_value("IGNITIFY_TRUSTED_ORIGINS")
+fn trusted_origins() -> Result<Arc<[String]>> {
+    let origins = env_value("IGNITIFY_TRUSTED_ORIGINS")
         .map(|origins| {
             origins
                 .split(',')
@@ -39,8 +40,101 @@ fn trusted_origins() -> Arc<[String]> {
                 .map(str::to_owned)
                 .collect()
         })
-        .unwrap_or_else(|| AuthConfig::default().trusted_origins)
-        .into()
+        .unwrap_or_else(|| AuthConfig::default().trusted_origins);
+    let normalized = origins
+        .into_iter()
+        .map(|origin| normalized_origin(&origin))
+        .collect::<Result<Vec<_>>>()?;
+    if normalized.is_empty() {
+        return Err(CoreError::Configuration(
+            "IGNITIFY_TRUSTED_ORIGINS must contain at least one origin",
+        ));
+    }
+    Ok(normalized.into())
+}
+
+fn normalized_origin(value: &str) -> Result<String> {
+    let parsed =
+        Url::parse(value).map_err(|_| CoreError::Configuration("trusted origin is invalid"))?;
+    if !matches!(parsed.scheme(), "http" | "https")
+        || parsed.host_str().is_none()
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+        || !matches!(parsed.path(), "" | "/")
+        || parsed.query().is_some()
+        || parsed.fragment().is_some()
+    {
+        return Err(CoreError::Configuration(
+            "trusted origin must be an HTTP(S) origin",
+        ));
+    }
+    Ok(parsed.origin().ascii_serialization())
+}
+
+fn bool_env(name: &str, default: bool) -> Result<bool> {
+    match env_value(name).as_deref() {
+        None => Ok(default),
+        Some("true") => Ok(true),
+        Some("false") => Ok(false),
+        Some(_) => Err(CoreError::Configuration(
+            "boolean environment values must be true or false",
+        )),
+    }
+}
+
+fn listen_address() -> Result<SocketAddr> {
+    env_value("IGNITIFY_LISTEN_ADDR")
+        .unwrap_or_else(|| "127.0.0.1:5656".to_owned())
+        .parse()
+        .map_err(|_| {
+            CoreError::Configuration("IGNITIFY_LISTEN_ADDR must be an IP address and port")
+        })
+}
+
+fn bootstrap_secret() -> Result<Option<String>> {
+    let secret = env_value("IGNITIFY_BOOTSTRAP_SECRET");
+    if secret
+        .as_deref()
+        .is_some_and(|value| !(32..=1024).contains(&value.len()))
+    {
+        return Err(CoreError::Configuration(
+            "IGNITIFY_BOOTSTRAP_SECRET must be 32-1024 bytes",
+        ));
+    }
+    Ok(secret)
+}
+
+fn remote_mode(address: SocketAddr) -> Result<bool> {
+    if !address.ip().is_loopback() {
+        return Err(CoreError::Configuration(
+            "IGNITIFY_LISTEN_ADDR must remain loopback; place remote access behind a TLS reverse proxy",
+        ));
+    }
+    bool_env("IGNITIFY_REMOTE_MODE", false)
+}
+
+fn validate_remote_configuration(
+    remote_mode: bool,
+    secure_cookies: bool,
+    trusted_origins: &[String],
+) -> Result<bool> {
+    if !remote_mode {
+        return Ok(false);
+    }
+    if !secure_cookies {
+        return Err(CoreError::Configuration(
+            "remote mode requires IGNITIFY_SECURE_COOKIES=true",
+        ));
+    }
+    if trusted_origins
+        .iter()
+        .any(|origin| !origin.starts_with("https://"))
+    {
+        return Err(CoreError::Configuration(
+            "remote mode requires HTTPS IGNITIFY_TRUSTED_ORIGINS",
+        ));
+    }
+    Ok(true)
 }
 
 fn env_value(name: &str) -> Option<String> {
@@ -50,6 +144,15 @@ fn env_value(name: &str) -> Option<String> {
 #[tokio::main]
 async fn main() -> Result<()> {
     let _ = dotenvy::dotenv();
+    let listener_address = listen_address()?;
+    let trusted_origins = trusted_origins()?;
+    let secure_cookies = bool_env("IGNITIFY_SECURE_COOKIES", true)?;
+    let remote_mode = remote_mode(listener_address)?;
+    let remote_mode =
+        validate_remote_configuration(remote_mode, secure_cookies, trusted_origins.as_ref())?;
+    let trust_proxy_headers = bool_env("IGNITIFY_TRUST_PROXY_HEADERS", remote_mode)?;
+    let host_terminal_enabled = bool_env("IGNITIFY_ENABLE_HOST_TERMINAL", false)?;
+    let bootstrap_secret = bootstrap_secret()?;
     let data_dir = env_value("IGNITIFY_DATA_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("data"));
@@ -78,6 +181,9 @@ async fn main() -> Result<()> {
         database.clone(),
         AuthConfig {
             jwt_secret: runtime_secrets.jwt_secret.clone(),
+            secure_cookies,
+            trusted_origins: trusted_origins.iter().cloned().collect(),
+            bootstrap_secret,
             ..AuthConfig::default()
         },
     )
@@ -138,14 +244,22 @@ async fn main() -> Result<()> {
         system_metrics,
         docker_runtime,
         ignitify_terminal::TerminalService,
-        env_value("IGNITIFY_SECURE_COOKIES").is_some_and(|value| value == "true"),
-        trusted_origins(),
+        host_terminal_enabled,
+        remote_mode,
+        trust_proxy_headers,
+        secure_cookies,
+        trusted_origins,
         Some(provider_cipher),
         ingress_health,
         domain_policy,
     );
-    let listener = TcpListener::bind("127.0.0.1:5656").await?;
+    let listener = TcpListener::bind(listener_address).await?;
 
     println!("Ignitify API listening on {}", listener.local_addr()?);
-    axum::serve(listener, app).await.map_err(CoreError::Io)
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await
+    .map_err(CoreError::Io)
 }

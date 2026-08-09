@@ -39,13 +39,13 @@ const primaryNavigation = computed(() => {
     { labelKey: "navigation.overview", to: "/dashboard", icon: LayoutDashboard },
     { labelKey: "navigation.monitoring", to: "/monitoring", icon: Activity },
     { labelKey: "navigation.projects", to: "/projects", icon: Box },
-    { labelKey: "navigation.providers", to: "/providers", icon: GitBranch },
-    { labelKey: "navigation.docker", to: "/containers", icon: Container },
   ];
-  if (auth.isAdmin)
+  if (auth.isAdmin) {
+    items.push({ labelKey: "navigation.providers", to: "/providers", icon: GitBranch });
+    items.push({ labelKey: "navigation.docker", to: "/containers", icon: Container });
     items.push({ labelKey: "navigation.terminal", to: "/terminal", icon: TerminalSquare });
-  if (auth.isAdmin)
     items.push({ labelKey: "navigation.remoteBuilders", to: "/remote-builders", icon: Cpu });
+  }
   return items;
 });
 

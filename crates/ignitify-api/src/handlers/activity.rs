@@ -48,7 +48,7 @@ pub(crate) async fn list_for_project(
         .list_for_project(
             ActivityActor {
                 id: &actor.id,
-                is_admin: actor.has_admin_access(),
+                is_admin: actor.has_platform_operator_access(),
             },
             &project_id,
             query.before.as_deref(),

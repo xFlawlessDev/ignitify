@@ -2,12 +2,12 @@ use std::time::Duration;
 
 use axum::{
     Json,
-    extract::{Path, Query, State},
+    extract::{ConnectInfo, Extension, Path, Query, State},
     http::{HeaderMap, header},
 };
 use chrono::Utc;
 use ignitify_auth::AuthenticatedUser;
-use ignitify_db::{ProviderAuthMode, ProviderKind, ProviderRecord};
+use ignitify_db::{AuditOutcome, ProviderAuthMode, ProviderKind, ProviderRecord};
 use jsonwebtoken::{Algorithm, EncodingKey, Header};
 use reqwest::{Client, RequestBuilder, header::HeaderMap as ResponseHeaders};
 use serde::{Deserialize, Serialize};
@@ -15,6 +15,7 @@ use serde_json::Value;
 use url::Url;
 
 use crate::{
+    audit,
     error::ApiError,
     extract::{require_actor, require_same_origin_request},
     state::AppState,
@@ -74,10 +75,11 @@ pub(crate) struct ProviderRepositoryQuery {
 
 pub(crate) async fn repositories(
     State(state): State<AppState>,
+    peer: Option<Extension<ConnectInfo<std::net::SocketAddr>>>,
     headers: HeaderMap,
     Path(provider_id): Path<String>,
 ) -> Result<Json<Vec<ProviderRepositoryResponse>>, ApiError> {
-    require_actor(&state, &headers).await?;
+    let actor = require_admin(&state, &headers).await?;
     let provider = state
         .database
         .providers()
@@ -86,18 +88,29 @@ pub(crate) async fn repositories(
         .ok_or(ApiError::NotFound)?;
     let credentials = decrypt_credentials(&state, &provider)?;
     let client = provider_client()?;
-    Ok(Json(
-        list_provider_repositories(&client, &provider, &credentials).await?,
-    ))
+    let repositories = list_provider_repositories(&client, &provider, &credentials).await?;
+    audit::record(
+        &state,
+        Some(&actor),
+        &headers,
+        peer.as_deref(),
+        "provider.repositories.list",
+        Some("provider"),
+        Some(&provider_id),
+        AuditOutcome::Success,
+    )
+    .await?;
+    Ok(Json(repositories))
 }
 
 pub(crate) async fn branches(
     State(state): State<AppState>,
+    peer: Option<Extension<ConnectInfo<std::net::SocketAddr>>>,
     headers: HeaderMap,
     Path(provider_id): Path<String>,
     Query(query): Query<ProviderRepositoryQuery>,
 ) -> Result<Json<Vec<ProviderBranchResponse>>, ApiError> {
-    require_actor(&state, &headers).await?;
+    let actor = require_admin(&state, &headers).await?;
     let repository = query.repository.trim();
     if repository.is_empty() || repository.len() > 1024 || repository.chars().any(char::is_control)
     {
@@ -111,9 +124,19 @@ pub(crate) async fn branches(
         .ok_or(ApiError::NotFound)?;
     let credentials = decrypt_credentials(&state, &provider)?;
     let client = provider_client()?;
-    Ok(Json(
-        list_provider_branches(&client, &provider, &credentials, repository).await?,
-    ))
+    let branches = list_provider_branches(&client, &provider, &credentials, repository).await?;
+    audit::record(
+        &state,
+        Some(&actor),
+        &headers,
+        peer.as_deref(),
+        "provider.branches.list",
+        Some("provider"),
+        Some(&provider_id),
+        AuditOutcome::Success,
+    )
+    .await?;
+    Ok(Json(branches))
 }
 
 fn provider_client() -> Result<Client, ApiError> {
@@ -436,6 +459,7 @@ async fn github_app_installation_context(
 
 pub(crate) async fn test(
     State(state): State<AppState>,
+    peer: Option<Extension<ConnectInfo<std::net::SocketAddr>>>,
     headers: HeaderMap,
     Path(provider_id): Path<String>,
 ) -> Result<Json<ProviderConnectionResponse>, ApiError> {
@@ -462,7 +486,17 @@ pub(crate) async fn test(
     let checked_at = verified
         .last_verified_at
         .unwrap_or_else(|| Utc::now().to_rfc3339());
-    let _ = actor;
+    audit::record(
+        &state,
+        Some(&actor),
+        &headers,
+        peer.as_deref(),
+        "provider.connection.test",
+        Some("provider"),
+        Some(&provider_id),
+        AuditOutcome::Success,
+    )
+    .await?;
     Ok(Json(ProviderConnectionResponse {
         repository_count,
         checked_at,
@@ -741,7 +775,7 @@ async fn require_admin(
     headers: &HeaderMap,
 ) -> Result<AuthenticatedUser, ApiError> {
     let actor = require_actor(state, headers).await?;
-    if actor.has_admin_access() {
+    if actor.has_platform_operator_access() {
         Ok(actor)
     } else {
         Err(ApiError::Forbidden)

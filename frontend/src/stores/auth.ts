@@ -20,7 +20,10 @@ export const useAuthStore = defineStore("auth", () => {
   const isInitialized = shallowRef(false);
 
   const isAuthenticated = computed(() => !!user.value);
-  const isAdmin = computed(() => user.value?.role === "admin");
+  const isPlatformOperator = computed(
+    () => user.value?.role === "platform_operator" || user.value?.role === "admin",
+  );
+  const isAdmin = computed(() => isPlatformOperator.value);
   const currentUser = computed(() => user.value);
 
   let initPromise: Promise<void> | null = null;
@@ -62,8 +65,12 @@ export const useAuthStore = defineStore("auth", () => {
     return null;
   }
 
-  async function bootstrap(username: string, password: string): Promise<string | null> {
-    const result = await apiBootstrap(username, password);
+  async function bootstrap(
+    username: string,
+    password: string,
+    bootstrapSecret: string,
+  ): Promise<string | null> {
+    const result = await apiBootstrap(username, password, bootstrapSecret);
     if (!result.success) return result.error ?? "Bootstrap failed";
     applySession(result.data);
     return null;
@@ -100,6 +107,7 @@ export const useAuthStore = defineStore("auth", () => {
     token,
     isInitialized,
     isAuthenticated,
+    isPlatformOperator,
     isAdmin,
     currentUser,
     init,

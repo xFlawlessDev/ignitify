@@ -186,6 +186,9 @@ async function fetchWithAuth(
 
 function withAuthorization(url: string, options: RequestInit): RequestInit {
   const headers = new Headers(options.headers);
+  if (isSameOrigin(url) && !headers.has("X-Ignitify-Request-ID")) {
+    headers.set("X-Ignitify-Request-ID", crypto.randomUUID());
+  }
   if ((options.method ?? "GET").toUpperCase() !== "GET" && isSameOrigin(url)) {
     headers.set("X-Ignitify-Request", "1");
   }

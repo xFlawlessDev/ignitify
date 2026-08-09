@@ -1,8 +1,10 @@
 //! Axum API routes and HTTP adapters for Ignitify.
 
+mod audit;
 mod domain_policy;
 mod error;
 mod extract;
+mod frontend;
 mod handlers;
 mod routes;
 mod state;
@@ -182,6 +184,9 @@ pub fn router_with_system_metrics_and_docker_and_provider_cipher_and_ingress(
         system_metrics,
         docker_runtime,
         terminal,
+        false,
+        false,
+        false,
         secure_cookies,
         trusted_origins,
         provider_cipher,
@@ -205,6 +210,9 @@ pub fn router_with_system_metrics_and_docker_and_provider_cipher_and_ingress_and
     system_metrics: Arc<dyn SystemMetricsProvider>,
     docker_runtime: Option<DockerRuntime>,
     terminal: ignitify_terminal::TerminalService,
+    host_terminal_enabled: bool,
+    require_explicit_origin: bool,
+    trust_proxy_headers: bool,
     secure_cookies: bool,
     trusted_origins: Arc<[String]>,
     provider_cipher: Option<Arc<AgeCipher>>,
@@ -222,6 +230,11 @@ pub fn router_with_system_metrics_and_docker_and_provider_cipher_and_ingress_and
         system_metrics,
         docker_runtime,
         terminal,
+        host_terminal_enabled,
+        terminal_sessions: Arc::new(tokio::sync::Semaphore::new(4)),
+        login_rate_limiter: state::LoginRateLimiter::default(),
+        require_explicit_origin,
+        trust_proxy_headers,
         secure_cookies,
         trusted_origins,
         provider_cipher,

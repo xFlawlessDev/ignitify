@@ -440,7 +440,10 @@ fn valid_email(value: &str) -> bool {
 }
 
 async fn require_admin(state: &AppState, headers: &HeaderMap) -> Result<(), ApiError> {
-    if require_actor(state, headers).await?.has_admin_access() {
+    if require_actor(state, headers)
+        .await?
+        .has_platform_operator_access()
+    {
         Ok(())
     } else {
         Err(ApiError::Forbidden)

@@ -88,7 +88,7 @@ pub(crate) async fn get(
         .dashboard()
         .summary(DashboardActor {
             id: &actor.id,
-            is_admin: actor.has_admin_access(),
+            is_admin: actor.has_platform_operator_access(),
         })
         .await?;
     Ok(Json(DashboardResponse {

@@ -84,7 +84,7 @@ async fn open_stream(
     let actor = require_actor(&state, &headers).await?;
     let after = cursor(&headers, query_after)?;
     let actor_id = actor.id.clone();
-    let actor_is_admin = actor.has_admin_access();
+    let actor_is_admin = actor.has_platform_operator_access();
     let deployment_actor = DeploymentActor {
         id: &actor_id,
         is_admin: actor_is_admin,

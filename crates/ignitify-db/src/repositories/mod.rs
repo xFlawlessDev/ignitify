@@ -53,4 +53,4 @@ pub use settings::{
     NewServerCertificate, ServerCertificateRecord, ServerSettingsRecord, ServerSettingsRepository,
     ServerSettingsUpdate,
 };
-pub use users::UsersRepository;
+pub use users::{AuditContext, AuditOutcome, UsersRepository};

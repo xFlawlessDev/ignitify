@@ -1,14 +1,17 @@
 use axum::{
     Json,
-    extract::{Multipart, Path, State},
+    extract::{ConnectInfo, Extension, Multipart, Path, State},
     http::{HeaderMap, StatusCode},
 };
+use ignitify_auth::AuthenticatedUser;
+use ignitify_db::AuditOutcome;
 use ignitify_runtime_docker::{
     ContainerConfig, ContainerDetails, ContainerMount, ContainerNetwork,
 };
 use serde::Serialize;
 
 use crate::{
+    audit,
     error::ApiError,
     extract::{require_actor, require_same_origin_request},
     state::AppState,
@@ -240,7 +243,7 @@ pub(crate) async fn status(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<RuntimeStatusResponse>, ApiError> {
-    require_actor(&state, &headers).await?;
+    require_platform_operator(&state, &headers).await?;
 
     let (database, runtime, worker, ingress, metrics) = tokio::join!(
         state.database.ping(),
@@ -273,7 +276,7 @@ pub(crate) async fn containers(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<RuntimeContainersResponse>, ApiError> {
-    require_actor(&state, &headers).await?;
+    require_platform_operator(&state, &headers).await?;
 
     Ok(Json(RuntimeContainersResponse {
         containers: state
@@ -288,7 +291,7 @@ pub(crate) async fn metrics(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<SystemMetricsResponse>, ApiError> {
-    require_actor(&state, &headers).await?;
+    require_platform_operator(&state, &headers).await?;
 
     state
         .system_metrics
@@ -301,37 +304,62 @@ pub(crate) async fn metrics(
 
 pub(crate) async fn container_details(
     State(state): State<AppState>,
+    peer: Option<Extension<ConnectInfo<std::net::SocketAddr>>>,
     headers: HeaderMap,
     Path(container_id): Path<String>,
 ) -> Result<Json<ContainerDetailsResponse>, ApiError> {
-    require_container_admin(&state, &headers).await?;
+    let actor = require_platform_operator(&state, &headers).await?;
     let details = state
         .docker_runtime()?
         .container_details(&container_id)
         .await?;
+    audit::record(
+        &state,
+        Some(&actor),
+        &headers,
+        peer.as_deref(),
+        "runtime.container.details",
+        Some("container"),
+        Some(&container_id),
+        AuditOutcome::Success,
+    )
+    .await?;
     Ok(Json(details.into()))
 }
 
 pub(crate) async fn container_logs(
     State(state): State<AppState>,
+    peer: Option<Extension<ConnectInfo<std::net::SocketAddr>>>,
     headers: HeaderMap,
     Path(container_id): Path<String>,
 ) -> Result<Json<ContainerLogsResponse>, ApiError> {
-    require_container_admin(&state, &headers).await?;
+    let actor = require_platform_operator(&state, &headers).await?;
     let logs = state
         .docker_runtime()?
         .container_logs(&container_id)
         .await?;
+    audit::record(
+        &state,
+        Some(&actor),
+        &headers,
+        peer.as_deref(),
+        "runtime.container.logs",
+        Some("container"),
+        Some(&container_id),
+        AuditOutcome::Success,
+    )
+    .await?;
     Ok(Json(ContainerLogsResponse { logs }))
 }
 
 pub(crate) async fn upload_container_file(
     State(state): State<AppState>,
+    peer: Option<Extension<ConnectInfo<std::net::SocketAddr>>>,
     headers: HeaderMap,
     Path(container_id): Path<String>,
     mut multipart: Multipart,
 ) -> Result<StatusCode, ApiError> {
-    require_container_admin(&state, &headers).await?;
+    let actor = require_platform_operator(&state, &headers).await?;
     require_same_origin_request(&state, &headers)?;
 
     let mut destination = "/tmp".to_owned();
@@ -372,29 +400,53 @@ pub(crate) async fn upload_container_file(
         .docker_runtime()?
         .upload_file(&container_id, &destination, &file_name, &data)
         .await?;
+    audit::record(
+        &state,
+        Some(&actor),
+        &headers,
+        peer.as_deref(),
+        "runtime.container.upload",
+        Some("container"),
+        Some(&container_id),
+        AuditOutcome::Success,
+    )
+    .await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
 pub(crate) async fn remove_container(
     State(state): State<AppState>,
+    peer: Option<Extension<ConnectInfo<std::net::SocketAddr>>>,
     headers: HeaderMap,
     Path(container_id): Path<String>,
 ) -> Result<StatusCode, ApiError> {
-    require_container_admin(&state, &headers).await?;
+    let actor = require_platform_operator(&state, &headers).await?;
     require_same_origin_request(&state, &headers)?;
     state
         .docker_runtime()?
         .remove_container(&container_id)
         .await?;
+    audit::record(
+        &state,
+        Some(&actor),
+        &headers,
+        peer.as_deref(),
+        "runtime.container.remove",
+        Some("container"),
+        Some(&container_id),
+        AuditOutcome::Success,
+    )
+    .await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
-pub(crate) async fn require_container_admin(
+pub(crate) async fn require_platform_operator(
     state: &AppState,
     headers: &HeaderMap,
-) -> Result<(), ApiError> {
-    if require_actor(state, headers).await?.has_admin_access() {
-        Ok(())
+) -> Result<AuthenticatedUser, ApiError> {
+    let actor = require_actor(state, headers).await?;
+    if actor.has_platform_operator_access() {
+        Ok(actor)
     } else {
         Err(ApiError::Forbidden)
     }
