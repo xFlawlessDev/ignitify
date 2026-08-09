@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Background } from "@vue-flow/background";
 import { Controls } from "@vue-flow/controls";
-import { Handle, Position, VueFlow, type Edge, type Node } from "@vue-flow/core";
+import { Handle, Position, useVueFlow, VueFlow, type Edge, type Node } from "@vue-flow/core";
 import "@vue-flow/controls/dist/style.css";
 import "@vue-flow/core/dist/style.css";
 import {
@@ -78,7 +78,7 @@ const connectionCheck = shallowRef<ConnectionCheckState | null>(null);
 const copiedGuideCommand = shallowRef<string | null>(null);
 
 const linuxGuideCommands = {
-  generate: 'ssh-keygen -t ed25519 -f ./ignitify_deploy -C "ignitify-deploy"',
+  generate: 'ssh-keygen -t ed25519 -N "" -f ./ignitify_deploy -C "ignitify-deploy"',
   install:
     "ssh-copy-id -i ./ignitify_deploy.pub {user}@{host}\nchmod 700 ~/.ssh\nchmod 600 ~/.ssh/authorized_keys",
   hostKey: "ssh-keyscan -t ed25519 {host}",
@@ -113,6 +113,7 @@ const publicKeyProvided = computed(() =>
 // node model writable so that measurement cannot be lost to a readonly computed value.
 const flowNodes = shallowRef<Node<FlowNodeData>[]>([]);
 const flowEdges = shallowRef<Edge[]>([]);
+const flow = useVueFlow();
 
 function updateFlowTopology() {
   flowNodes.value = [
@@ -243,6 +244,12 @@ function closeInspector() {
   selectedServerId.value = null;
   connectionCheck.value = null;
 }
+
+flow.onNodeClick(({ node }) => {
+  if (node.type === "remote") selectServer(node.id);
+});
+
+flow.onPaneClick(closeInspector);
 
 async function checkConnection(server: RemoteServerSummary) {
   checkingServerId.value = server.id;
@@ -453,16 +460,16 @@ onMounted(loadServers);
           :nodes-draggable="false"
           :nodes-connectable="false"
           :elements-selectable="false"
-            :zoom-on-double-click="false"
-            :fit-view-on-init="true"
-            :default-viewport="{ x: 0, y: 0, zoom: 1 }"
-          >
+          :zoom-on-double-click="false"
+          :fit-view-on-init="true"
+          :default-viewport="{ x: 0, y: 0, zoom: 1 }"
+        >
           <Background :gap="20" :size="1" color="var(--border)" />
           <Controls position="bottom-right" :show-interactive="false" />
 
           <template #node-origin>
             <div
-              class="nodrag nowheel grid w-[258px] grid-cols-[32px_minmax(0,1fr)] gap-3 rounded-[8px] border border-border bg-card p-4 text-foreground shadow-none"
+              class="nodrag nopan nowheel grid w-[258px] grid-cols-[32px_minmax(0,1fr)] gap-3 rounded-[8px] border border-border bg-card p-4 text-foreground shadow-none"
             >
               <Handle
                 type="source"
@@ -496,13 +503,12 @@ onMounted(loadServers);
 
           <template #node-remote="{ data }">
             <button
-              class="nodrag nowheel block w-[258px] rounded-[8px] border border-border bg-card p-4 text-left text-foreground shadow-none transition-[border-color,transform] duration-150 ease-out hover:border-ring focus-visible:border-ring focus-visible:outline-none motion-reduce:transition-none"
+              class="nodrag nopan nowheel block w-[258px] rounded-[8px] border border-border bg-card p-4 text-left text-foreground shadow-none transition-[border-color,transform] duration-150 ease-out hover:border-ring focus-visible:border-ring focus-visible:outline-none motion-reduce:transition-none"
               :class="data.server.id === selectedServerId ? 'border-ring' : ''"
               type="button"
               :aria-pressed="data.server.id === selectedServerId"
               @pointerdown.stop
               @mousedown.stop
-              @click.stop="selectServer(data.server.id)"
             >
               <Handle
                 type="target"
@@ -711,7 +717,8 @@ onMounted(loadServers);
               <li>
                 <span class="font-medium text-foreground">Create a deploy key</span> on the Ignitify
                 host or your workstation. This creates the private key and matching
-                <code class="font-mono text-foreground">.pub</code> file.
+                <code class="font-mono text-foreground">.pub</code> file. Keep the passphrase empty
+                because automated SSH checks cannot prompt for one.
                 <div class="mt-1.5 flex min-w-0 items-start gap-1.5">
                   <pre
                     class="min-w-0 flex-1 overflow-x-auto rounded-[4px] border border-border bg-muted/50 p-2 font-mono text-[10px] leading-4 text-foreground"
@@ -917,7 +924,7 @@ onMounted(loadServers);
                   id="remote-server-key"
                   class="sr-only"
                   type="file"
-                  accept=".pem,.key"
+                  accept="*/*"
                   @change="updatePrivateKey"
                 />
               </template>

@@ -19,6 +19,7 @@ use serde::{Deserialize, Serialize};
 use tokio::{fs, process::Command, time::timeout};
 use url::Url;
 use uuid::Uuid;
+use zeroize::Zeroizing;
 
 use crate::{
     error::ApiError,
@@ -184,6 +185,9 @@ pub(crate) async fn check(
     let private_key = cipher
         .decrypt(&connection.private_key_ciphertext)
         .map_err(|_| ApiError::RemoteServerCheckFailed)?;
+    let public_key = cipher
+        .decrypt(&connection.public_key_ciphertext)
+        .map_err(|_| ApiError::RemoteServerCheckFailed)?;
     let known_hosts = cipher
         .decrypt(&connection.known_hosts_ciphertext)
         .map_err(|_| ApiError::RemoteServerCheckFailed)?;
@@ -198,8 +202,9 @@ pub(crate) async fn check(
     let private_key_path = directory.join("id_key");
     let known_hosts_path = directory.join("known_hosts");
     let result = async {
-        write_secret_file(&private_key_path, private_key.as_ref()).await?;
+        write_private_key_file(&private_key_path, private_key.as_ref()).await?;
         write_secret_file(&known_hosts_path, known_hosts.as_ref()).await?;
+        verify_key_pair(&private_key_path, public_key.as_ref()).await?;
         let started = Instant::now();
         let port = connection.port.to_string();
         let private_key_arg = private_key_path.to_string_lossy().into_owned();
@@ -209,7 +214,7 @@ pub(crate) async fn check(
             if cfg!(windows) { "NUL" } else { "/dev/null" }
         );
         let target = format!("{}@{}", connection.username, connection.host);
-        let status = timeout(
+        let output = timeout(
             Duration::from_secs(15),
             Command::new("ssh")
                 .kill_on_drop(true)
@@ -240,14 +245,18 @@ pub(crate) async fn check(
                 .env("LANG", "C")
                 .stdin(Stdio::null())
                 .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .status(),
+                .stderr(Stdio::piped())
+                .output(),
         )
         .await
-        .map_err(|_| ApiError::RemoteServerCheckFailed)?
-        .map_err(|_| ApiError::RemoteServerCheckFailed)?;
-        if !status.success() {
-            return Err(ApiError::RemoteServerCheckFailed);
+        .map_err(|_| {
+            ApiError::RemoteServerCheckFailedWithReason(
+                "SSH connection timed out. Verify the host, port, and firewall rule.",
+            )
+        })?
+        .map_err(ssh_command_error)?;
+        if !output.status.success() {
+            return Err(ssh_failure_error(&output.stderr));
         }
         Ok(RemoteServerCheckResponse {
             connected: true,
@@ -264,6 +273,14 @@ async fn write_secret_file(path: &FsPath, contents: &[u8]) -> Result<(), ApiErro
         .await
         .map_err(|_| ApiError::RemoteServerCheckFailed)?;
     set_file_permissions(path).await
+}
+
+async fn write_private_key_file(path: &FsPath, contents: &[u8]) -> Result<(), ApiError> {
+    let mut terminated = Zeroizing::new(contents.to_vec());
+    if !terminated.ends_with(b"\n") {
+        terminated.push(b'\n');
+    }
+    write_secret_file(path, terminated.as_ref()).await
 }
 
 async fn set_directory_permissions(path: &FsPath) -> Result<(), ApiError> {
@@ -288,6 +305,58 @@ async fn set_file_permissions(path: &FsPath) -> Result<(), ApiError> {
     #[cfg(not(unix))]
     let _ = path;
     Ok(())
+}
+
+async fn verify_key_pair(
+    private_key_path: &FsPath,
+    configured_public_key: &[u8],
+) -> Result<(), ApiError> {
+    let configured_public_key = String::from_utf8_lossy(configured_public_key);
+    let Some(configured_material) = public_key_material(&configured_public_key) else {
+        return Err(ApiError::RemoteServerCheckFailedWithReason(
+            "SSH public key is missing or invalid. Update the server configuration.",
+        ));
+    };
+    let private_key_arg = private_key_path.to_string_lossy().into_owned();
+    let output = timeout(
+        Duration::from_secs(5),
+        Command::new("ssh-keygen")
+            .kill_on_drop(true)
+            .args(["-y", "-f", private_key_arg.as_str()])
+            .env("LANG", "C")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output(),
+    )
+    .await
+    .map_err(|_| {
+        ApiError::RemoteServerCheckFailedWithReason(
+            "SSH key verification timed out. Use a private key without a passphrase.",
+        )
+    })?
+    .map_err(ssh_keygen_command_error)?;
+    if !output.status.success() {
+        let private_key = fs::read(private_key_path)
+            .await
+            .map_err(|_| ApiError::RemoteServerCheckFailed)?;
+        return Err(ssh_keygen_failure_error(
+            &output.stderr,
+            private_key.as_ref(),
+        ));
+    }
+    let derived_public_key = String::from_utf8_lossy(&output.stdout);
+    if public_key_material(&derived_public_key) != Some(configured_material) {
+        return Err(ApiError::RemoteServerCheckFailedWithReason(
+            "Configured SSH private key does not match its public key. Update both fields with the same key pair.",
+        ));
+    }
+    Ok(())
+}
+
+fn public_key_material(value: &str) -> Option<(&str, &str)> {
+    let mut fields = value.split_ascii_whitespace();
+    Some((fields.next()?, fields.next()?))
 }
 
 fn encrypt_create_request(
@@ -455,23 +524,131 @@ fn normalized_deploy_path(value: String) -> Result<String, ApiError> {
 
 fn optional_private_key(value: Option<String>) -> Result<Option<String>, ApiError> {
     value
-        .map(|value| value.trim().to_owned())
+        .map(normalize_private_key)
         .filter(|value| !value.is_empty())
         .map(validate_private_key)
         .transpose()
 }
 
+fn normalize_private_key(value: String) -> String {
+    let mut lines = value
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>();
+    if lines.len() < 3 {
+        return value.trim().to_owned();
+    }
+    let header = lines.remove(0);
+    let footer = lines.pop().unwrap_or_default();
+    let body = lines.join("");
+    format!("{header}\n{body}\n{footer}\n")
+}
+
 fn validate_private_key(value: String) -> Result<String, ApiError> {
+    let non_empty_lines = value
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>();
+    let header = non_empty_lines.first().copied().unwrap_or_default();
+    let footer = non_empty_lines.last().copied().unwrap_or_default();
+    let expected_footer = header
+        .strip_prefix("-----BEGIN ")
+        .filter(|label| label.ends_with("PRIVATE KEY-----"))
+        .map(|label| format!("-----END {label}"));
+    let has_matching_footer = expected_footer.is_some_and(|expected| footer == expected);
     if value.len() > MAX_SSH_SECRET_BYTES
         || value
             .chars()
             .any(|character| character.is_control() && !matches!(character, '\n' | '\r' | '\t'))
-        || !value.contains("-----BEGIN")
-        || !value.contains("PRIVATE KEY-----")
+        || !has_matching_footer
     {
         return Err(ApiError::BadRequest("SSH private key is invalid"));
     }
     Ok(value)
+}
+
+fn ssh_command_error(error: std::io::Error) -> ApiError {
+    if error.kind() == std::io::ErrorKind::NotFound {
+        return ApiError::RemoteServerCheckFailedWithReason(
+            "SSH client is not installed on the Ignitify host.",
+        );
+    }
+    ApiError::RemoteServerCheckFailedWithReason(
+        "Unable to start the SSH connection check on the Ignitify host.",
+    )
+}
+
+fn ssh_keygen_command_error(error: std::io::Error) -> ApiError {
+    if error.kind() == std::io::ErrorKind::NotFound {
+        return ApiError::RemoteServerCheckFailedWithReason(
+            "SSH keygen utility is not installed on the Ignitify host.",
+        );
+    }
+    ApiError::RemoteServerCheckFailedWithReason(
+        "Unable to verify the configured SSH key pair on the Ignitify host.",
+    )
+}
+
+fn ssh_keygen_failure_error(stderr: &[u8], private_key: &[u8]) -> ApiError {
+    let stderr = String::from_utf8_lossy(stderr).to_ascii_lowercase();
+    let private_key_text = String::from_utf8_lossy(private_key);
+    let line_count = private_key_text
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .count();
+    let message = if stderr.contains("passphrase")
+        || stderr.contains("incorrect passphrase")
+        || stderr.contains("decrypt")
+    {
+        "SSH private key has a passphrase. Generate a deployment key with an empty passphrase."
+    } else if stderr.contains("invalid format") || stderr.contains("error in libcrypto") {
+        "SSH private key format is invalid. Paste the complete key including its BEGIN and END lines."
+    } else {
+        "SSH private key could not be read. Verify that the pasted text is the original key file."
+    };
+    ApiError::RemoteServerCheckFailedWithDiagnostic(format!(
+        "{message} Received {} bytes across {} non-empty lines; BEGIN marker: {}; END marker: {}.",
+        private_key.len(),
+        line_count,
+        private_key
+            .windows(b"-----BEGIN ".len())
+            .any(|window| window == b"-----BEGIN "),
+        private_key
+            .windows(b"-----END ".len())
+            .any(|window| window == b"-----END "),
+    ))
+}
+
+fn ssh_failure_error(stderr: &[u8]) -> ApiError {
+    let stderr = String::from_utf8_lossy(stderr).to_ascii_lowercase();
+    let message = if stderr.contains("could not resolve hostname") {
+        "SSH hostname could not be resolved from the Ignitify host."
+    } else if stderr.contains("connection refused") {
+        "SSH port is closed or no SSH server is listening."
+    } else if stderr.contains("connection timed out") || stderr.contains("operation timed out") {
+        "SSH connection timed out. Verify the host, port, and firewall rule."
+    } else if stderr.contains("no route to host") || stderr.contains("network is unreachable") {
+        "The Ignitify host cannot reach this remote server."
+    } else if stderr.contains("host key verification failed")
+        || stderr.contains("no ed25519 host key is known")
+        || stderr.contains("remote host identification has changed")
+    {
+        "SSH host key verification failed. Replace known_hosts with a verified current host key."
+    } else if stderr.contains("no matching host key type found") {
+        "The remote SSH server requires an unsupported host-key algorithm."
+    } else if stderr.contains("permission denied") {
+        "SSH authentication failed. Install the matching public key in ~/.ssh/authorized_keys."
+    } else if stderr.contains("invalid format")
+        || stderr.contains("error in libcrypto")
+        || stderr.contains("load key")
+    {
+        "SSH private key is invalid. Upload the complete key including its BEGIN and END lines."
+    } else {
+        "SSH connection failed. Verify the host, port, SSH user, key pair, and known_hosts."
+    };
+    ApiError::RemoteServerCheckFailedWithReason(message)
 }
 
 fn optional_public_key(value: Option<String>) -> Result<Option<String>, ApiError> {
@@ -563,5 +740,74 @@ fn provider_cipher(state: &AppState) -> Result<&Arc<AgeCipher>, ApiError> {
 fn wake_worker(state: &AppState) {
     if let Some(control) = &state.control {
         let _ = control.wake_worker();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        normalize_private_key, public_key_material, ssh_failure_error, ssh_keygen_failure_error,
+        validate_private_key,
+    };
+    use crate::error::ApiError;
+
+    #[test]
+    fn rejects_private_key_without_matching_footer() {
+        let result =
+            validate_private_key("-----BEGIN OPENSSH PRIVATE KEY-----\nprivate-key".to_owned());
+
+        assert!(matches!(
+            result,
+            Err(ApiError::BadRequest("SSH private key is invalid"))
+        ));
+    }
+
+    #[test]
+    fn normalizes_private_key_line_endings_and_body_whitespace() {
+        assert_eq!(
+            normalize_private_key(
+                "-----BEGIN OPENSSH PRIVATE KEY-----\r\nabc \r\n def\r\n-----END OPENSSH PRIVATE KEY-----"
+                    .to_owned()
+            ),
+            "-----BEGIN OPENSSH PRIVATE KEY-----\nabcdef\n-----END OPENSSH PRIVATE KEY-----\n"
+        );
+    }
+
+    #[test]
+    fn maps_ssh_authentication_failure_without_exposing_stderr() {
+        let error = ssh_failure_error(b"user@host: Permission denied (publickey).");
+
+        assert!(matches!(
+            error,
+            ApiError::RemoteServerCheckFailedWithReason(
+                "SSH authentication failed. Install the matching public key in ~/.ssh/authorized_keys."
+            )
+        ));
+    }
+
+    #[test]
+    fn public_key_material_ignores_the_optional_comment() {
+        assert_eq!(
+            public_key_material("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExample deploy@host"),
+            Some(("ssh-ed25519", "AAAAC3NzaC1lZDI1NTE5AAAAIExample"))
+        );
+    }
+
+    #[test]
+    fn maps_encrypted_private_key_diagnostic_without_exposing_stderr() {
+        let error = ssh_keygen_failure_error(
+            b"incorrect passphrase supplied to decrypt private key",
+            b"-----BEGIN OPENSSH PRIVATE KEY-----\nkey\n-----END OPENSSH PRIVATE KEY-----",
+        );
+
+        match error {
+            ApiError::RemoteServerCheckFailedWithDiagnostic(message) => {
+                assert!(message.contains("SSH private key has a passphrase"));
+                assert!(message.contains("Received "));
+                assert!(message.contains("BEGIN marker: true"));
+                assert!(!message.contains("incorrect passphrase"));
+            }
+            _ => panic!("expected diagnostic error"),
+        }
     }
 }
