@@ -74,6 +74,10 @@ impl IntoResponse for ApiError {
                 StatusCode::CONFLICT,
                 "provider name already exists".to_owned(),
             ),
+            Self::Database(DatabaseError::RemoteBuilderNameConflict) => (
+                StatusCode::CONFLICT,
+                "remote builder name already exists".to_owned(),
+            ),
             Self::Database(DatabaseError::ServiceNameConflict)
             | Self::Control(ignitify_control_plane::Error::Database(
                 DatabaseError::ServiceNameConflict,

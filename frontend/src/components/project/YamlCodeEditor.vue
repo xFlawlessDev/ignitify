@@ -60,9 +60,7 @@ function syncScroll(event: Event) {
 </script>
 
 <template>
-  <div
-    class="relative min-h-[420px] overflow-hidden rounded-[6px] border border-border bg-[#11161d]"
-  >
+  <div class="relative h-80 overflow-hidden rounded-[6px] border border-border bg-[#11161d]">
     <pre
       class="pointer-events-none absolute top-0 left-0 min-w-full p-4 font-mono text-xs leading-6 whitespace-pre text-[#d0d5dd]"
       :style="highlightStyle"
@@ -82,7 +80,7 @@ function syncScroll(event: Event) {
       :aria-label="props.ariaLabel"
       :placeholder="props.placeholder"
       :required="props.required"
-      class="absolute inset-0 min-h-[420px] w-full resize-y overflow-auto bg-transparent p-4 pl-14 font-mono text-xs leading-6 whitespace-pre text-transparent caret-sky-300 outline-none placeholder:text-[#667085] selection:bg-sky-300/20"
+      class="absolute inset-0 h-80 w-full resize-none overflow-auto bg-transparent p-4 pl-14 font-mono text-xs leading-6 whitespace-pre text-transparent caret-sky-300 outline-none placeholder:text-[#667085] selection:bg-sky-300/20"
       style="color: transparent; -webkit-text-fill-color: transparent"
       wrap="off"
       spellcheck="false"

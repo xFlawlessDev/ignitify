@@ -6,9 +6,10 @@ use ignitify_domain::{
 use uuid::Uuid;
 
 use crate::{
-    ActivityActor, Database, DatabaseConfig, DomainActor, NewProvider, NewServerCertificate,
-    NewServiceVariable, ProjectActor, ProjectRemoveOutcome, ProjectUpdateOutcome, ProviderAuthMode,
-    ProviderKind, ServerSettingsUpdate, ServiceActor, ServiceMutationOutcome,
+    ActivityActor, Database, DatabaseConfig, DomainActor, NewProvider, NewRemoteBuilder,
+    NewServerCertificate, NewServiceVariable, ProjectActor, ProjectRemoveOutcome,
+    ProjectUpdateOutcome, ProviderAuthMode, ProviderKind, ServerSettingsUpdate, ServiceActor,
+    ServiceMutationOutcome,
 };
 
 async fn database() -> Database {
@@ -96,6 +97,69 @@ async fn server_settings_and_encrypted_certificate_records_are_durable() {
         .unwrap();
     assert_eq!(stored[0].certificate_ciphertext, "encrypted-certificate");
     assert_eq!(stored[0].private_key_ciphertext, "encrypted-private-key");
+}
+
+#[tokio::test]
+async fn remote_builder_default_and_secrets_are_durable() {
+    let database = database().await;
+    let first = database
+        .remote_builders()
+        .create(NewRemoteBuilder {
+            name: "Build cluster A".to_owned(),
+            endpoint: "tcp://builder-a.example.com:1234".to_owned(),
+            registry_repository: "registry.example.com/ignitify/builds".to_owned(),
+            tls_server_name: Some("builder-a.example.com".to_owned()),
+            ca_certificate_ciphertext: "encrypted-ca-a".to_owned(),
+            client_certificate_ciphertext: "encrypted-cert-a".to_owned(),
+            client_key_ciphertext: "encrypted-key-a".to_owned(),
+            is_default: true,
+        })
+        .await
+        .unwrap();
+    let second = database
+        .remote_builders()
+        .create(NewRemoteBuilder {
+            name: "Build cluster B".to_owned(),
+            endpoint: "tcp://builder-b.example.com:1234".to_owned(),
+            registry_repository: "registry.example.com/ignitify/builds".to_owned(),
+            tls_server_name: None,
+            ca_certificate_ciphertext: "encrypted-ca-b".to_owned(),
+            client_certificate_ciphertext: "encrypted-cert-b".to_owned(),
+            client_key_ciphertext: "encrypted-key-b".to_owned(),
+            is_default: true,
+        })
+        .await
+        .unwrap();
+
+    let records = database.remote_builders().list().await.unwrap();
+    assert_eq!(records.len(), 2);
+    assert_eq!(records[0].id, second.id);
+    assert!(records[0].is_default);
+    assert!(!records[1].is_default);
+
+    let active = database.remote_builders().active().await.unwrap().unwrap();
+    assert_eq!(active.id, second.id);
+    assert_eq!(active.client_key_ciphertext, "encrypted-key-b");
+
+    let restored = database
+        .remote_builders()
+        .set_default(&first.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(restored.is_default);
+    assert_eq!(
+        database
+            .remote_builders()
+            .active()
+            .await
+            .unwrap()
+            .unwrap()
+            .id,
+        first.id
+    );
+    assert!(database.remote_builders().delete(&first.id).await.unwrap());
+    assert!(database.remote_builders().active().await.unwrap().is_none());
 }
 
 #[tokio::test]
@@ -500,6 +564,109 @@ async fn deployment_repository_enforces_idempotency_active_conflict_and_immutabl
 }
 
 #[tokio::test]
+async fn deployment_retry_backoff_and_cancellation_are_durable() {
+    let database = database().await;
+    let actor_id = user_id(&database, "execution-owner").await;
+    let project = database
+        .projects()
+        .create(&actor_id, ProjectInput::new("Execution control").unwrap())
+        .await
+        .unwrap();
+    let service = database
+        .services()
+        .create(
+            ServiceActor {
+                id: &actor_id,
+                is_admin: false,
+            },
+            project.id.as_str(),
+            ServiceInput::image(
+                "web",
+                "nginx@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                Some(8080),
+                None,
+                vec![],
+            )
+            .unwrap()
+            .configuration,
+            vec![],
+        )
+        .await
+        .unwrap();
+    let ServiceMutationOutcome::Created(service) = service else {
+        panic!("service must be created");
+    };
+    let actor = crate::DeploymentActor {
+        id: &actor_id,
+        is_admin: false,
+    };
+    let deployment = database
+        .deployments()
+        .create(
+            actor,
+            service.id.as_str(),
+            crate::NewDeployment {
+                idempotency_key: "execution-control".to_owned(),
+                requested_by_user_id: actor_id.clone(),
+                spec: service.spec,
+                source_config: None,
+                source_revision: None,
+                variables_ciphertext: "ciphertext".to_owned(),
+            },
+        )
+        .await
+        .unwrap();
+    let crate::CreateDeploymentOutcome::Created(deployment) = deployment else {
+        panic!("deployment must be created");
+    };
+
+    let claimed = database.deployments().claim_next().await.unwrap().unwrap();
+    assert_eq!(claimed.attempt_count, 1);
+    let retry = database
+        .deployments()
+        .schedule_retry(claimed.id.as_str(), "runtime did not start", 3)
+        .await
+        .unwrap();
+    assert!(matches!(retry, crate::RetrySchedule::Scheduled { .. }));
+    let queued = database
+        .deployments()
+        .get(actor, deployment.id.as_str())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(queued.state, ignitify_domain::DeploymentState::Queued);
+    assert_eq!(queued.attempt_count, 1);
+    assert!(queued.retry_after.is_some());
+
+    let cancelled = database
+        .deployments()
+        .cancel(actor, deployment.id.as_str())
+        .await
+        .unwrap();
+    let crate::CancelDeploymentOutcome::Cancelled(cancelled) = cancelled else {
+        panic!("queued deployment must be cancelled");
+    };
+    assert_eq!(cancelled.state, ignitify_domain::DeploymentState::Stopped);
+    assert!(cancelled.cancel_requested_at.is_some());
+    assert!(database.deployments().claim_next().await.unwrap().is_none());
+    let events = database
+        .deployments()
+        .events(deployment.id.as_str())
+        .await
+        .unwrap();
+    assert!(
+        events
+            .iter()
+            .any(|event| event.kind == "deployment.retry_scheduled")
+    );
+    assert!(
+        events
+            .iter()
+            .any(|event| event.kind == "deployment.cancelled")
+    );
+}
+
+#[tokio::test]
 async fn service_repository_persists_source_configuration_separately_from_runtime_spec() {
     let database = database().await;
     let actor_id = user_id(&database, "source-owner").await;
@@ -777,6 +944,23 @@ async fn domain_repository_enforces_hostname_uniqueness_role_and_confirmation() 
     let crate::DomainMutationOutcome::Created(domain) = created else {
         panic!("domain must be created");
     };
+    let activity = database
+        .activity()
+        .list_for_project(
+            ActivityActor {
+                id: &owner_id,
+                is_admin: false,
+            },
+            project.id.as_str(),
+            None,
+            None,
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(activity.iter().any(|entry| {
+        entry.action == "domain.create" && entry.resource_id.as_deref() == Some(domain.id.as_str())
+    }));
     let verification = database
         .domains()
         .request_dns_verification(owner, domain.id.as_str())

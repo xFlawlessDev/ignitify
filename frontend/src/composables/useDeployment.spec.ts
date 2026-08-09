@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const api = vi.hoisted(() => ({
+  cancel: vi.fn(),
   deploy: vi.fn(),
   list: vi.fn(),
   listProject: vi.fn(),
@@ -10,6 +11,7 @@ const api = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/api/deployments", () => ({
+  apiCancelDeployment: api.cancel,
   apiDeployService: api.deploy,
   apiListDeployments: api.list,
   apiListProjectDeployments: api.listProject,
@@ -23,12 +25,16 @@ const deployment = {
   generation: 1,
   status: "queued" as const,
   failure_reason: null,
+  attempt_count: 1,
+  retry_after: null,
+  cancel_requested_at: null,
   created_at: "2026-07-31T00:00:00Z",
   started_at: null,
   finished_at: null,
 };
 
 afterEach(() => {
+  api.cancel.mockReset();
   api.deploy.mockReset();
   api.list.mockReset();
   api.listProject.mockReset();
@@ -77,5 +83,27 @@ describe("useDeployment", () => {
 
     expect(stopped?.status).toBe("stopping");
     expect(deployments.data.value[0]?.status).toBe("stopping");
+  });
+
+  it("updates the durable deployment record after cancellation", async () => {
+    api.list.mockResolvedValueOnce({ success: true, data: [deployment] });
+    api.cancel.mockResolvedValueOnce({
+      success: true,
+      data: {
+        ...deployment,
+        status: "stopped",
+        cancel_requested_at: "2026-07-31T00:01:00Z",
+        finished_at: "2026-07-31T00:01:00Z",
+      },
+    });
+    const { useDeployment } = await import("./useDeployment");
+    const deployments = useDeployment();
+
+    await deployments.load(deployment.service_id);
+    const cancelled = await deployments.cancel(deployment.id);
+
+    expect(api.cancel.mock.calls).toEqual([[deployment.id]]);
+    expect(cancelled?.status).toBe("stopped");
+    expect(deployments.data.value[0]?.cancel_requested_at).toBe("2026-07-31T00:01:00Z");
   });
 });

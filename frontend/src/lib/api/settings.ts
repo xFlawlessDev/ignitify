@@ -36,6 +36,7 @@ export interface InfrastructureSettingsResponse {
   fallback_page_message: string;
   certificate_provider: ServerCertificateProvider;
   custom_certificate_id: string | null;
+  concurrent_builds: number;
   certificates: ServerCertificateSummary[];
   health: InfrastructureHealthStatus;
   updated_at: string;
@@ -52,6 +53,7 @@ export interface InfrastructureSettingsInput {
   fallback_page_message: string;
   certificate_provider: ServerCertificateProvider;
   custom_certificate_id: string | null;
+  concurrent_builds: number;
 }
 
 const endpoint = "/settings/infrastructure";

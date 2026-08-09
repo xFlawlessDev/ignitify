@@ -23,6 +23,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import TemplateCodePreview from "@/components/templates/TemplateCodePreview.vue";
 import type { TemplateApplication, TemplateMetadata } from "@/lib/template-catalog";
 import { templateFileUrl } from "@/lib/template-catalog";
 
@@ -270,10 +271,13 @@ onUnmounted(() => {
                 <ClipboardCopy v-else />
               </Button>
             </div>
-            <pre
+            <TemplateCodePreview
               v-if="compose"
-              class="max-h-80 overflow-auto p-4 text-xs leading-6 text-foreground"
-            ><code>{{ compose }}</code></pre>
+              class="m-4"
+              :content="compose"
+              language="yaml"
+              label="docker-compose.yml preview"
+            />
             <p v-else class="px-4 py-6 text-sm text-muted-foreground">
               No compose file in this template.
             </p>
@@ -302,10 +306,13 @@ onUnmounted(() => {
                 <ClipboardCopy v-else />
               </Button>
             </div>
-            <pre
+            <TemplateCodePreview
               v-if="config"
-              class="max-h-80 overflow-auto p-4 text-xs leading-6 text-foreground"
-            ><code>{{ config }}</code></pre>
+              class="m-4"
+              :content="config"
+              language="toml"
+              label="template.toml preview"
+            />
             <p v-else class="px-4 py-6 text-sm text-muted-foreground">
               No template config in this template.
             </p>

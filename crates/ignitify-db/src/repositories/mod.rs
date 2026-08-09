@@ -6,6 +6,7 @@ mod environments;
 mod projects;
 mod providers;
 mod refresh_tokens;
+mod remote_builders;
 mod services;
 mod settings;
 mod users;
@@ -16,9 +17,9 @@ pub use dashboard::{
     DashboardRepository, DashboardServiceRecord,
 };
 pub use deployments::{
-    AuthorizedDeploymentService, CreateDeploymentOutcome, DeploymentActor, DeploymentEventRecord,
-    DeploymentLogRecord, DeploymentRecord, DeploymentVariableRecord, DeploymentsRepository,
-    NewDeployment, NewDeploymentLog, SequenceCursor,
+    AuthorizedDeploymentService, CancelDeploymentOutcome, CreateDeploymentOutcome, DeploymentActor,
+    DeploymentEventRecord, DeploymentLogRecord, DeploymentRecord, DeploymentVariableRecord,
+    DeploymentsRepository, NewDeployment, NewDeploymentLog, RetrySchedule, SequenceCursor,
 };
 pub use domains::{
     DomainActor, DomainMutationOutcome, DomainRecord, DomainVerificationRequestOutcome,
@@ -35,6 +36,10 @@ pub use providers::{
     ProviderUpdate, ProvidersRepository,
 };
 pub use refresh_tokens::RefreshTokensRepository;
+pub use remote_builders::{
+    NewRemoteBuilder, RemoteBuilderConnection, RemoteBuilderRecord, RemoteBuilderUpdate,
+    RemoteBuildersRepository,
+};
 pub use services::{
     AuthorizedService, NewServiceVariable, ServiceActor, ServiceMutationOutcome,
     ServiceVariableRecord, ServicesRepository,

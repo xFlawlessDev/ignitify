@@ -228,6 +228,9 @@ export interface DeploymentSummary {
   generation: number;
   status: DeploymentState;
   failure_reason: string | null;
+  attempt_count: number;
+  retry_after: string | null;
+  cancel_requested_at: string | null;
   created_at: string;
   started_at: string | null;
   finished_at: string | null;

@@ -280,6 +280,57 @@ async fn provider_routes_encrypt_credentials_and_require_admin_mutations() {
     assert_eq!(removed.status(), StatusCode::NO_CONTENT);
 }
 
+#[tokio::test]
+async fn remote_builder_routes_encrypt_tls_material_and_require_admin() {
+    let state = state().await;
+    let token = session_token(&state).await;
+    let app = crate::router_with_system_metrics_and_docker_and_provider_cipher(
+        state.auth.clone(),
+        state.database.clone(),
+        state.services.clone(),
+        state.control.clone(),
+        state.runtime_health.clone(),
+        state.worker_health.clone(),
+        state.system_metrics.clone(),
+        state.docker_runtime.clone(),
+        state.terminal,
+        state.secure_cookies,
+        state.trusted_origins.clone(),
+        state.provider_cipher.clone(),
+    );
+    let unauthenticated = app
+        .clone()
+        .oneshot(request("GET", "/api/v1/remote-builders", None, ""))
+        .await
+        .unwrap();
+    assert_eq!(unauthenticated.status(), StatusCode::UNAUTHORIZED);
+
+    let created = app
+        .clone()
+        .oneshot(request(
+            "POST",
+            "/api/v1/remote-builders",
+            Some(&token),
+            r#"{"name":"Primary BuildKit","endpoint":"tcp://builder.example.com:1234","registry_repository":"registry.example.com/ignitify/builds","tls_server_name":"builder.example.com","ca_certificate":"-----BEGIN CERTIFICATE-----\nca\n-----END CERTIFICATE-----","client_certificate":"-----BEGIN CERTIFICATE-----\nclient\n-----END CERTIFICATE-----","client_key":"-----BEGIN PRIVATE KEY-----\nkey\n-----END PRIVATE KEY-----","is_default":true}"#,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(created.status(), StatusCode::CREATED);
+    let body = created.into_body().collect().await.unwrap().to_bytes();
+    assert!(!String::from_utf8_lossy(&body).contains("BEGIN CERTIFICATE"));
+    assert!(!String::from_utf8_lossy(&body).contains("BEGIN PRIVATE KEY"));
+
+    let list = app
+        .oneshot(request("GET", "/api/v1/remote-builders", Some(&token), ""))
+        .await
+        .unwrap();
+    assert_eq!(list.status(), StatusCode::OK);
+    let body = list.into_body().collect().await.unwrap().to_bytes();
+    let builders: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(builders[0]["is_default"], true);
+    assert!(builders[0].get("client_key").is_none());
+}
+
 async fn session_token(state: &AppState) -> String {
     state
         .auth
@@ -365,7 +416,7 @@ async fn infrastructure_settings_require_admin_and_persist_validated_updates() {
             "PATCH",
             "/api/v1/settings/infrastructure",
             Some(&token),
-            r#"{"application_domain_suffix":"Apps.Example.com","https_enabled":true,"automatically_provision_ssl":true,"acme_email":"ops@apps.example.com","dns_record_type":"a","dns_record_target":"203.0.113.10","fallback_page_heading":"This application is unavailable","fallback_page_message":"Check the address and try again.","certificate_provider":"lets-encrypt","custom_certificate_id":null}"#,
+            r#"{"application_domain_suffix":"Apps.Example.com","https_enabled":true,"automatically_provision_ssl":true,"acme_email":"ops@apps.example.com","dns_record_type":"a","dns_record_target":"203.0.113.10","fallback_page_heading":"This application is unavailable","fallback_page_message":"Check the address and try again.","certificate_provider":"lets-encrypt","custom_certificate_id":null,"concurrent_builds":4}"#,
         ))
         .await
         .unwrap();
@@ -388,7 +439,7 @@ async fn infrastructure_settings_require_admin_and_persist_validated_updates() {
     assert_eq!(settings["application"]["public_origin"], "");
     assert_eq!(settings["application"]["secure_cookies"], false);
     assert_eq!(settings["health"]["database"], "ready");
-    assert!(settings.get("concurrent_builds").is_none());
+    assert_eq!(settings["concurrent_builds"], 4);
 
     let persisted = app
         .clone()

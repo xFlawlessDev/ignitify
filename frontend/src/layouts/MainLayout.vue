@@ -29,7 +29,7 @@ const { isSidebarCollapsed, toggleSidebar } = useControlPlanePreferences();
       />
 
       <div
-        class="min-h-dvh min-w-0 transition-[margin-left] duration-200"
+        class="min-h-dvh min-w-0 transition-[margin-left] duration-200 ease-out motion-reduce:transition-none"
         :class="isSidebarCollapsed ? 'md:ml-[68px]' : 'md:ml-[244px]'"
       >
         <AppTopbar

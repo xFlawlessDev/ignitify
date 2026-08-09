@@ -41,6 +41,23 @@ function dnsStatusLabel(status: DomainSummary["dns_status"]) {
           ? "DNS verification pending"
           : "DNS not verified";
 }
+
+function recordInstruction(domain: DomainSummary) {
+  if (!domain.dns_record_type || !domain.dns_record_target) return null;
+  return `${domain.dns_record_type.toUpperCase()} ${domain.hostname} -> ${domain.dns_record_target}`;
+}
+
+function formatCheckedAt(value: string | null) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat(undefined, {
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
 </script>
 
 <template>
@@ -138,6 +155,32 @@ function dnsStatusLabel(status: DomainSummary["dns_status"]) {
           <span v-if="domain.dns_error" class="text-xs text-destructive">{{
             domain.dns_error
           }}</span>
+          <p
+            v-if="recordInstruction(domain) && domain.dns_status !== 'valid'"
+            class="text-[11px] leading-4 text-muted-foreground"
+          >
+            Required record:
+            <code class="font-mono text-foreground">{{ recordInstruction(domain) }}</code>
+          </p>
+          <p
+            v-if="domain.dns_status === 'missing'"
+            class="text-[11px] leading-4 text-muted-foreground"
+          >
+            DNS propagation can take time. If your provider proxies this hostname, use DNS-only mode
+            while verifying the origin record.
+          </p>
+          <p
+            v-else-if="domain.dns_status === 'unavailable'"
+            class="text-[11px] leading-4 text-muted-foreground"
+          >
+            Ignitify could not reach its resolver. The record may still be correct; retry shortly.
+          </p>
+          <p
+            v-if="formatCheckedAt(domain.dns_checked_at)"
+            class="text-[11px] text-muted-foreground"
+          >
+            Last checked {{ formatCheckedAt(domain.dns_checked_at) }}
+          </p>
           <span v-if="domain.last_error" class="text-xs text-destructive">{{
             domain.last_error
           }}</span>

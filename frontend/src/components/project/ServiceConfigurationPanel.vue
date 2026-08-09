@@ -823,22 +823,20 @@ watch(() => props.service.id, reset, { immediate: true });
           {{ sourceRepositories.branchesError }}
         </p>
         <div v-if="composeMode === 'yaml'" class="grid gap-2">
-          <div class="flex items-center justify-between gap-3">
-            <Label for="service-config-compose-yaml">
-              {{ source === "template" ? "Template Compose YAML" : "Compose / Docker file" }}
-            </Label>
-            <span class="font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground">
-              YAML
-            </span>
-          </div>
-          <div class="overflow-hidden rounded-[6px] border border-border bg-background">
+          <div class="min-w-0 app-surface">
             <div
-              class="flex items-center gap-2 border-b border-border bg-muted/40 px-4 py-2 font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground"
+              class="flex items-center gap-2 border-b border-border px-4 py-3 font-mono text-[11px] uppercase text-muted-foreground"
             >
-              <FileCode2 class="size-3.5 text-signal" :stroke-width="1.5" aria-hidden="true" />
-              docker-compose.yml
+              <Label
+                for="service-config-compose-yaml"
+                class="flex items-center gap-2 font-mono text-[11px] uppercase text-muted-foreground"
+              >
+                <FileCode2 class="size-3.5 text-signal" :stroke-width="1.5" aria-hidden="true" />
+                docker-compose.yml
+              </Label>
             </div>
             <YamlCodeEditor
+              class="m-4"
               id="service-config-compose-yaml"
               v-model="composeYaml"
               aria-label="Template Compose YAML"

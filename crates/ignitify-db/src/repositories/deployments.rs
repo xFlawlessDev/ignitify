@@ -60,6 +60,9 @@ pub struct DeploymentRecord {
     pub runtime_ref: Option<String>,
     pub state: DeploymentState,
     pub failure_reason: Option<String>,
+    pub attempt_count: i64,
+    pub retry_after: Option<String>,
+    pub cancel_requested_at: Option<String>,
     pub created_at: String,
     pub started_at: Option<String>,
     pub finished_at: Option<String>,
@@ -102,6 +105,22 @@ pub enum CreateDeploymentOutcome {
     Missing,
     Forbidden,
     ActiveConflict,
+}
+
+#[derive(Debug, Clone)]
+pub enum CancelDeploymentOutcome {
+    Cancelled(DeploymentRecord),
+    Existing(DeploymentRecord),
+    Missing,
+    Forbidden,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RetrySchedule {
+    Scheduled { retry_after: String },
+    Exhausted,
+    Cancelled,
+    Unchanged,
 }
 
 #[derive(Debug, Clone)]
@@ -268,6 +287,7 @@ impl DeploymentsRepository {
             "SELECT d.id, d.service_id, d.generation, d.idempotency_key, d.requested_by_user_id,
                     d.spec_json, d.runtime_spec_json, d.source_config_json, d.source_revision, d.local_image_id,
                     d.variables_ciphertext, d.runtime_ref, d.status, d.failure_reason,
+                    d.attempt_count, d.retry_after, d.cancel_requested_at,
                     d.created_at, d.started_at, d.finished_at, e.project_id
              FROM deployments d
              JOIN services s ON s.id = d.service_id
@@ -303,7 +323,8 @@ impl DeploymentsRepository {
         let rows = sqlx::query_as::<_, DeploymentRow>(
             "SELECT id, service_id, generation, idempotency_key, requested_by_user_id, spec_json, runtime_spec_json,
                     source_config_json, source_revision, local_image_id, variables_ciphertext, runtime_ref,
-                    status, failure_reason, created_at, started_at, finished_at
+                    status, failure_reason, attempt_count, retry_after, cancel_requested_at,
+                    created_at, started_at, finished_at
              FROM deployments
              WHERE service_id = ? AND (? IS NULL OR created_at < ?)
              ORDER BY created_at DESC LIMIT ?",
@@ -334,6 +355,7 @@ impl DeploymentsRepository {
             "SELECT d.id, d.service_id, d.generation, d.idempotency_key, d.requested_by_user_id,
                     d.spec_json, d.runtime_spec_json, d.source_config_json, d.source_revision, d.local_image_id,
                     d.variables_ciphertext, d.runtime_ref, d.status, d.failure_reason,
+                    d.attempt_count, d.retry_after, d.cancel_requested_at,
                     d.created_at, d.started_at, d.finished_at
              FROM deployments d
              JOIN services s ON s.id = d.service_id
@@ -368,9 +390,10 @@ impl DeploymentsRepository {
         let row = sqlx::query_as::<_, DeploymentRow>(
             "SELECT id, service_id, generation, idempotency_key, requested_by_user_id, spec_json, runtime_spec_json,
                     source_config_json, source_revision, local_image_id, variables_ciphertext, runtime_ref,
-                    status, failure_reason, created_at, started_at, finished_at
+                    status, failure_reason, attempt_count, retry_after, cancel_requested_at,
+                    created_at, started_at, finished_at
              FROM deployments
-             WHERE service_id = ? AND status IN ('running', 'healthy')
+             WHERE service_id = ? AND status IN ('queued', 'preparing', 'running', 'healthy', 'stopping')
              ORDER BY created_at DESC LIMIT 1",
         )
         .bind(service_id)
@@ -381,21 +404,28 @@ impl DeploymentsRepository {
 
     pub async fn claim_next(&self) -> Result<Option<DeploymentRecord>> {
         let mut tx = self.pool.begin().await?;
+        let now = Utc::now().to_rfc3339();
         let id: Option<String> = sqlx::query_scalar(
-            "SELECT id FROM deployments WHERE status = 'queued' ORDER BY created_at LIMIT 1",
+            "SELECT id FROM deployments
+             WHERE status = 'queued' AND (retry_after IS NULL OR retry_after <= ?)
+             ORDER BY created_at LIMIT 1",
         )
+        .bind(&now)
         .fetch_optional(&mut *tx)
         .await?;
         let Some(id) = id else {
             tx.commit().await?;
             return Ok(None);
         };
-        let now = Utc::now().to_rfc3339();
         let changed = sqlx::query(
-            "UPDATE deployments SET status = 'preparing', started_at = ? WHERE id = ? AND status = 'queued'",
+            "UPDATE deployments
+             SET status = 'preparing', started_at = ?, retry_after = NULL,
+                 attempt_count = attempt_count + 1
+             WHERE id = ? AND status = 'queued' AND (retry_after IS NULL OR retry_after <= ?)",
         )
         .bind(&now)
         .bind(&id)
+        .bind(&now)
         .execute(&mut *tx)
         .await?
         .rows_affected();
@@ -409,6 +439,166 @@ impl DeploymentsRepository {
             .ok_or(sqlx::Error::RowNotFound)?;
         tx.commit().await?;
         Ok(Some(record))
+    }
+
+    pub async fn cancel(
+        &self,
+        actor: DeploymentActor<'_>,
+        deployment_id: &str,
+    ) -> Result<CancelDeploymentOutcome> {
+        let Some(current) = self.get(actor, deployment_id).await? else {
+            return Ok(CancelDeploymentOutcome::Missing);
+        };
+        let Some(service) = self
+            .service_for_deployment(actor, current.service_id.as_str())
+            .await?
+        else {
+            return Ok(CancelDeploymentOutcome::Missing);
+        };
+        if !actor.is_admin && !service.role.can_manage_services() {
+            return Ok(CancelDeploymentOutcome::Forbidden);
+        }
+
+        let mut tx = self.pool.begin().await?;
+        let Some(current) = fetch_deployment(&mut tx, deployment_id).await? else {
+            tx.commit().await?;
+            return Ok(CancelDeploymentOutcome::Missing);
+        };
+        if current.state.is_terminal() || current.state == DeploymentState::Stopping {
+            tx.commit().await?;
+            return Ok(CancelDeploymentOutcome::Existing(current));
+        }
+
+        let now = Utc::now().to_rfc3339();
+        let next = if current.state == DeploymentState::Queued {
+            DeploymentState::Stopped
+        } else {
+            DeploymentState::Stopping
+        };
+        sqlx::query(
+            "UPDATE deployments
+             SET status = ?, cancel_requested_at = ?, retry_after = NULL,
+                 finished_at = CASE WHEN ? THEN ? ELSE finished_at END
+             WHERE id = ? AND status = ?",
+        )
+        .bind(next.as_str())
+        .bind(&now)
+        .bind(next.is_terminal())
+        .bind(&now)
+        .bind(deployment_id)
+        .bind(current.state.as_str())
+        .execute(&mut *tx)
+        .await?;
+        let event_kind = if next == DeploymentState::Stopped {
+            "deployment.cancelled"
+        } else {
+            "deployment.cancellation_requested"
+        };
+        insert_event(&mut tx, deployment_id, event_kind, json!({}), &now).await?;
+        insert_audit(&mut tx, actor.id, "deployment.cancel", deployment_id, &now).await?;
+        let record = fetch_deployment(&mut tx, deployment_id)
+            .await?
+            .ok_or(sqlx::Error::RowNotFound)?;
+        tx.commit().await?;
+        Ok(CancelDeploymentOutcome::Cancelled(record))
+    }
+
+    pub async fn schedule_retry(
+        &self,
+        deployment_id: &str,
+        reason: &str,
+        max_attempts: i64,
+    ) -> Result<RetrySchedule> {
+        let mut tx = self.pool.begin().await?;
+        let Some(current) = fetch_deployment(&mut tx, deployment_id).await? else {
+            tx.commit().await?;
+            return Ok(RetrySchedule::Unchanged);
+        };
+        if current.state != DeploymentState::Preparing {
+            tx.commit().await?;
+            return Ok(RetrySchedule::Unchanged);
+        }
+        let now = Utc::now().to_rfc3339();
+        if current.cancel_requested_at.is_some() {
+            sqlx::query(
+                "UPDATE deployments
+                 SET status = 'stopped', finished_at = ?, retry_after = NULL
+                 WHERE id = ? AND status = 'preparing'",
+            )
+            .bind(&now)
+            .bind(deployment_id)
+            .execute(&mut *tx)
+            .await?;
+            insert_event(
+                &mut tx,
+                deployment_id,
+                "deployment.cancelled",
+                json!({}),
+                &now,
+            )
+            .await?;
+            tx.commit().await?;
+            return Ok(RetrySchedule::Cancelled);
+        }
+        if current.attempt_count >= max_attempts {
+            sqlx::query(
+                "UPDATE deployments
+                 SET status = 'failed', failure_reason = ?, finished_at = ?, retry_after = NULL
+                 WHERE id = ? AND status = 'preparing'",
+            )
+            .bind(format!("{reason} after {max_attempts} attempts"))
+            .bind(&now)
+            .bind(deployment_id)
+            .execute(&mut *tx)
+            .await?;
+            insert_event(
+                &mut tx,
+                deployment_id,
+                "deployment.failed",
+                json!({ "failure_reason": reason, "attempt_count": current.attempt_count }),
+                &now,
+            )
+            .await?;
+            tx.commit().await?;
+            return Ok(RetrySchedule::Exhausted);
+        }
+
+        let delay_seconds = 5_i64 * (1_i64 << current.attempt_count.saturating_sub(1).min(2));
+        let retry_after = (Utc::now() + chrono::Duration::seconds(delay_seconds)).to_rfc3339();
+        sqlx::query(
+            "UPDATE deployments
+             SET status = 'queued', runtime_ref = NULL, started_at = NULL,
+                 failure_reason = NULL, retry_after = ?
+             WHERE id = ? AND status = 'preparing'",
+        )
+        .bind(&retry_after)
+        .bind(deployment_id)
+        .execute(&mut *tx)
+        .await?;
+        insert_event(
+            &mut tx,
+            deployment_id,
+            "deployment.retry_scheduled",
+            json!({
+                "reason": reason,
+                "attempt_count": current.attempt_count,
+                "retry_after": retry_after,
+            }),
+            &now,
+        )
+        .await?;
+        tx.commit().await?;
+        Ok(RetrySchedule::Scheduled { retry_after })
+    }
+
+    pub async fn cancel_requested(&self, deployment_id: &str) -> Result<bool> {
+        Ok(sqlx::query_scalar(
+            "SELECT cancel_requested_at IS NOT NULL FROM deployments WHERE id = ?",
+        )
+        .bind(deployment_id)
+        .fetch_optional(&self.pool)
+        .await?
+        .unwrap_or(false))
     }
 
     pub async fn reset_preparing_without_runtime(&self, deployment_id: &str) -> Result<bool> {
@@ -526,7 +716,8 @@ impl DeploymentsRepository {
         let rows = sqlx::query_as::<_, DeploymentRow>(
             "SELECT id, service_id, generation, idempotency_key, requested_by_user_id, spec_json, runtime_spec_json,
                     source_config_json, source_revision, local_image_id, variables_ciphertext, runtime_ref,
-                    status, failure_reason, created_at, started_at, finished_at
+                    status, failure_reason, attempt_count, retry_after, cancel_requested_at,
+                    created_at, started_at, finished_at
              FROM deployments
              WHERE service_id = ? AND id != ? AND status = 'healthy'",
         )
@@ -627,7 +818,8 @@ impl DeploymentsRepository {
         let rows = sqlx::query_as::<_, DeploymentRow>(
             "SELECT id, service_id, generation, idempotency_key, requested_by_user_id, spec_json, runtime_spec_json,
                     source_config_json, source_revision, local_image_id, variables_ciphertext, runtime_ref,
-                    status, failure_reason, created_at, started_at, finished_at
+                    status, failure_reason, attempt_count, retry_after, cancel_requested_at,
+                    created_at, started_at, finished_at
              FROM deployments WHERE status IN ('running', 'healthy') AND runtime_ref IS NOT NULL",
         )
         .fetch_all(&self.pool)
@@ -639,7 +831,8 @@ impl DeploymentsRepository {
         let rows = sqlx::query_as::<_, DeploymentRow>(
             "SELECT id, service_id, generation, idempotency_key, requested_by_user_id, spec_json, runtime_spec_json,
                     source_config_json, source_revision, local_image_id, variables_ciphertext, runtime_ref,
-                    status, failure_reason, created_at, started_at, finished_at
+                    status, failure_reason, attempt_count, retry_after, cancel_requested_at,
+                    created_at, started_at, finished_at
              FROM deployments
              WHERE status IN ('queued', 'preparing', 'running', 'stopping')
              ORDER BY created_at",
@@ -894,7 +1087,8 @@ async fn fetch_by_service_key(
     let row = sqlx::query_as::<_, DeploymentRow>(
         "SELECT id, service_id, generation, idempotency_key, requested_by_user_id, spec_json, runtime_spec_json,
                 source_config_json, source_revision, local_image_id, variables_ciphertext, runtime_ref,
-                status, failure_reason, created_at, started_at, finished_at
+                status, failure_reason, attempt_count, retry_after, cancel_requested_at,
+                created_at, started_at, finished_at
          FROM deployments WHERE service_id = ? AND idempotency_key = ?",
     )
     .bind(service_id)
@@ -911,7 +1105,8 @@ async fn fetch_deployment(
     let row = sqlx::query_as::<_, DeploymentRow>(
         "SELECT id, service_id, generation, idempotency_key, requested_by_user_id, spec_json, runtime_spec_json,
                 source_config_json, source_revision, local_image_id, variables_ciphertext, runtime_ref,
-                status, failure_reason, created_at, started_at, finished_at
+                status, failure_reason, attempt_count, retry_after, cancel_requested_at,
+                created_at, started_at, finished_at
          FROM deployments WHERE id = ?",
     )
     .bind(deployment_id)
@@ -1017,6 +1212,9 @@ fn deployment_from_row(row: DeploymentRow) -> Result<DeploymentRecord> {
         state: DeploymentState::try_from(row.status.as_str())
             .map_err(|_| DatabaseError::InvalidDeploymentState(row.status))?,
         failure_reason: row.failure_reason,
+        attempt_count: row.attempt_count,
+        retry_after: row.retry_after,
+        cancel_requested_at: row.cancel_requested_at,
         created_at: row.created_at,
         started_at: row.started_at,
         finished_at: row.finished_at,
@@ -1083,6 +1281,9 @@ struct DeploymentRow {
     runtime_ref: Option<String>,
     status: String,
     failure_reason: Option<String>,
+    attempt_count: i64,
+    retry_after: Option<String>,
+    cancel_requested_at: Option<String>,
     created_at: String,
     started_at: Option<String>,
     finished_at: Option<String>,
@@ -1104,6 +1305,9 @@ struct DeploymentWithProjectRow {
     runtime_ref: Option<String>,
     status: String,
     failure_reason: Option<String>,
+    attempt_count: i64,
+    retry_after: Option<String>,
+    cancel_requested_at: Option<String>,
     created_at: String,
     started_at: Option<String>,
     finished_at: Option<String>,
@@ -1127,6 +1331,9 @@ impl From<DeploymentWithProjectRow> for DeploymentRow {
             runtime_ref: row.runtime_ref,
             status: row.status,
             failure_reason: row.failure_reason,
+            attempt_count: row.attempt_count,
+            retry_after: row.retry_after,
+            cancel_requested_at: row.cancel_requested_at,
             created_at: row.created_at,
             started_at: row.started_at,
             finished_at: row.finished_at,

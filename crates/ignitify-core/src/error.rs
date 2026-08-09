@@ -3,6 +3,8 @@ use thiserror::Error;
 #[derive(Debug, Error)]
 pub enum CoreError {
     #[error(transparent)]
+    Operations(#[from] crate::operations::Error),
+    #[error(transparent)]
     RuntimeSecrets(#[from] crate::runtime_secrets::Error),
     #[error(transparent)]
     Database(#[from] ignitify_db::DatabaseError),

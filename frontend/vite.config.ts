@@ -39,6 +39,7 @@ export default defineConfig({
   test: {
     include: ["src/**/*.{test,spec}.{js,ts,jsx,tsx}"],
     testTimeout: 10_000,
+    fileParallelism: false,
   },
   run: { cache: true },
 });

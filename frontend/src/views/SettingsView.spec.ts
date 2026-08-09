@@ -17,6 +17,7 @@ const initialSettings = {
   fallback_page_message: "The requested hostname is not connected to an active application.",
   certificate_provider: "none",
   custom_certificate_id: null,
+  concurrent_builds: 2,
   certificates: [],
   health: {
     database: "ready",

@@ -11,7 +11,13 @@ export default {
     providers: "Providers",
     docker: "Docker",
     terminal: "Terminal",
+    remoteBuilders: "Remote builders",
     settings: "Settings",
+    system: "System",
+    expandSidebar: "Expand sidebar",
+    collapseSidebar: "Collapse sidebar",
+    closeNavigation: "Close navigation",
+    signOut: "Sign out",
   },
   topbar: {
     openNavigation: "Open navigation",

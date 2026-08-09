@@ -1,5 +1,6 @@
 import { shallowRef } from "vue";
 import {
+  apiCancelDeployment,
   apiDeployService,
   apiListDeployments,
   apiListProjectDeployments,
@@ -119,6 +120,21 @@ export function useDeployment() {
     return result.data;
   }
 
+  async function cancel(deploymentId: string): Promise<DeploymentSummary | null> {
+    submitting.value = true;
+    error.value = null;
+    const result = await apiCancelDeployment(deploymentId);
+    submitting.value = false;
+    if (!result.success) {
+      error.value = result.error ?? "Could not cancel deployment";
+      return null;
+    }
+    data.value = data.value.map((deployment) =>
+      deployment.id === result.data.id ? result.data : deployment,
+    );
+    return result.data;
+  }
+
   return {
     data,
     loading,
@@ -131,5 +147,6 @@ export function useDeployment() {
     deploy,
     stop,
     rollback,
+    cancel,
   };
 }

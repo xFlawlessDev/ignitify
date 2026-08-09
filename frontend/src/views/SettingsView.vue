@@ -3,6 +3,7 @@ import { Check, RefreshCw, RotateCcw, Save, Settings2 } from "@lucide/vue";
 import { computed, onMounted, reactive, shallowRef } from "vue";
 import ApplicationEnvironment from "@/components/settings/ApplicationEnvironment.vue";
 import ApplicationIngressSettings from "@/components/settings/ApplicationIngressSettings.vue";
+import BuildCapacitySettings from "@/components/settings/BuildCapacitySettings.vue";
 import CertificateManager from "@/components/settings/CertificateManager.vue";
 import IngressFallbackSettings from "@/components/settings/IngressFallbackSettings.vue";
 import InfrastructureHealth from "@/components/settings/InfrastructureHealth.vue";
@@ -36,6 +37,7 @@ interface SettingsDraft {
   certificateProvider: CertificateProvider;
   customCertificateId: string | null;
   customCertificates: CustomCertificateSummary[];
+  concurrentBuilds: number;
 }
 
 const defaults: SettingsDraft = {
@@ -50,6 +52,7 @@ const defaults: SettingsDraft = {
   certificateProvider: "none",
   customCertificateId: null,
   customCertificates: [],
+  concurrentBuilds: 2,
 };
 
 function cloneSettings(settings: SettingsDraft): SettingsDraft {
@@ -95,6 +98,7 @@ function toDraft(settings: InfrastructureSettingsResponse): SettingsDraft {
       customCertificateId || certificateProvider !== "custom" ? certificateProvider : "none",
     customCertificateId,
     customCertificates,
+    concurrentBuilds: settings.concurrent_builds,
   };
 }
 
@@ -201,6 +205,17 @@ const fallbackMessageError = computed(() => {
   return "";
 });
 
+const buildCapacityError = computed(() => {
+  if (
+    !Number.isInteger(draft.concurrentBuilds) ||
+    draft.concurrentBuilds < 1 ||
+    draft.concurrentBuilds > 32
+  ) {
+    return "Use a whole number from 1 to 32.";
+  }
+  return "";
+});
+
 const isDirty = computed(
   () =>
     savedSettings.value !== null && JSON.stringify(draft) !== JSON.stringify(savedSettings.value),
@@ -215,7 +230,8 @@ const canSave = computed(
     !emailError.value &&
     !dnsError.value &&
     !fallbackHeadingError.value &&
-    !fallbackMessageError.value,
+    !fallbackMessageError.value &&
+    !buildCapacityError.value,
 );
 
 function markDirty() {
@@ -328,6 +344,7 @@ async function saveSettings() {
     fallback_page_message: draft.fallbackPageMessage.trim(),
     certificate_provider: draft.certificateProvider,
     custom_certificate_id: draft.customCertificateId,
+    concurrent_builds: draft.concurrentBuilds,
   });
   if (!result.success) {
     requestError.value = result.error ?? "Unable to save infrastructure settings.";
@@ -419,6 +436,14 @@ onMounted(loadSettings);
     <div class="mt-6 grid gap-4">
       <ApplicationEnvironment :environment="applicationEnvironment" />
       <InfrastructureHealth :health="infrastructureHealth" />
+      <BuildCapacitySettings
+        :concurrent-builds="draft.concurrentBuilds"
+        :error="isDirty ? buildCapacityError : ''"
+        @update:concurrent-builds="
+          draft.concurrentBuilds = $event;
+          markDirty();
+        "
+      />
 
       <form class="grid gap-4" @submit.prevent="saveSettings">
         <div class="flex items-center gap-2 border-b border-border pb-3">

@@ -1,4 +1,7 @@
-use std::{path::PathBuf, time::Duration as StdDuration};
+use std::{
+    path::{Path, PathBuf},
+    time::Duration as StdDuration,
+};
 
 use sqlx::{
     SqlitePool,
@@ -8,7 +11,8 @@ use sqlx::{
 use crate::{
     ActivityRepository, DashboardRepository, DeploymentsRepository, DomainsRepository,
     EnvironmentsRepository, ProjectsRepository, ProvidersRepository, RefreshTokensRepository,
-    Result, ServerSettingsRepository, ServicesRepository, UsersRepository,
+    RemoteBuildersRepository, Result, ServerSettingsRepository, ServicesRepository,
+    UsersRepository,
 };
 
 static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!();
@@ -16,6 +20,12 @@ static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!();
 #[derive(Debug, Clone)]
 pub struct DatabaseConfig {
     pub url: String,
+}
+
+impl DatabaseConfig {
+    pub fn file_path(&self) -> Option<PathBuf> {
+        sqlite_file_path(&self.url)
+    }
 }
 
 impl Default for DatabaseConfig {
@@ -87,6 +97,10 @@ impl Database {
         ProvidersRepository::new(self.pool.clone())
     }
 
+    pub fn remote_builders(&self) -> RemoteBuildersRepository {
+        RemoteBuildersRepository::new(self.pool.clone())
+    }
+
     pub fn environments(&self) -> EnvironmentsRepository {
         EnvironmentsRepository::new(self.pool.clone())
     }
@@ -110,6 +124,34 @@ impl Database {
     pub async fn ping(&self) -> Result<()> {
         sqlx::query("SELECT 1").execute(&self.pool).await?;
         Ok(())
+    }
+
+    pub async fn backup_to(&self, destination: &Path) -> Result<()> {
+        if destination.exists() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::AlreadyExists,
+                "database backup destination already exists",
+            )
+            .into());
+        }
+        if let Some(parent) = destination.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let destination = destination.to_str().ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "database backup destination is not valid UTF-8",
+            )
+        })?;
+        sqlx::query("VACUUM INTO ?")
+            .bind(destination)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn close(self) {
+        self.pool.close().await;
     }
 }
 

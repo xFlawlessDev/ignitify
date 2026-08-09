@@ -10,19 +10,20 @@ pub use error::{DatabaseError, Result};
 pub use models::{RefreshTokenRecord, RotateRefreshTokenOutcome, UserRecord, UserRole};
 pub use repositories::{
     ActivityActor, ActivityRecord, ActivityRepository, AuthorizedDeploymentService,
-    AuthorizedProjectVariables, AuthorizedService, CreateDeploymentOutcome, DashboardActor,
-    DashboardDeploymentRecord, DashboardProjectRecord, DashboardRecords, DashboardRepository,
-    DashboardServiceRecord, DeploymentActor, DeploymentEventRecord, DeploymentLogRecord,
-    DeploymentRecord, DeploymentVariableRecord, DeploymentsRepository, DomainActor,
-    DomainMutationOutcome, DomainRecord, DomainVerificationRequestOutcome, DomainsRepository,
-    EnvironmentsRepository, NewDeployment, NewDeploymentLog, NewProjectVariable, NewProvider,
-    NewServerCertificate, NewServiceVariable, ProjectActor, ProjectRemoveOutcome,
-    ProjectUpdateOutcome, ProjectVariableRecord, ProjectVariablesMutationOutcome,
-    ProjectsRepository, ProviderAuthMode, ProviderKind, ProviderMutationOutcome, ProviderRecord,
-    ProviderUpdate, ProvidersRepository, RefreshTokensRepository, SequenceCursor,
-    ServerCertificateRecord, ServerSettingsRecord, ServerSettingsRepository, ServerSettingsUpdate,
-    ServiceActor, ServiceMutationOutcome, ServiceVariableRecord, ServicesRepository,
-    UsersRepository,
+    AuthorizedProjectVariables, AuthorizedService, CancelDeploymentOutcome,
+    CreateDeploymentOutcome, DashboardActor, DashboardDeploymentRecord, DashboardProjectRecord,
+    DashboardRecords, DashboardRepository, DashboardServiceRecord, DeploymentActor,
+    DeploymentEventRecord, DeploymentLogRecord, DeploymentRecord, DeploymentVariableRecord,
+    DeploymentsRepository, DomainActor, DomainMutationOutcome, DomainRecord,
+    DomainVerificationRequestOutcome, DomainsRepository, EnvironmentsRepository, NewDeployment,
+    NewDeploymentLog, NewProjectVariable, NewProvider, NewRemoteBuilder, NewServerCertificate,
+    NewServiceVariable, ProjectActor, ProjectRemoveOutcome, ProjectUpdateOutcome,
+    ProjectVariableRecord, ProjectVariablesMutationOutcome, ProjectsRepository, ProviderAuthMode,
+    ProviderKind, ProviderMutationOutcome, ProviderRecord, ProviderUpdate, ProvidersRepository,
+    RefreshTokensRepository, RemoteBuilderConnection, RemoteBuilderRecord, RemoteBuilderUpdate,
+    RemoteBuildersRepository, RetrySchedule, SequenceCursor, ServerCertificateRecord,
+    ServerSettingsRecord, ServerSettingsRepository, ServerSettingsUpdate, ServiceActor,
+    ServiceMutationOutcome, ServiceVariableRecord, ServicesRepository, UsersRepository,
 };
 
 #[cfg(test)]

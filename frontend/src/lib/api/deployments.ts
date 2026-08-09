@@ -51,3 +51,9 @@ export function apiRollbackDeployment(
     headers: { "Idempotency-Key": idempotencyKey },
   });
 }
+
+export function apiCancelDeployment(deploymentId: string): Promise<ApiResult<DeploymentSummary>> {
+  return apiFetch<DeploymentSummary>(`/deployments/${encodeURIComponent(deploymentId)}/cancel`, {
+    method: "POST",
+  });
+}

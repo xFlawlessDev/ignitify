@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 age.workspace = true
+chrono.workspace = true
 ignitify-db = { path = "../ignitify-db" }
 ignitify-domain = { path = "../ignitify-domain" }
 serde_json.workspace = true
@@ -15,6 +16,5 @@ tracing.workspace = true
 zeroize.workspace = true
 
 [dev-dependencies]
-chrono.workspace = true
 sqlx.workspace = true
 uuid.workspace = true

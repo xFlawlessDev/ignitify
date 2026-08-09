@@ -26,6 +26,9 @@ pub(crate) struct DeploymentResponse {
     pub(crate) generation: i64,
     pub(crate) status: String,
     pub(crate) failure_reason: Option<String>,
+    pub(crate) attempt_count: i64,
+    pub(crate) retry_after: Option<String>,
+    pub(crate) cancel_requested_at: Option<String>,
     pub(crate) created_at: String,
     pub(crate) started_at: Option<String>,
     pub(crate) finished_at: Option<String>,
@@ -39,6 +42,9 @@ impl From<DeploymentRecord> for DeploymentResponse {
             generation: deployment.generation,
             status: deployment.state.as_str().to_owned(),
             failure_reason: deployment.failure_reason,
+            attempt_count: deployment.attempt_count,
+            retry_after: deployment.retry_after,
+            cancel_requested_at: deployment.cancel_requested_at,
             created_at: deployment.created_at,
             started_at: deployment.started_at,
             finished_at: deployment.finished_at,
@@ -158,6 +164,22 @@ pub(crate) async fn rollback(
         .submit_rollback(deployment_actor(&actor), &deployment_id, key)
         .await?;
     let deployment = submission_record(outcome)?;
+    Ok((StatusCode::ACCEPTED, Json(deployment.into())))
+}
+
+pub(crate) async fn cancel(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(deployment_id): Path<String>,
+) -> Result<(StatusCode, Json<DeploymentResponse>), ApiError> {
+    let actor = require_actor(&state, &headers).await?;
+    require_same_origin_request(&state, &headers)?;
+    let deployment = submission_record(
+        state
+            .control()?
+            .submit_cancel(deployment_actor(&actor), &deployment_id)
+            .await?,
+    )?;
     Ok((StatusCode::ACCEPTED, Json(deployment.into())))
 }
 

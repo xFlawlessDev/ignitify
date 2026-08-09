@@ -1,4 +1,5 @@
 mod error;
+mod operations;
 mod runtime_secrets;
 mod system_metrics;
 
@@ -52,15 +53,19 @@ async fn main() -> Result<()> {
     let data_dir = env_value("IGNITIFY_DATA_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("data"));
+    let database_config = DatabaseConfig {
+        url: env_value("IGNITIFY_DATABASE_URL").unwrap_or_else(|| DatabaseConfig::default().url),
+    };
+    if let Some(command) = operations::Command::from_environment()? {
+        operations::execute(command, &data_dir, &database_config).await?;
+        return Ok(());
+    }
     let runtime_secrets = runtime_secrets::RuntimeSecrets::load_or_create(
         &data_dir,
         env_value("IGNITIFY_JWT_SECRET").as_deref(),
         env_value("IGNITIFY_SECRETS_AGE_IDENTITY").as_deref(),
     )?;
-    let database = Database::connect(&DatabaseConfig {
-        url: env_value("IGNITIFY_DATABASE_URL").unwrap_or_else(|| DatabaseConfig::default().url),
-    })
-    .await?;
+    let database = Database::connect(&database_config).await?;
     database.ping().await?;
 
     let auth = AuthService::new(

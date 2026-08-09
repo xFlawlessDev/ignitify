@@ -11,7 +11,13 @@ export default {
     providers: "Provider",
     docker: "Docker",
     terminal: "Terminal",
+    remoteBuilders: "Builder remote",
     settings: "Pengaturan",
+    system: "Sistem",
+    expandSidebar: "Perluas bilah samping",
+    collapseSidebar: "Ciutkan bilah samping",
+    closeNavigation: "Tutup navigasi",
+    signOut: "Keluar",
   },
   topbar: {
     openNavigation: "Buka navigasi",

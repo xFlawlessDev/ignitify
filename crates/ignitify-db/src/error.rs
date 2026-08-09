@@ -46,6 +46,8 @@ pub enum DatabaseError {
     InvalidDnsVerificationStatus(String),
     #[error("provider name already exists")]
     ProviderNameConflict,
+    #[error("remote builder name already exists")]
+    RemoteBuilderNameConflict,
     #[error("invalid stored provider kind: {0}")]
     InvalidProviderKind(String),
     #[error("invalid stored provider auth mode: {0}")]

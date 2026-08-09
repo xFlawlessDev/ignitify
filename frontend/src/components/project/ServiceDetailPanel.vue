@@ -41,6 +41,7 @@ const emit = defineEmits<{
   edit: [service: ServiceSummary];
   deploy: [serviceId: string];
   stop: [serviceId: string];
+  cancel: [deploymentId: string];
   rollback: [deploymentId: string];
   selectDeployment: [deploymentId: string];
 }>();
@@ -80,6 +81,9 @@ const canRollback = computed(() =>
     props.canManage &&
     !props.submitting,
   ),
+);
+const canCancel = computed(() =>
+  ["queued", "preparing"].includes(latestDeployment.value?.status ?? ""),
 );
 const sourceLabel = computed(() => {
   if (needsConfiguration.value) return "Setup required";
@@ -158,6 +162,16 @@ function formatTimestamp(value: string) {
   }).format(date);
 }
 
+function formatRetry(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).format(date);
+}
+
 function selectDeployment(deployment: DeploymentSummary) {
   activeTab.value = "logs";
   emit("selectDeployment", deployment.id);
@@ -222,10 +236,14 @@ function selectDeployment(deployment: DeploymentSummary) {
           size="sm"
           variant="outline"
           :disabled="submitting"
-          @click="emit('stop', service.id)"
+          @click="
+            canCancel && latestDeployment
+              ? emit('cancel', latestDeployment.id)
+              : emit('stop', service.id)
+          "
         >
           <Square data-icon="inline-start" :stroke-width="1.5" />
-          Stop
+          {{ canCancel ? "Cancel" : "Stop" }}
         </Button>
       </div>
     </header>
@@ -339,6 +357,14 @@ function selectDeployment(deployment: DeploymentSummary) {
         <CircleAlert :stroke-width="1.5" />
         <AlertTitle>Latest deployment failed</AlertTitle>
         <AlertDescription>{{ latestDeployment.failure_reason }}</AlertDescription>
+      </Alert>
+      <Alert v-else-if="latestDeployment?.retry_after" class="border-[var(--status-live)]/40">
+        <CircleDotDashed :stroke-width="1.5" />
+        <AlertTitle>Retry scheduled</AlertTitle>
+        <AlertDescription>
+          Runtime start attempt {{ latestDeployment.attempt_count }} did not complete. Ignitify will
+          retry after {{ formatRetry(latestDeployment.retry_after) }}.
+        </AlertDescription>
       </Alert>
 
       <div v-if="serviceDeployments.length" class="divide-y divide-border border-y border-border">

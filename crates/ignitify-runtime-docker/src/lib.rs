@@ -486,10 +486,14 @@ impl DockerRuntime {
             .local_image_id
             .as_deref()
             .unwrap_or(image_reference);
-        if deployment.local_image_id.is_none() {
+        if deployment
+            .local_image_id
+            .as_deref()
+            .is_none_or(|image| !is_local_image_id(image))
+        {
             let mut pull = bollard.create_image(
                 Some(CreateImageOptions {
-                    from_image: image_reference.as_str(),
+                    from_image: runtime_image,
                     ..Default::default()
                 }),
                 None,
@@ -624,6 +628,12 @@ impl DockerRuntime {
             Err(error) => Err(error.into()),
         }
     }
+}
+
+fn is_local_image_id(value: &str) -> bool {
+    value.strip_prefix("sha256:").is_some_and(|digest| {
+        digest.len() == 64 && digest.bytes().all(|byte| byte.is_ascii_hexdigit())
+    })
 }
 
 fn routes_match(

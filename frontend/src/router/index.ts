@@ -63,6 +63,12 @@ const router = createRouter({
       meta: { requiresAuth: true, requiresAdmin: true, breadcrumb: "navigation.settings" },
     },
     {
+      path: "/remote-builders",
+      name: "RemoteBuilders",
+      component: () => import("@/views/RemoteBuildersView.vue"),
+      meta: { requiresAuth: true, requiresAdmin: true, breadcrumb: "navigation.remoteBuilders" },
+    },
+    {
       path: "/projects/:projectId",
       name: "ProjectDetail",
       component: () => import("@/views/ProjectDetailView.vue"),

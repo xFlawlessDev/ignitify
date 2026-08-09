@@ -72,6 +72,19 @@ pub(crate) fn router(state: AppState) -> Router {
             axum::routing::delete(handlers::settings::remove_certificate),
         )
         .route(
+            "/api/v1/remote-builders",
+            get(handlers::remote_builders::list).post(handlers::remote_builders::create),
+        )
+        .route(
+            "/api/v1/remote-builders/{builder_id}",
+            axum::routing::delete(handlers::remote_builders::remove)
+                .patch(handlers::remote_builders::update),
+        )
+        .route(
+            "/api/v1/remote-builders/{builder_id}/default",
+            post(handlers::remote_builders::make_default),
+        )
+        .route(
             "/api/v1/runtime/containers",
             get(handlers::runtime::containers),
         )
@@ -157,6 +170,10 @@ pub(crate) fn router(state: AppState) -> Router {
         .route(
             "/api/v1/deployments/{deployment_id}/rollback",
             post(handlers::deployments::rollback),
+        )
+        .route(
+            "/api/v1/deployments/{deployment_id}/cancel",
+            post(handlers::deployments::cancel),
         )
         .route(
             "/api/v1/domains/{domain_id}",

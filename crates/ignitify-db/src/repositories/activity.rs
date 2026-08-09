@@ -54,12 +54,18 @@ impl ActivityRepository {
                     JOIN services s ON s.id = d.service_id
                     JOIN environments e ON e.id = s.environment_id
                     WHERE e.project_id = ?
+             )) OR (a.resource_type = 'domain' AND a.resource_id IN (
+                    SELECT dm.id FROM domains dm
+                    JOIN services s ON s.id = dm.service_id
+                    JOIN environments e ON e.id = s.environment_id
+                    WHERE e.project_id = ?
              ))
              )
              AND (? IS NULL OR a.created_at < ?)
              ORDER BY a.created_at DESC
              LIMIT ?",
         )
+        .bind(project_id)
         .bind(project_id)
         .bind(project_id)
         .bind(project_id)

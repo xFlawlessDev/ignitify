@@ -225,6 +225,11 @@ async function stopService() {
   if (deployment) selectDeployment(deployment.id);
 }
 
+async function cancelDeployment(deploymentId: string) {
+  const deployment = await deployments.cancel(deploymentId);
+  if (deployment) selectDeployment(deployment.id);
+}
+
 async function rollbackDeployment(deploymentId: string) {
   const deployment = await deployments.rollback(deploymentId);
   if (deployment) selectDeployment(deployment.id);
@@ -430,6 +435,7 @@ onUnmounted(() => {
           :stream-error="deploymentError ?? streamError ?? logStreamError"
           :submitting="deploymentSubmitting"
           @deploy="submitDeployment"
+          @cancel="cancelDeployment"
           @rollback="rollbackDeployment"
           @select-deployment="selectDeployment"
           @stop="stopService"

@@ -76,10 +76,10 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <main class="min-h-[calc(100svh-4rem)] border-b border-border">
-    <div class="mx-auto w-full max-w-[1200px] px-5 py-12 sm:px-8 lg:py-16">
-      <header class="app-page-header lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
-        <div class="max-w-2xl">
+  <main class="min-w-0 min-h-[calc(100svh-4rem)] border-b border-border">
+    <div class="mx-auto min-w-0 w-full max-w-[1200px] px-5 py-12 sm:px-8 lg:py-16">
+      <header class="min-w-0 app-page-header lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+        <div class="min-w-0 max-w-2xl">
           <p class="font-mono text-[11px] uppercase tracking-[0.08em] text-signal">
             Template registry
           </p>
@@ -93,7 +93,7 @@ onUnmounted(() => {
         </div>
 
         <dl
-          class="grid grid-cols-2 gap-x-8 gap-y-5 border-l border-border pl-5 sm:gap-x-10 sm:pl-6"
+          class="grid min-w-0 grid-cols-2 gap-x-4 gap-y-5 border-l border-border pl-5 sm:gap-x-10 sm:pl-6"
         >
           <div>
             <dt class="font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground">
@@ -107,15 +107,15 @@ onUnmounted(() => {
             <dt class="font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground">
               Source
             </dt>
-            <dd class="mt-1 flex items-center gap-1.5 text-sm font-medium text-foreground">
+            <dd class="mt-1 flex min-w-0 items-center gap-1.5 text-sm font-medium text-foreground">
               <PackageOpen class="size-3.5 text-signal" aria-hidden="true" />
-              Catalog API
+              <span class="min-w-0 break-words">Catalog API</span>
             </dd>
           </div>
         </dl>
       </header>
 
-      <section class="pt-8" aria-labelledby="template-catalog-heading">
+      <section class="min-w-0 pt-8" aria-labelledby="template-catalog-heading">
         <h2 id="template-catalog-heading" class="sr-only">Available deploy templates</h2>
         <TemplateFilterBar
           :query="query"
@@ -128,7 +128,7 @@ onUnmounted(() => {
           @clear="clearFilters"
         />
 
-        <div class="mt-6" aria-live="polite">
+        <div class="mt-6 min-w-0" aria-live="polite">
           <TemplateCatalogGrid
             :templates="templates"
             :is-loading="isLoading"

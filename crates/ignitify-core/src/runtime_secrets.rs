@@ -10,7 +10,7 @@ use rand::{RngCore, rngs::OsRng};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-const DEFAULT_FILE_NAME: &str = "ignitify-secrets.json";
+pub(super) const FILE_NAME: &str = "ignitify-secrets.json";
 
 #[derive(Debug, Error)]
 pub(super) enum Error {
@@ -47,7 +47,7 @@ impl RuntimeSecrets {
         configured_age_identity: Option<&str>,
     ) -> Result<Self, Error> {
         fs::create_dir_all(data_dir).map_err(Error::CreateDirectory)?;
-        let path = data_dir.join(DEFAULT_FILE_NAME);
+        let path = secret_file_path(data_dir);
         match fs::read_to_string(&path) {
             Ok(contents) => return parse_persisted(&contents),
             Err(error) if error.kind() == ErrorKind::NotFound => {}
@@ -80,6 +80,15 @@ impl RuntimeSecrets {
             Err(error) => Err(Error::Write(error)),
         }
     }
+
+    pub(super) fn validate_backup_file(path: &Path) -> Result<(), Error> {
+        let contents = fs::read_to_string(path).map_err(Error::Read)?;
+        parse_persisted(&contents).map(|_| ())
+    }
+}
+
+pub(super) fn secret_file_path(data_dir: &Path) -> std::path::PathBuf {
+    data_dir.join(FILE_NAME)
 }
 
 fn parse_persisted(contents: &str) -> Result<RuntimeSecrets, Error> {

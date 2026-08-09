@@ -7,7 +7,7 @@ pub use domain_dns::{
 };
 
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, HashSet},
     future::Future,
     io::Write,
     pin::Pin,
@@ -20,20 +20,28 @@ use std::{
 };
 
 use age::{Decryptor, Encryptor, x25519};
+use chrono::{DateTime, Utc};
 use ignitify_db::{
     AuthorizedDeploymentService, AuthorizedProjectVariables, AuthorizedService,
-    CreateDeploymentOutcome, DeploymentActor, DeploymentRecord, DeploymentsRepository,
-    DomainsRepository, NewDeployment, NewProjectVariable, NewServiceVariable, ProjectActor,
-    ProjectVariablesMutationOutcome, ProjectsRepository, ServiceActor, ServiceMutationOutcome,
-    ServicesRepository,
+    CancelDeploymentOutcome, CreateDeploymentOutcome, DeploymentActor, DeploymentRecord,
+    DeploymentsRepository, DomainsRepository, NewDeployment, NewProjectVariable,
+    NewServiceVariable, ProjectActor, ProjectVariablesMutationOutcome, ProjectsRepository,
+    RetrySchedule, ServiceActor, ServiceMutationOutcome, ServicesRepository,
 };
 use ignitify_domain::{
     DeploymentState, DomainId, DomainName, ServiceId, ServiceInput, ServiceSpec,
     ServiceVariableInput, validate_variable_inputs,
 };
 use thiserror::Error;
-use tokio::sync::{broadcast, mpsc};
+use tokio::{
+    sync::{broadcast, mpsc},
+    task::JoinSet,
+};
 use zeroize::Zeroizing;
+
+const MAX_RUNTIME_START_ATTEMPTS: i64 = 3;
+const HEALTH_GATE_TIMEOUT: Duration = Duration::from_secs(300);
+const MAX_CONCURRENT_DEPLOYMENT_JOBS: usize = 32;
 
 #[derive(Clone)]
 pub struct ServiceControl {
@@ -456,6 +464,24 @@ impl ControlHandle {
         })
     }
 
+    pub async fn submit_cancel(
+        &self,
+        actor: DeploymentActor<'_>,
+        deployment_id: &str,
+    ) -> Result<DeploymentSubmission> {
+        let outcome = self.deployments.cancel(actor, deployment_id).await?;
+        if let CancelDeploymentOutcome::Cancelled(record) = &outcome {
+            self.publish_deployment_records(record.id.as_str()).await?;
+            let _ = self.wake.try_send(());
+        }
+        Ok(match outcome {
+            CancelDeploymentOutcome::Cancelled(record) => DeploymentSubmission::Accepted(record),
+            CancelDeploymentOutcome::Existing(record) => DeploymentSubmission::Existing(record),
+            CancelDeploymentOutcome::Missing => DeploymentSubmission::Missing,
+            CancelDeploymentOutcome::Forbidden => DeploymentSubmission::Forbidden,
+        })
+    }
+
     pub async fn list(
         &self,
         actor: DeploymentActor<'_>,
@@ -581,8 +607,7 @@ impl ControlHandle {
         if !actor.is_admin && !service.role.can_manage_services() {
             return Ok(DeploymentSubmission::Forbidden);
         }
-        let Some(mut deployment) = self.deployments.active_for_stop(actor, service_id).await?
-        else {
+        let Some(deployment) = self.deployments.active_for_stop(actor, service_id).await? else {
             let Some(deployment) = self
                 .deployments
                 .list(actor, service_id, None, Some(1))
@@ -597,23 +622,7 @@ impl ControlHandle {
                 DeploymentSubmission::ActiveConflict
             });
         };
-        if !self
-            .deployments
-            .transition(
-                deployment.id.as_str(),
-                DeploymentState::Stopping,
-                deployment.runtime_ref.as_deref(),
-                None,
-            )
-            .await?
-        {
-            return Ok(DeploymentSubmission::ActiveConflict);
-        }
-        self.publish_deployment_records(deployment.id.as_str())
-            .await?;
-        let _ = self.wake.try_send(());
-        deployment.state = DeploymentState::Stopping;
-        Ok(DeploymentSubmission::Accepted(deployment))
+        self.submit_cancel(actor, deployment.id.as_str()).await
     }
 
     async fn publish_deployment_records(&self, deployment_id: &str) -> Result<()> {
@@ -910,19 +919,19 @@ impl SourceBuild for NoopSourceBuild {
 }
 
 pub struct WorkerDependencies<R, I, S, V = NoopDnsVerifier> {
-    runtime: R,
-    ingress: I,
-    source_build: S,
-    dns_verifier: V,
+    runtime: Arc<R>,
+    ingress: Arc<I>,
+    source_build: Arc<S>,
+    dns_verifier: Arc<V>,
 }
 
 impl<R, I, S> WorkerDependencies<R, I, S> {
     pub fn new(runtime: R, ingress: I, source_build: S) -> Self {
         Self {
-            runtime,
-            ingress,
-            source_build,
-            dns_verifier: NoopDnsVerifier,
+            runtime: Arc::new(runtime),
+            ingress: Arc::new(ingress),
+            source_build: Arc::new(source_build),
+            dns_verifier: Arc::new(NoopDnsVerifier),
         }
     }
 }
@@ -933,7 +942,7 @@ impl<R, I, S, V> WorkerDependencies<R, I, S, V> {
             runtime: self.runtime,
             ingress: self.ingress,
             source_build: self.source_build,
-            dns_verifier,
+            dns_verifier: Arc::new(dns_verifier),
         }
     }
 }
@@ -1116,20 +1125,24 @@ where
         }
 
         let _liveness = Liveness(worker_ready.clone());
-        let reconciliation = ReconciliationContext {
-            runtime: &dependencies.runtime,
-            ingress: &dependencies.ingress,
-            source_build: &dependencies.source_build,
-            dns_verifier: &dependencies.dns_verifier,
-        };
         let mut interval = tokio::time::interval(Duration::from_secs(30));
+        let mut jobs = JoinSet::new();
+        let mut active_jobs = HashSet::new();
         loop {
-            match reconcile_once_with_context(
+            let reconciliation = ReconciliationContext {
+                runtime: dependencies.runtime.as_ref(),
+                ingress: dependencies.ingress.as_ref(),
+                source_build: dependencies.source_build.as_ref(),
+                dns_verifier: dependencies.dns_verifier.as_ref(),
+            };
+            match reconcile_runtime_state(
                 &deployments,
                 &domains,
                 &cipher,
                 &reconciliation,
                 &publisher,
+                &active_jobs,
+                false,
             )
             .await
             {
@@ -1142,11 +1155,62 @@ where
             if let Err(error) = deployments.prune_retention().await {
                 tracing::error!(error = %error, "deployment retention pruning failed");
             }
+            while jobs.len() < MAX_CONCURRENT_DEPLOYMENT_JOBS {
+                let Some(deployment) = (match deployments.claim_next().await {
+                    Ok(deployment) => deployment,
+                    Err(error) => {
+                        tracing::error!(error = %error, "deployment worker could not claim deployment");
+                        break;
+                    }
+                }) else {
+                    break;
+                };
+                publisher
+                    .publish_events(&deployments, deployment.id.as_str())
+                    .await;
+                let deployment_id = deployment.id.to_string();
+                active_jobs.insert(deployment_id.clone());
+                let task_deployments = deployments.clone();
+                let task_domains = domains.clone();
+                let task_cipher = cipher.clone();
+                let task_runtime = dependencies.runtime.clone();
+                let task_ingress = dependencies.ingress.clone();
+                let task_source_build = dependencies.source_build.clone();
+                let task_publisher = publisher.clone();
+                jobs.spawn(async move {
+                    let result = process_claimed_deployment(
+                        &task_deployments,
+                        &task_domains,
+                        &task_cipher,
+                        task_runtime.as_ref(),
+                        task_ingress.as_ref(),
+                        task_source_build.as_ref(),
+                        &task_publisher,
+                        deployment,
+                    )
+                    .await;
+                    (deployment_id, result)
+                });
+            }
             tokio::select! {
                 _ = interval.tick() => {}
                 value = wake.recv() => {
                     if value.is_none() {
                         return;
+                    }
+                }
+                Some(result) = jobs.join_next(), if !jobs.is_empty() => {
+                    match result {
+                        Ok((deployment_id, Ok(()))) => {
+                            active_jobs.remove(&deployment_id);
+                        }
+                        Ok((deployment_id, Err(error))) => {
+                            active_jobs.remove(&deployment_id);
+                            tracing::error!(deployment_id = %deployment_id, error = %error, "deployment job failed");
+                        }
+                        Err(error) => {
+                            tracing::error!(error = %error, "deployment job task failed");
+                        }
                     }
                 }
             }
@@ -1221,6 +1285,43 @@ where
     S: SourceBuild,
     V: DnsVerifier,
 {
+    reconcile_runtime_state(
+        deployments,
+        domains,
+        cipher,
+        context,
+        publisher,
+        &HashSet::new(),
+        true,
+    )
+    .await?;
+    process_next_deployment(
+        deployments,
+        domains,
+        cipher,
+        context.runtime,
+        context.ingress,
+        context.source_build,
+        publisher,
+    )
+    .await
+}
+
+async fn reconcile_runtime_state<R, I, S, V>(
+    deployments: &DeploymentsRepository,
+    domains: &DomainsRepository,
+    cipher: &AgeCipher,
+    context: &ReconciliationContext<'_, R, I, S, V>,
+    publisher: &StreamPublisher,
+    active_jobs: &HashSet<String>,
+    claim_deployment: bool,
+) -> Result<()>
+where
+    R: ImageRuntime,
+    I: Ingress,
+    S: SourceBuild,
+    V: DnsVerifier,
+{
     let runtime = context.runtime;
     let ingress = context.ingress;
     let source_build = context.source_build;
@@ -1258,7 +1359,9 @@ where
                         cleanup_prior_deployments(deployments, runtime, &deployment, publisher)
                             .await?;
                     }
-                } else if deployment.state == DeploymentState::Preparing {
+                } else if deployment.state == DeploymentState::Preparing
+                    && !active_jobs.contains(deployment.id.as_str())
+                {
                     deployments
                         .reset_preparing_without_runtime(deployment.id.as_str())
                         .await?;
@@ -1316,14 +1419,88 @@ where
         )
         .await?;
     }
+    if !claim_deployment {
+        return Ok(());
+    }
     let Some(deployment) = deployments.claim_next().await? else {
         return Ok(());
     };
     publisher
         .publish_events(deployments, deployment.id.as_str())
         .await;
+    process_claimed_deployment(
+        deployments,
+        domains,
+        cipher,
+        runtime,
+        ingress,
+        source_build,
+        publisher,
+        deployment,
+    )
+    .await
+}
+
+async fn process_next_deployment<R, I, S>(
+    deployments: &DeploymentsRepository,
+    domains: &DomainsRepository,
+    cipher: &AgeCipher,
+    runtime: &R,
+    ingress: &I,
+    source_build: &S,
+    publisher: &StreamPublisher,
+) -> Result<()>
+where
+    R: ImageRuntime,
+    I: Ingress,
+    S: SourceBuild,
+{
+    let Some(deployment) = deployments.claim_next().await? else {
+        return Ok(());
+    };
+    publisher
+        .publish_events(deployments, deployment.id.as_str())
+        .await;
+    process_claimed_deployment(
+        deployments,
+        domains,
+        cipher,
+        runtime,
+        ingress,
+        source_build,
+        publisher,
+        deployment,
+    )
+    .await
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "a claimed deployment is processed with explicit adapter boundaries"
+)]
+async fn process_claimed_deployment<R, I, S>(
+    deployments: &DeploymentsRepository,
+    domains: &DomainsRepository,
+    cipher: &AgeCipher,
+    runtime: &R,
+    ingress: &I,
+    source_build: &S,
+    publisher: &StreamPublisher,
+    deployment: DeploymentRecord,
+) -> Result<()>
+where
+    R: ImageRuntime,
+    I: Ingress,
+    S: SourceBuild,
+{
+    if deployments.cancel_requested(deployment.id.as_str()).await? {
+        return Ok(());
+    }
     let runtime_deployment = match source_build.build(&deployment).await {
         Ok(Some(output)) => {
+            if deployments.cancel_requested(deployment.id.as_str()).await? {
+                return Ok(());
+            }
             deployments
                 .record_source_resolution(
                     deployment.id.as_str(),
@@ -1342,6 +1519,9 @@ where
         Ok(None) => RuntimeDeployment::from(&deployment),
         Err(error) => {
             tracing::warn!(deployment_id = %deployment.id, error = %error, "deployment source build failed");
+            if deployments.cancel_requested(deployment.id.as_str()).await? {
+                return Ok(());
+            }
             deployments
                 .transition(
                     deployment.id.as_str(),
@@ -1356,6 +1536,9 @@ where
             return Ok(());
         }
     };
+    if deployments.cancel_requested(deployment.id.as_str()).await? {
+        return Ok(());
+    }
     let predicted_runtime_ref = runtime.runtime_ref(&runtime_deployment);
     deployments
         .record_runtime_ref(deployment.id.as_str(), &predicted_runtime_ref)
@@ -1385,7 +1568,19 @@ where
         }
         Err(error) => {
             tracing::warn!(deployment_id = %deployment.id, error = %error, "deployment runtime start uncertain");
-            predicted_runtime_ref
+            match runtime
+                .inspect(&runtime_deployment, &predicted_runtime_ref)
+                .await
+            {
+                Ok(observation) if observation.owned && observation.running => {
+                    predicted_runtime_ref
+                }
+                Ok(_) => {
+                    schedule_runtime_retry(deployments, &deployment, publisher).await?;
+                    return Ok(());
+                }
+                Err(inspect_error) => return Err(inspect_error),
+            }
         }
     };
     let observation = match runtime.inspect(&runtime_deployment, &runtime_ref).await {
@@ -1630,6 +1825,38 @@ fn decrypt_deployment_values(
     serde_json::from_slice(plaintext.as_slice()).map_err(|_| Error::InvalidCiphertext)
 }
 
+async fn schedule_runtime_retry(
+    deployments: &DeploymentsRepository,
+    deployment: &DeploymentRecord,
+    publisher: &StreamPublisher,
+) -> Result<()> {
+    match deployments
+        .schedule_retry(
+            deployment.id.as_str(),
+            "runtime did not start",
+            MAX_RUNTIME_START_ATTEMPTS,
+        )
+        .await?
+    {
+        RetrySchedule::Scheduled { retry_after } => {
+            tracing::warn!(
+                deployment_id = %deployment.id,
+                attempt_count = deployment.attempt_count,
+                retry_after = %retry_after,
+                "deployment runtime start retry scheduled"
+            );
+        }
+        RetrySchedule::Exhausted => {
+            tracing::warn!(deployment_id = %deployment.id, "deployment runtime retries exhausted");
+        }
+        RetrySchedule::Cancelled | RetrySchedule::Unchanged => {}
+    }
+    publisher
+        .publish_events(deployments, deployment.id.as_str())
+        .await;
+    Ok(())
+}
+
 async fn advance_observed_deployment<R>(
     deployments: &DeploymentsRepository,
     runtime: &R,
@@ -1656,6 +1883,19 @@ where
         return Ok(false);
     }
     if !observation.running {
+        if deployment.state == DeploymentState::Preparing {
+            if observation.owned {
+                runtime
+                    .stop(
+                        runtime_ref,
+                        deployment.service_id.as_str(),
+                        deployment.generation,
+                    )
+                    .await?;
+            }
+            schedule_runtime_retry(deployments, deployment, publisher).await?;
+            return Ok(false);
+        }
         if deployments
             .transition(
                 deployment.id.as_str(),
@@ -1718,6 +1958,32 @@ where
             ..
         }
     );
+    if has_healthcheck
+        && observation.healthy != Some(true)
+        && health_gate_expired(deployment.started_at.as_deref())
+    {
+        if deployments
+            .transition(
+                deployment.id.as_str(),
+                DeploymentState::Failed,
+                Some(runtime_ref),
+                Some("runtime healthcheck did not become healthy within 5 minutes"),
+            )
+            .await?
+        {
+            runtime
+                .stop(
+                    runtime_ref,
+                    deployment.service_id.as_str(),
+                    deployment.generation,
+                )
+                .await?;
+        }
+        publisher
+            .publish_events(deployments, deployment.id.as_str())
+            .await;
+        return Ok(false);
+    }
     let became_healthy = (!has_healthcheck
         && !matches!(
             deployment.spec,
@@ -1740,6 +2006,15 @@ where
         .publish_events(deployments, deployment.id.as_str())
         .await;
     Ok(became_healthy)
+}
+
+fn health_gate_expired(started_at: Option<&str>) -> bool {
+    started_at
+        .and_then(|value| DateTime::parse_from_rfc3339(value).ok())
+        .is_some_and(|started_at| {
+            Utc::now().signed_duration_since(started_at.with_timezone(&Utc))
+                >= chrono::Duration::from_std(HEALTH_GATE_TIMEOUT).unwrap_or_default()
+        })
 }
 
 pub struct AgeCipher {

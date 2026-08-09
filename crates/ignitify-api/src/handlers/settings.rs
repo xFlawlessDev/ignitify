@@ -36,6 +36,8 @@ pub(crate) struct InfrastructureSettingsRequest {
     fallback_page_message: Option<String>,
     certificate_provider: String,
     custom_certificate_id: Option<String>,
+    #[serde(default)]
+    concurrent_builds: Option<i64>,
 }
 
 fn default_dns_record_type() -> String {
@@ -55,6 +57,7 @@ pub(crate) struct InfrastructureSettingsResponse {
     fallback_page_message: String,
     certificate_provider: String,
     custom_certificate_id: Option<String>,
+    concurrent_builds: i64,
     certificates: Vec<CertificateSummary>,
     health: InfrastructureHealthResponse,
     updated_at: String,
@@ -286,6 +289,7 @@ fn settings_response(
         fallback_page_message: settings.fallback_page_message,
         certificate_provider: settings.certificate_provider,
         custom_certificate_id: settings.custom_certificate_id,
+        concurrent_builds: settings.concurrent_builds,
         certificates,
         health,
         updated_at: settings.updated_at,
@@ -311,6 +315,14 @@ async fn validate_request(
         )
     })?;
     let current = state.database.server_settings().get().await?;
+    let concurrent_builds = request
+        .concurrent_builds
+        .unwrap_or(current.concurrent_builds);
+    if !(1..=32).contains(&concurrent_builds) {
+        return Err(ApiError::BadRequest(
+            "concurrent builds must be between 1 and 32",
+        ));
+    }
     let fallback_page_heading = normalized_fallback_content(
         request
             .fallback_page_heading
@@ -384,7 +396,7 @@ async fn validate_request(
             "none".to_owned()
         },
         custom_certificate_id,
-        concurrent_builds: current.concurrent_builds,
+        concurrent_builds,
     })
 }
 

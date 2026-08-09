@@ -374,8 +374,11 @@ impl DeploymentState {
     pub fn can_transition_to(self, next: Self) -> bool {
         matches!(
             (self, next),
-            (Self::Queued, Self::Preparing | Self::Failed)
-                | (Self::Preparing, Self::Running | Self::Failed)
+            (Self::Queued, Self::Preparing | Self::Failed | Self::Stopped)
+                | (
+                    Self::Preparing,
+                    Self::Running | Self::Failed | Self::Stopping | Self::Stopped
+                )
                 | (
                     Self::Running,
                     Self::Healthy | Self::Failed | Self::Stopping | Self::Stopped
@@ -701,6 +704,7 @@ mod tests {
     #[test]
     fn deployment_states_allow_only_lifecycle_transitions() {
         assert!(DeploymentState::Queued.can_transition_to(DeploymentState::Preparing));
+        assert!(DeploymentState::Queued.can_transition_to(DeploymentState::Stopped));
         assert!(DeploymentState::Running.can_transition_to(DeploymentState::Healthy));
         assert!(DeploymentState::Running.can_transition_to(DeploymentState::Stopping));
         assert!(DeploymentState::Healthy.can_transition_to(DeploymentState::Stopping));

@@ -21,14 +21,11 @@ const skeletons = Array.from({ length: 8 }, (_, index) => index);
 </script>
 
 <template>
-  <div
-    v-if="isLoading"
-    class="grid gap-px border-l border-t border-border sm:grid-cols-2 xl:grid-cols-4"
-  >
+  <div v-if="isLoading" class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
     <div
       v-for="skeleton in skeletons"
       :key="skeleton"
-      class="min-h-64 border-r border-b border-border bg-card p-5"
+      class="min-h-64 rounded-[10px] border border-border bg-card p-5"
     >
       <Skeleton class="size-12 rounded-md" />
       <Skeleton class="mt-8 h-5 w-2/3" />
@@ -60,12 +57,11 @@ const skeletons = Array.from({ length: 8 }, (_, index) => index);
     <p class="mt-2 text-sm text-muted-foreground">Try a different search or category.</p>
   </div>
 
-  <div v-else class="grid gap-px border-l border-t border-border sm:grid-cols-2 xl:grid-cols-4">
+  <div v-else class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
     <TemplateCard
       v-for="template in templates"
       :key="template.id"
       :template="template"
-      class="border-r border-b border-border"
       @select="emit('select', $event)"
     />
   </div>

@@ -8,6 +8,7 @@ pub(crate) mod project_environment;
 pub(crate) mod projects;
 pub(crate) mod provider_test;
 pub(crate) mod providers;
+pub(crate) mod remote_builders;
 pub(crate) mod runtime;
 pub(crate) mod services;
 pub(crate) mod settings;
