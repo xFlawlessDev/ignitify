@@ -1,5 +1,13 @@
 <script setup lang="ts">
-import { Check, RefreshCw, RotateCcw, Save, Settings2 } from "@lucide/vue";
+import {
+  Check,
+  HardDriveDownload,
+  LayoutDashboard,
+  Network,
+  RefreshCw,
+  RotateCcw,
+  Save,
+} from "@lucide/vue";
 import { computed, onMounted, reactive, shallowRef } from "vue";
 import ApplicationEnvironment from "@/components/settings/ApplicationEnvironment.vue";
 import ApplicationIngressSettings from "@/components/settings/ApplicationIngressSettings.vue";
@@ -14,6 +22,7 @@ import type {
   CustomCertificateUpload,
 } from "@/components/settings/types";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   apiCreateInfrastructureCertificate,
   apiDeleteInfrastructureCertificate,
@@ -40,6 +49,8 @@ interface SettingsDraft {
   customCertificates: CustomCertificateSummary[];
   concurrentBuilds: number;
 }
+
+type SettingsSection = "overview" | "ingress" | "backup";
 
 const defaults: SettingsDraft = {
   applicationDomainSuffix: "",
@@ -104,6 +115,7 @@ function toDraft(settings: InfrastructureSettingsResponse): SettingsDraft {
 }
 
 const draft = reactive<SettingsDraft>(cloneSettings(defaults));
+const activeSection = shallowRef<SettingsSection>("overview");
 const savedSettings = shallowRef<SettingsDraft | null>(null);
 const applicationEnvironment = shallowRef<ApplicationEnvironmentStatus | null>(null);
 const infrastructureHealth = shallowRef<InfrastructureHealthStatus | null>(null);
@@ -234,6 +246,23 @@ const canSave = computed(
     !fallbackMessageError.value &&
     !buildCapacityError.value,
 );
+
+const sectionDescription = computed(() => {
+  switch (activeSection.value) {
+    case "ingress":
+      return "Configure managed routing, TLS policy, and the unmatched-hostname page.";
+    case "backup":
+      return "Configure durable control-plane backup storage and recovery access.";
+    default:
+      return "Review host readiness, runtime defaults, and build capacity.";
+  }
+});
+
+function selectSection(value: string) {
+  if (value === "overview" || value === "ingress" || value === "backup") {
+    activeSection.value = value;
+  }
+}
 
 function markDirty() {
   if (saveState.value !== "loading" && saveState.value !== "saving") {
@@ -387,7 +416,7 @@ onMounted(loadSettings);
         <p class="ui-label">Control plane</p>
         <h1 class="mt-2 text-3xl leading-none font-normal">Infrastructure</h1>
         <p class="mt-2 max-w-[58ch] text-sm leading-5 text-muted-foreground">
-          Configure managed application routing, certificates, and runtime health checks.
+          {{ sectionDescription }}
         </p>
       </div>
       <div class="flex w-full items-center justify-between gap-3 sm:w-auto sm:justify-end">
@@ -434,95 +463,117 @@ onMounted(loadSettings);
       {{ requestError }}
     </p>
 
-    <div class="mt-6 grid gap-4">
-      <ApplicationEnvironment :environment="applicationEnvironment" />
-      <InfrastructureHealth :health="infrastructureHealth" />
-      <BuildCapacitySettings
-        :concurrent-builds="draft.concurrentBuilds"
-        :error="isDirty ? buildCapacityError : ''"
-        @update:concurrent-builds="
-          draft.concurrentBuilds = $event;
-          markDirty();
-        "
-      />
-      <BackupDestinationSettings />
+    <Tabs :model-value="activeSection" class="mt-6 gap-0" @update:model-value="selectSection">
+      <TabsList
+        class="h-9 max-w-full justify-start overflow-x-auto rounded-[4px] max-[560px]:w-full"
+        aria-label="Infrastructure sections"
+      >
+        <TabsTrigger value="overview" class="min-w-max px-3 text-xs">
+          <LayoutDashboard class="size-3.5" :stroke-width="1.5" />
+          Overview
+        </TabsTrigger>
+        <TabsTrigger value="ingress" class="min-w-max px-3 text-xs">
+          <Network class="size-3.5" :stroke-width="1.5" />
+          Ingress &amp; TLS
+        </TabsTrigger>
+        <TabsTrigger value="backup" class="min-w-max px-3 text-xs">
+          <HardDriveDownload class="size-3.5" :stroke-width="1.5" />
+          Backup
+        </TabsTrigger>
+      </TabsList>
 
-      <form class="grid gap-4" @submit.prevent="saveSettings">
-        <div class="flex items-center gap-2 border-b border-border pb-3">
-          <Settings2 class="size-4 text-muted-foreground" :stroke-width="1.5" />
-          <p class="ui-label">Managed application ingress</p>
+      <TabsContent value="overview" class="mt-4 grid gap-4">
+        <div class="grid gap-4 xl:grid-cols-2">
+          <InfrastructureHealth :health="infrastructureHealth" />
+          <ApplicationEnvironment :environment="applicationEnvironment" />
         </div>
-
-        <ApplicationIngressSettings
-          :application-domain-suffix="draft.applicationDomainSuffix"
-          :https-enabled="draft.httpsEnabled"
-          :automatically-provision-ssl="draft.automaticallyProvisionSsl"
-          :acme-email="draft.acmeEmail"
-          :dns-record-type="draft.dnsRecordType"
-          :dns-record-target="draft.dnsRecordTarget"
-          :certificate-provider="draft.certificateProvider"
-          :custom-certificate-id="draft.customCertificateId"
-          :custom-certificates="draft.customCertificates"
-          :domain-error="isDirty ? domainError : ''"
-          :email-error="isDirty ? emailError : ''"
-          :dns-error="isDirty ? dnsError : ''"
-          :tls-error="isDirty ? tlsError : ''"
-          @update:application-domain-suffix="
-            draft.applicationDomainSuffix = $event;
-            markDirty();
-          "
-          @update:https-enabled="updateHttpsEnabled"
-          @update:acme-email="
-            draft.acmeEmail = $event;
-            markDirty();
-          "
-          @update:dns-record-type="
-            draft.dnsRecordType = $event;
-            markDirty();
-          "
-          @update:dns-record-target="
-            draft.dnsRecordTarget = $event;
-            markDirty();
-          "
-          @update:automatically-provision-ssl="
-            draft.automaticallyProvisionSsl = $event;
-            markDirty();
-          "
-          @update:certificate-provider="updateCertificateProvider"
-          @update:custom-certificate-id="
-            draft.customCertificateId = $event;
+        <BuildCapacitySettings
+          :concurrent-builds="draft.concurrentBuilds"
+          :error="isDirty ? buildCapacityError : ''"
+          @update:concurrent-builds="
+            draft.concurrentBuilds = $event;
             markDirty();
           "
         />
+      </TabsContent>
 
-        <IngressFallbackSettings
-          :heading="draft.fallbackPageHeading"
-          :message="draft.fallbackPageMessage"
-          :heading-error="isDirty ? fallbackHeadingError : ''"
-          :message-error="isDirty ? fallbackMessageError : ''"
-          @update:heading="
-            draft.fallbackPageHeading = $event;
-            markDirty();
-          "
-          @update:message="
-            draft.fallbackPageMessage = $event;
-            markDirty();
-          "
-        />
+      <TabsContent value="ingress" class="mt-4">
+        <form class="grid gap-4" @submit.prevent="saveSettings">
+          <ApplicationIngressSettings
+            :application-domain-suffix="draft.applicationDomainSuffix"
+            :https-enabled="draft.httpsEnabled"
+            :automatically-provision-ssl="draft.automaticallyProvisionSsl"
+            :acme-email="draft.acmeEmail"
+            :dns-record-type="draft.dnsRecordType"
+            :dns-record-target="draft.dnsRecordTarget"
+            :certificate-provider="draft.certificateProvider"
+            :custom-certificate-id="draft.customCertificateId"
+            :custom-certificates="draft.customCertificates"
+            :domain-error="isDirty ? domainError : ''"
+            :email-error="isDirty ? emailError : ''"
+            :dns-error="isDirty ? dnsError : ''"
+            :tls-error="isDirty ? tlsError : ''"
+            @update:application-domain-suffix="
+              draft.applicationDomainSuffix = $event;
+              markDirty();
+            "
+            @update:https-enabled="updateHttpsEnabled"
+            @update:acme-email="
+              draft.acmeEmail = $event;
+              markDirty();
+            "
+            @update:dns-record-type="
+              draft.dnsRecordType = $event;
+              markDirty();
+            "
+            @update:dns-record-target="
+              draft.dnsRecordTarget = $event;
+              markDirty();
+            "
+            @update:automatically-provision-ssl="
+              draft.automaticallyProvisionSsl = $event;
+              markDirty();
+            "
+            @update:certificate-provider="updateCertificateProvider"
+            @update:custom-certificate-id="
+              draft.customCertificateId = $event;
+              markDirty();
+            "
+          />
 
-        <CertificateManager
-          :certificates="draft.customCertificates"
-          @add="addCertificate"
-          @remove="removeCertificate"
-        />
+          <IngressFallbackSettings
+            :heading="draft.fallbackPageHeading"
+            :message="draft.fallbackPageMessage"
+            :heading-error="isDirty ? fallbackHeadingError : ''"
+            :message-error="isDirty ? fallbackMessageError : ''"
+            @update:heading="
+              draft.fallbackPageHeading = $event;
+              markDirty();
+            "
+            @update:message="
+              draft.fallbackPageMessage = $event;
+              markDirty();
+            "
+          />
 
-        <footer
-          class="flex items-center justify-between gap-4 border-t border-border pt-4 text-[11px] text-muted-foreground max-[560px]:items-start max-[560px]:flex-col"
-        >
-          <p>Certificate and private key material are encrypted at rest.</p>
-          <span class="shrink-0 font-mono">Admin only</span>
-        </footer>
-      </form>
-    </div>
+          <CertificateManager
+            :certificates="draft.customCertificates"
+            @add="addCertificate"
+            @remove="removeCertificate"
+          />
+
+          <footer
+            class="flex items-center justify-between gap-4 border-t border-border pt-4 text-[11px] text-muted-foreground max-[560px]:items-start max-[560px]:flex-col"
+          >
+            <p>Certificate and private key material are encrypted at rest.</p>
+            <span class="shrink-0 font-mono">Admin only</span>
+          </footer>
+        </form>
+      </TabsContent>
+
+      <TabsContent value="backup" class="mt-4">
+        <BackupDestinationSettings />
+      </TabsContent>
+    </Tabs>
   </div>
 </template>

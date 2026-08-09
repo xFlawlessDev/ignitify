@@ -50,6 +50,19 @@ async function mountSettings() {
   return { app, host };
 }
 
+async function selectSection(host: HTMLElement, label: string) {
+  const tab = [...host.querySelectorAll('[role="tab"]')].find((element) =>
+    element.textContent?.includes(label),
+  );
+
+  if (!(tab instanceof HTMLButtonElement)) {
+    throw new Error(`Could not find the ${label} settings tab.`);
+  }
+
+  tab.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }));
+  await settle();
+}
+
 afterEach(() => {
   document.body.replaceChildren();
   vi.unstubAllGlobals();
@@ -130,7 +143,6 @@ describe("SettingsView", () => {
 
   it("loads infrastructure health and persists an application ingress policy", async () => {
     const { app, host } = await mountSettings();
-    const domain = host.querySelector("#application-domain-suffix") as HTMLInputElement;
     const save = [...host.querySelectorAll("button")].find((button) =>
       button.textContent?.includes("Save changes"),
     ) as HTMLButtonElement;
@@ -140,9 +152,12 @@ describe("SettingsView", () => {
     expect(host.textContent).toContain("Control plane health");
     expect(host.textContent).toContain("Traefik");
     expect(host.textContent).toContain("Application environment");
+    expect(host.textContent).toContain("Build capacity");
+    expect(host.textContent).toContain("http://127.0.0.1:6565");
+    await selectSection(host, "Ingress & TLS");
+    const domain = host.querySelector("#application-domain-suffix") as HTMLInputElement;
     expect(host.textContent).toContain("DNS record type");
     expect(host.querySelector("#dns-record-target")).not.toBeNull();
-    expect(host.textContent).toContain("http://127.0.0.1:6565");
 
     domain.value = "apps.example.com";
     domain.dispatchEvent(new Event("input", { bubbles: true }));
@@ -166,6 +181,7 @@ describe("SettingsView", () => {
 
   it("rejects an invalid application domain suffix", async () => {
     const { app, host } = await mountSettings();
+    await selectSection(host, "Ingress & TLS");
     const domain = host.querySelector("#application-domain-suffix") as HTMLInputElement;
     const save = [...host.querySelectorAll("button")].find((button) =>
       button.textContent?.includes("Save changes"),
@@ -182,6 +198,7 @@ describe("SettingsView", () => {
 
   it("persists a custom unmatched-hostname page", async () => {
     const { app, host } = await mountSettings();
+    await selectSection(host, "Ingress & TLS");
     const domain = host.querySelector("#application-domain-suffix") as HTMLInputElement;
     const heading = host.querySelector("#fallback-page-heading") as HTMLInputElement;
     const message = host.querySelector("#fallback-page-message") as HTMLTextAreaElement;
@@ -215,6 +232,7 @@ describe("SettingsView", () => {
 
   it("uploads a custom certificate pair through the server API", async () => {
     const { app, host } = await mountSettings();
+    await selectSection(host, "Ingress & TLS");
     const addCertificate = [...host.querySelectorAll("button")].find((button) =>
       button.textContent?.includes("Add certificate"),
     ) as HTMLButtonElement;
@@ -251,6 +269,7 @@ describe("SettingsView", () => {
 
   it("stores a write-only S3 backup destination separately from infrastructure settings", async () => {
     const { app, host } = await mountSettings();
+    await selectSection(host, "Backup");
     const endpoint = host.querySelector("#s3-backup-endpoint") as HTMLInputElement;
     const bucket = host.querySelector("#s3-backup-bucket") as HTMLInputElement;
     const accessKey = host.querySelector("#s3-access-key-id") as HTMLInputElement;
