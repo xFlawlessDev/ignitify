@@ -72,6 +72,12 @@ pub(crate) fn router(state: AppState) -> Router {
             axum::routing::delete(handlers::settings::remove_certificate),
         )
         .route(
+            "/api/v1/settings/backup-destination/s3",
+            get(handlers::backup_destinations::get)
+                .put(handlers::backup_destinations::upsert)
+                .delete(handlers::backup_destinations::remove),
+        )
+        .route(
             "/api/v1/remote-builders",
             get(handlers::remote_builders::list).post(handlers::remote_builders::create),
         )

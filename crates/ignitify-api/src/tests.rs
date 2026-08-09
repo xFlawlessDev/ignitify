@@ -331,6 +331,81 @@ async fn remote_builder_routes_encrypt_tls_material_and_require_admin() {
     assert!(builders[0].get("client_key").is_none());
 }
 
+#[tokio::test]
+async fn backup_s3_destination_routes_encrypt_credentials_and_require_admin() {
+    let state = state().await;
+    let token = session_token(&state).await;
+    let app = crate::router_with_system_metrics_and_docker_and_provider_cipher(
+        state.auth.clone(),
+        state.database.clone(),
+        state.services.clone(),
+        state.control.clone(),
+        state.runtime_health.clone(),
+        state.worker_health.clone(),
+        state.system_metrics.clone(),
+        state.docker_runtime.clone(),
+        state.terminal,
+        state.secure_cookies,
+        state.trusted_origins.clone(),
+        state.provider_cipher.clone(),
+    );
+    let unauthenticated = app
+        .clone()
+        .oneshot(request(
+            "GET",
+            "/api/v1/settings/backup-destination/s3",
+            None,
+            "",
+        ))
+        .await
+        .unwrap();
+    assert_eq!(unauthenticated.status(), StatusCode::UNAUTHORIZED);
+
+    let created = app
+        .clone()
+        .oneshot(request(
+            "PUT",
+            "/api/v1/settings/backup-destination/s3",
+            Some(&token),
+            r#"{"endpoint":"https://account.r2.cloudflarestorage.com","region":"auto","bucket":"ignitify-backups","prefix":"production","access_key_id":"access-key-id","secret_access_key":"secret-access-key","session_token":"session-token"}"#,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(created.status(), StatusCode::OK);
+    let created_body = created.into_body().collect().await.unwrap().to_bytes();
+    let created_text = String::from_utf8_lossy(&created_body);
+    assert!(!created_text.contains("access-key-id"));
+    assert!(!created_text.contains("secret-access-key"));
+    assert!(!created_text.contains("session-token"));
+    assert!(created_text.contains("AES256"));
+
+    let stored = state
+        .database
+        .backup_destinations()
+        .s3_connection()
+        .await
+        .unwrap()
+        .unwrap();
+    assert_ne!(stored.access_key_id_ciphertext, "access-key-id");
+    assert_ne!(stored.secret_access_key_ciphertext, "secret-access-key");
+
+    let fetched = app
+        .oneshot(request(
+            "GET",
+            "/api/v1/settings/backup-destination/s3",
+            Some(&token),
+            "",
+        ))
+        .await
+        .unwrap();
+    assert_eq!(fetched.status(), StatusCode::OK);
+    let fetched_body = fetched.into_body().collect().await.unwrap().to_bytes();
+    let fetched_text = String::from_utf8_lossy(&fetched_body);
+    assert!(fetched_text.contains("ignitify-backups"));
+    assert!(!fetched_text.contains("access_key_id"));
+    assert!(!fetched_text.contains("secret_access_key"));
+}
+
 async fn session_token(state: &AppState) -> String {
     state
         .auth

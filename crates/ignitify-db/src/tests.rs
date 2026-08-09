@@ -6,8 +6,8 @@ use ignitify_domain::{
 use uuid::Uuid;
 
 use crate::{
-    ActivityActor, Database, DatabaseConfig, DomainActor, NewProvider, NewRemoteBuilder,
-    NewServerCertificate, NewServiceVariable, ProjectActor, ProjectRemoveOutcome,
+    ActivityActor, Database, DatabaseConfig, DomainActor, NewBackupS3Destination, NewProvider,
+    NewRemoteBuilder, NewServerCertificate, NewServiceVariable, ProjectActor, ProjectRemoveOutcome,
     ProjectUpdateOutcome, ProviderAuthMode, ProviderKind, ServerSettingsUpdate, ServiceActor,
     ServiceMutationOutcome,
 };
@@ -45,6 +45,60 @@ async fn migrations_create_auth_storage() {
     assert!(settings.acme_email.is_empty());
     assert_eq!(settings.certificate_provider, "lets-encrypt");
     assert_eq!(settings.fallback_page_heading, "Application not found");
+}
+
+#[tokio::test]
+async fn backup_s3_destination_keeps_credentials_internal_and_replaces_configuration() {
+    let database = database().await;
+    assert!(database.backup_destinations().s3().await.unwrap().is_none());
+
+    let created = database
+        .backup_destinations()
+        .upsert_s3(NewBackupS3Destination {
+            endpoint: "https://account.r2.cloudflarestorage.com".to_owned(),
+            region: "auto".to_owned(),
+            bucket: "ignitify-backups".to_owned(),
+            prefix: "production/control-plane".to_owned(),
+            access_key_id_ciphertext: "encrypted-access-key".to_owned(),
+            secret_access_key_ciphertext: "encrypted-secret-key".to_owned(),
+            session_token_ciphertext: Some("encrypted-session-token".to_owned()),
+            server_side_encryption: "AES256".to_owned(),
+        })
+        .await
+        .unwrap();
+    assert_eq!(created.bucket, "ignitify-backups");
+    assert_eq!(created.server_side_encryption, "AES256");
+
+    let connection = database
+        .backup_destinations()
+        .s3_connection()
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(connection.access_key_id_ciphertext, "encrypted-access-key");
+    assert_eq!(
+        connection.session_token_ciphertext.as_deref(),
+        Some("encrypted-session-token")
+    );
+
+    let updated = database
+        .backup_destinations()
+        .upsert_s3(NewBackupS3Destination {
+            endpoint: "https://s3.ap-southeast-1.amazonaws.com".to_owned(),
+            region: "ap-southeast-1".to_owned(),
+            bucket: "ignitify-backups".to_owned(),
+            prefix: String::new(),
+            access_key_id_ciphertext: "replacement-access-key".to_owned(),
+            secret_access_key_ciphertext: "replacement-secret-key".to_owned(),
+            session_token_ciphertext: None,
+            server_side_encryption: "AES256".to_owned(),
+        })
+        .await
+        .unwrap();
+    assert_eq!(updated.region, "ap-southeast-1");
+    assert_eq!(updated.prefix, "");
+    assert!(database.backup_destinations().delete_s3().await.unwrap());
+    assert!(database.backup_destinations().s3().await.unwrap().is_none());
 }
 
 #[tokio::test]

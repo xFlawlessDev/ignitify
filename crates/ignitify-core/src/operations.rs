@@ -6,6 +6,8 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use ignitify_backup_s3::{BackupS3Destination, BackupS3DestinationInput, upload_backup};
+use ignitify_control_plane::AgeCipher;
 use thiserror::Error;
 
 use crate::runtime_secrets::{self, RuntimeSecrets};
@@ -54,9 +56,12 @@ pub(super) async fn execute(
     command: Command,
     data_dir: &Path,
     database_config: &ignitify_db::DatabaseConfig,
+    secrets_age_identity: &str,
 ) -> Result<(), Error> {
     match command {
-        Command::Backup { output } => backup(&output, data_dir, database_config).await,
+        Command::Backup { output } => {
+            backup(&output, data_dir, database_config, secrets_age_identity).await
+        }
         Command::Restore { source } => restore(&source, data_dir, database_config),
     }
 }
@@ -65,6 +70,7 @@ async fn backup(
     output: &Path,
     data_dir: &Path,
     database_config: &ignitify_db::DatabaseConfig,
+    secrets_age_identity: &str,
 ) -> Result<(), Error> {
     if output.exists() {
         return Err(Error::OutputExists(output.to_path_buf()));
@@ -79,11 +85,16 @@ async fn backup(
     fs::create_dir_all(output)?;
     let snapshot_path = output.join(DATABASE_FILE_NAME);
     let database = ignitify_db::Database::connect(database_config).await?;
+    let s3_destination = database.backup_destinations().s3_connection().await?;
     let snapshot = database.backup_to(&snapshot_path).await;
     database.close().await;
     if let Err(error) = snapshot {
         let _ = fs::remove_dir_all(output);
         return Err(error.into());
+    }
+    if let Err(error) = remove_s3_destination_from_snapshot(&snapshot_path).await {
+        let _ = fs::remove_dir_all(output);
+        return Err(error);
     }
     if let Err(error) = copy_sensitive_file(&secret_path, &output.join(runtime_secrets::FILE_NAME))
     {
@@ -91,8 +102,86 @@ async fn backup(
         return Err(error);
     }
 
-    println!("Ignitify backup created at {}", output.display());
+    println!("Ignitify backup created locally at {}", output.display());
+    if let Some(connection) = s3_destination {
+        let destination = decrypt_s3_destination(&connection, secrets_age_identity)?;
+        let upload = upload_backup(&destination, output).await?;
+        println!(
+            "Ignitify backup uploaded to s3://{}/{}",
+            connection.bucket, upload.object_prefix
+        );
+    }
     Ok(())
+}
+
+async fn remove_s3_destination_from_snapshot(snapshot_path: &Path) -> Result<(), Error> {
+    let suffix = unique_suffix()?.to_string();
+    let redacted = staged_path(snapshot_path, &format!("s3-redacted-{suffix}"));
+    let previous = staged_path(snapshot_path, &format!("s3-original-{suffix}"));
+    let snapshot_config = ignitify_db::DatabaseConfig {
+        url: format!("sqlite:{}", snapshot_path.display()),
+    };
+    let snapshot = ignitify_db::Database::connect(&snapshot_config).await?;
+    let redact = snapshot.backup_destinations().delete_s3().await;
+    let compact = if redact.is_ok() {
+        snapshot.backup_to(&redacted).await
+    } else {
+        Ok(())
+    };
+    snapshot.close().await;
+    if let Err(error) = redact {
+        let _ = fs::remove_file(&redacted);
+        return Err(error.into());
+    }
+    if let Err(error) = compact {
+        let _ = fs::remove_file(&redacted);
+        return Err(error.into());
+    }
+
+    rename_with_retry(snapshot_path, &previous)?;
+    if let Err(error) = rename_with_retry(&redacted, snapshot_path) {
+        let _ = rename_with_retry(&previous, snapshot_path);
+        let _ = fs::remove_file(&redacted);
+        return Err(error.into());
+    }
+    let _ = fs::remove_file(&previous);
+    let _ = fs::remove_file(sqlite_sidecar(snapshot_path, "-wal"));
+    let _ = fs::remove_file(sqlite_sidecar(snapshot_path, "-shm"));
+    Ok(())
+}
+
+fn decrypt_s3_destination(
+    connection: &ignitify_db::BackupS3DestinationConnection,
+    secrets_age_identity: &str,
+) -> Result<BackupS3Destination, Error> {
+    let cipher = AgeCipher::from_identity(secrets_age_identity)?;
+    let access_key_id = decrypt_s3_credential(&cipher, &connection.access_key_id_ciphertext)?;
+    let secret_access_key =
+        decrypt_s3_credential(&cipher, &connection.secret_access_key_ciphertext)?;
+    let session_token = connection
+        .session_token_ciphertext
+        .as_deref()
+        .map(|ciphertext| decrypt_s3_credential(&cipher, ciphertext))
+        .transpose()?;
+    Ok(BackupS3Destination::new(BackupS3DestinationInput {
+        endpoint: connection.endpoint.clone(),
+        region: connection.region.clone(),
+        bucket: connection.bucket.clone(),
+        prefix: connection.prefix.clone(),
+        access_key_id,
+        secret_access_key,
+        session_token,
+        server_side_encryption: connection.server_side_encryption.clone(),
+    })?)
+}
+
+fn decrypt_s3_credential(cipher: &AgeCipher, ciphertext: &str) -> Result<String, Error> {
+    let decrypted = cipher.decrypt(ciphertext)?;
+    let value = std::str::from_utf8(&decrypted).map_err(|_| Error::InvalidS3Credential)?;
+    if value.is_empty() || value.chars().any(char::is_control) {
+        return Err(Error::InvalidS3Credential);
+    }
+    Ok(value.to_owned())
 }
 
 fn restore(
@@ -171,7 +260,7 @@ fn required_argument(
 }
 
 fn validate_database_snapshot(path: &Path) -> Result<(), Error> {
-    let header = fs::read(path).map_err(|error| match error.kind() {
+    let header = read_with_retry(path).map_err(|error| match error.kind() {
         std::io::ErrorKind::NotFound => Error::MissingFile(path.to_path_buf()),
         _ => Error::Io(error),
     })?;
@@ -183,7 +272,7 @@ fn validate_database_snapshot(path: &Path) -> Result<(), Error> {
 }
 
 fn copy_sensitive_file(source: &Path, destination: &Path) -> Result<(), Error> {
-    let contents = fs::read(source).map_err(|error| match error.kind() {
+    let contents = read_with_retry(source).map_err(|error| match error.kind() {
         std::io::ErrorKind::NotFound => Error::MissingFile(source.to_path_buf()),
         _ => Error::Io(error),
     })?;
@@ -221,7 +310,7 @@ fn move_existing_to_recovery(
         if !target.exists() {
             continue;
         }
-        if let Err(error) = fs::rename(target, recovery) {
+        if let Err(error) = rename_with_retry(target, recovery) {
             restore_recovery(&moved);
             return Err(error.into());
         }
@@ -232,9 +321,31 @@ fn move_existing_to_recovery(
 
 fn install_replacements(replacements: &[(PathBuf, PathBuf)]) -> Result<(), Error> {
     for (staged, target) in replacements {
-        fs::rename(staged, target)?;
+        rename_with_retry(staged, target)?;
     }
     Ok(())
+}
+
+fn read_with_retry(path: &Path) -> std::io::Result<Vec<u8>> {
+    retry_sharing_violation(|| fs::read(path))
+}
+
+fn rename_with_retry(source: &Path, destination: &Path) -> std::io::Result<()> {
+    retry_sharing_violation(|| fs::rename(source, destination))
+}
+
+fn retry_sharing_violation<T>(
+    mut operation: impl FnMut() -> std::io::Result<T>,
+) -> std::io::Result<T> {
+    let mut result = operation();
+    for _ in 0..9 {
+        if !matches!(&result, Err(error) if error.raw_os_error() == Some(32)) {
+            return result;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+        result = operation();
+    }
+    result
 }
 
 fn restore_recovery(moved: &[(PathBuf, PathBuf)]) {
@@ -276,10 +387,16 @@ pub(super) enum Error {
     RestoreSourceMatchesTarget,
     #[error("system clock is before the Unix epoch")]
     Clock,
+    #[error("S3 backup credentials are invalid")]
+    InvalidS3Credential,
     #[error(transparent)]
     RuntimeSecrets(#[from] runtime_secrets::Error),
     #[error(transparent)]
     Database(#[from] ignitify_db::DatabaseError),
+    #[error(transparent)]
+    Control(#[from] ignitify_control_plane::Error),
+    #[error(transparent)]
+    S3(#[from] ignitify_backup_s3::Error),
     #[error(transparent)]
     Io(#[from] std::io::Error),
 }
@@ -288,7 +405,10 @@ pub(super) enum Error {
 mod tests {
     use std::fs;
 
-    use super::{backup, restore};
+    use age::secrecy::ExposeSecret;
+    use ignitify_control_plane::AgeCipher;
+
+    use super::{backup, remove_s3_destination_from_snapshot, restore};
     use crate::runtime_secrets::{self, RuntimeSecrets};
 
     #[tokio::test]
@@ -299,7 +419,8 @@ mod tests {
         let database_path = root.join("ignitify.db");
         let backup_dir = root.join("backup");
         fs::create_dir_all(&data_dir).unwrap();
-        RuntimeSecrets::load_or_create(&data_dir, Some(&"x".repeat(32)), None).unwrap();
+        let secrets =
+            RuntimeSecrets::load_or_create(&data_dir, Some(&"x".repeat(32)), None).unwrap();
         let config = ignitify_db::DatabaseConfig {
             url: format!("sqlite:{}", database_path.display()),
         };
@@ -307,7 +428,14 @@ mod tests {
         database.ping().await.unwrap();
         database.close().await;
 
-        backup(&backup_dir, &data_dir, &config).await.unwrap();
+        backup(
+            &backup_dir,
+            &data_dir,
+            &config,
+            &secrets.secrets_age_identity,
+        )
+        .await
+        .unwrap();
         let snapshot = fs::read(backup_dir.join("ignitify.db")).unwrap();
         write_file_with_retry(&database_path, b"SQLite format 3\0modified");
         write_file_with_retry(runtime_secrets::secret_file_path(&data_dir), b"invalid");
@@ -326,6 +454,57 @@ mod tests {
                     .to_string_lossy()
                     .starts_with("restore-recovery-"))
         );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
+    async fn backup_snapshot_excludes_s3_upload_credentials() {
+        let root =
+            std::env::temp_dir().join(format!("ignitify-operations-{}", uuid::Uuid::new_v4()));
+        let database_path = root.join("ignitify.db");
+        let snapshot_path = root.join("snapshot.db");
+        fs::create_dir_all(&root).unwrap();
+        let config = ignitify_db::DatabaseConfig {
+            url: format!("sqlite:{}", database_path.display()),
+        };
+        let database = ignitify_db::Database::connect(&config).await.unwrap();
+        let identity = age::x25519::Identity::generate().to_string();
+        let cipher = AgeCipher::from_identity(identity.expose_secret()).unwrap();
+        database
+            .backup_destinations()
+            .upsert_s3(ignitify_db::NewBackupS3Destination {
+                endpoint: "https://s3.example.test".to_owned(),
+                region: "us-east-1".to_owned(),
+                bucket: "ignitify-backups".to_owned(),
+                prefix: "production".to_owned(),
+                access_key_id_ciphertext: cipher.encrypt(b"access-key").unwrap(),
+                secret_access_key_ciphertext: cipher.encrypt(b"secret-key").unwrap(),
+                session_token_ciphertext: None,
+                server_side_encryption: "AES256".to_owned(),
+            })
+            .await
+            .unwrap();
+        database.backup_to(&snapshot_path).await.unwrap();
+        database.close().await;
+
+        remove_s3_destination_from_snapshot(&snapshot_path)
+            .await
+            .unwrap();
+
+        let snapshot = ignitify_db::Database::connect(&ignitify_db::DatabaseConfig {
+            url: format!("sqlite:{}", snapshot_path.display()),
+        })
+        .await
+        .unwrap();
+        assert!(
+            snapshot
+                .backup_destinations()
+                .s3_connection()
+                .await
+                .unwrap()
+                .is_none()
+        );
+        snapshot.close().await;
         let _ = fs::remove_dir_all(root);
     }
 

@@ -1,4 +1,5 @@
 mod activity;
+mod backup_destinations;
 mod dashboard;
 mod deployments;
 mod domains;
@@ -12,6 +13,10 @@ mod settings;
 mod users;
 
 pub use activity::{ActivityActor, ActivityRecord, ActivityRepository};
+pub use backup_destinations::{
+    BackupDestinationsRepository, BackupS3DestinationConnection, BackupS3DestinationRecord,
+    NewBackupS3Destination,
+};
 pub use dashboard::{
     DashboardActor, DashboardDeploymentRecord, DashboardProjectRecord, DashboardRecords,
     DashboardRepository, DashboardServiceRecord,

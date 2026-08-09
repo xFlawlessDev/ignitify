@@ -10,6 +10,7 @@ axum.workspace = true
 dotenvy.workspace = true
 ignitify-api = { path = "../ignitify-api" }
 ignitify-auth = { path = "../ignitify-auth" }
+ignitify-backup-s3 = { path = "../ignitify-backup-s3" }
 ignitify-control-plane = { path = "../ignitify-control-plane" }
 ignitify-ingress-traefik = { path = "../ignitify-ingress-traefik" }
 ignitify-db = { path = "../ignitify-db" }

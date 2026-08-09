@@ -3,6 +3,7 @@ import { Check, RefreshCw, RotateCcw, Save, Settings2 } from "@lucide/vue";
 import { computed, onMounted, reactive, shallowRef } from "vue";
 import ApplicationEnvironment from "@/components/settings/ApplicationEnvironment.vue";
 import ApplicationIngressSettings from "@/components/settings/ApplicationIngressSettings.vue";
+import BackupDestinationSettings from "@/components/settings/BackupDestinationSettings.vue";
 import BuildCapacitySettings from "@/components/settings/BuildCapacitySettings.vue";
 import CertificateManager from "@/components/settings/CertificateManager.vue";
 import IngressFallbackSettings from "@/components/settings/IngressFallbackSettings.vue";
@@ -444,6 +445,7 @@ onMounted(loadSettings);
           markDirty();
         "
       />
+      <BackupDestinationSettings />
 
       <form class="grid gap-4" @submit.prevent="saveSettings">
         <div class="flex items-center gap-2 border-b border-border pb-3">

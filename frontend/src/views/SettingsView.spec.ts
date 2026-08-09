@@ -84,6 +84,25 @@ describe("SettingsView", () => {
             }),
           );
         }
+        if (url.endsWith("/settings/backup-destination/s3") && method === "GET") {
+          return Promise.resolve(
+            new Response("null", { status: 200, headers: { "Content-Type": "application/json" } }),
+          );
+        }
+        if (url.endsWith("/settings/backup-destination/s3") && method === "PUT") {
+          const body = JSON.parse(typeof init?.body === "string" ? init.body : "{}");
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                ...body,
+                server_side_encryption: body.server_side_encryption,
+                created_at: "2026-01-01T00:00:00Z",
+                updated_at: "2026-01-01T00:00:00Z",
+              }),
+              { status: 200, headers: { "Content-Type": "application/json" } },
+            ),
+          );
+        }
         if (url.endsWith("/settings/infrastructure/certificates") && method === "POST") {
           return Promise.resolve(
             new Response(
@@ -227,6 +246,43 @@ describe("SettingsView", () => {
     expect(host.textContent).toContain("Production wildcard");
     expect(host.textContent).toContain("production.crt");
     expect(host.textContent).toContain("production.key");
+    app.unmount();
+  });
+
+  it("stores a write-only S3 backup destination separately from infrastructure settings", async () => {
+    const { app, host } = await mountSettings();
+    const endpoint = host.querySelector("#s3-backup-endpoint") as HTMLInputElement;
+    const bucket = host.querySelector("#s3-backup-bucket") as HTMLInputElement;
+    const accessKey = host.querySelector("#s3-access-key-id") as HTMLInputElement;
+    const secretKey = host.querySelector("#s3-secret-access-key") as HTMLInputElement;
+
+    endpoint.value = "https://account.r2.cloudflarestorage.com";
+    endpoint.dispatchEvent(new Event("input", { bubbles: true }));
+    bucket.value = "ignitify-backups";
+    bucket.dispatchEvent(new Event("input", { bubbles: true }));
+    accessKey.value = "access-key-id";
+    accessKey.dispatchEvent(new Event("input", { bubbles: true }));
+    secretKey.value = "secret-access-key";
+    secretKey.dispatchEvent(new Event("input", { bubbles: true }));
+    await nextTick();
+
+    const form = endpoint.closest("form") as HTMLFormElement;
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await settle();
+
+    const request = fetchCalls.find(
+      ([input, init]) =>
+        requestUrl(input).endsWith("/settings/backup-destination/s3") && init?.method === "PUT",
+    );
+    const body = request?.[1]?.body;
+    if (typeof body !== "string") throw new Error("Expected a JSON S3 destination payload.");
+    expect(JSON.parse(body)).toMatchObject({
+      endpoint: "https://account.r2.cloudflarestorage.com",
+      bucket: "ignitify-backups",
+      access_key_id: "access-key-id",
+      secret_access_key: "secret-access-key",
+    });
+    expect(host.textContent).toContain("configured");
     app.unmount();
   });
 });
