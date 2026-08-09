@@ -1,10 +1,13 @@
 use axum::{
     Router,
     extract::DefaultBodyLimit,
+    http::HeaderValue,
+    middleware,
+    response::Response,
     routing::{get, post},
 };
 
-use crate::{handlers, state::AppState};
+use crate::{frontend, handlers, state::AppState};
 
 pub(crate) fn router(state: AppState) -> Router {
     Router::new()
@@ -16,6 +19,7 @@ pub(crate) fn router(state: AppState) -> Router {
         .route("/api/v1/auth/login", post(handlers::auth::login))
         .route("/api/v1/auth/refresh", post(handlers::auth::refresh))
         .route("/api/v1/auth/logout", post(handlers::auth::logout))
+        .route("/api/v1/auth/step-up", post(handlers::auth::step_up))
         .route("/api/v1/auth/me", get(handlers::auth::me))
         .route("/api/v1/dashboard", get(handlers::dashboard::get))
         .route(
@@ -189,5 +193,68 @@ pub(crate) fn router(state: AppState) -> Router {
             "/api/v1/domains/{domain_id}/verify",
             post(handlers::domains::verify),
         )
+        .fallback(frontend::serve)
+        .layer(middleware::map_response(security_headers))
         .with_state(state)
+}
+
+async fn security_headers(mut response: Response) -> Response {
+    let headers = response.headers_mut();
+    if !headers.contains_key("cache-control") {
+        headers.insert("cache-control", HeaderValue::from_static("no-store"));
+    }
+    headers.insert(
+        "content-security-policy",
+        HeaderValue::from_static(
+            "default-src 'self'; connect-src 'self' wss:; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; object-src 'none'",
+        ),
+    );
+    headers.insert(
+        "cross-origin-opener-policy",
+        HeaderValue::from_static("same-origin"),
+    );
+    headers.insert("referrer-policy", HeaderValue::from_static("no-referrer"));
+    headers.insert(
+        "strict-transport-security",
+        HeaderValue::from_static("max-age=31536000; includeSubDomains"),
+    );
+    headers.insert(
+        "x-content-type-options",
+        HeaderValue::from_static("nosniff"),
+    );
+    headers.insert("x-frame-options", HeaderValue::from_static("DENY"));
+    response
+}
+
+#[cfg(test)]
+mod tests {
+    use axum::{
+        body::Body,
+        http::{HeaderValue, header},
+        response::Response,
+    };
+
+    use super::security_headers;
+
+    #[tokio::test]
+    async fn security_headers_preserve_frontend_asset_cache_policy() {
+        let mut response = Response::new(Body::empty());
+        response.headers_mut().insert(
+            header::CACHE_CONTROL,
+            HeaderValue::from_static("public, max-age=31536000, immutable"),
+        );
+
+        let response = security_headers(response).await;
+
+        assert_eq!(
+            response.headers().get(header::CACHE_CONTROL),
+            Some(&HeaderValue::from_static(
+                "public, max-age=31536000, immutable"
+            ))
+        );
+        assert_eq!(
+            response.headers().get("x-content-type-options"),
+            Some(&HeaderValue::from_static("nosniff"))
+        );
+    }
 }
