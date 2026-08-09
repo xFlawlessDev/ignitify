@@ -4,7 +4,6 @@ use std::{
     fs,
     io::{self, Write},
     path::{Path, PathBuf},
-    process::Command,
 };
 
 fn main() {
@@ -27,22 +26,7 @@ fn build_frontend() -> Result<(), Box<dyn Error>> {
     ] {
         println!("cargo:rerun-if-changed={}", path.display());
     }
-
-    if !frontend_dir.join("node_modules").is_dir() {
-        return Err(io::Error::new(
-            io::ErrorKind::NotFound,
-            "frontend dependencies are missing; run `pnpm install --frozen-lockfile` in frontend/ first",
-        )
-        .into());
-    }
-
-    let status = Command::new(pnpm_command())
-        .args(["run", "build"])
-        .current_dir(&frontend_dir)
-        .status()?;
-    if !status.success() {
-        return Err(io::Error::other("`pnpm run build` failed").into());
-    }
+    use_prebuilt_frontend(&dist_dir)?;
 
     if !dist_dir.is_dir() {
         return Err(io::Error::new(
@@ -77,8 +61,16 @@ fn build_frontend() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn pnpm_command() -> &'static str {
-    if cfg!(windows) { "pnpm.cmd" } else { "pnpm" }
+fn use_prebuilt_frontend(dist_dir: &Path) -> io::Result<()> {
+    if dist_dir.is_dir() {
+        println!("cargo:warning=embedding the existing frontend/dist bundle");
+        Ok(())
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            "frontend bundle is missing; run `pnpm install --frozen-lockfile && pnpm run build` in frontend/ before running Cargo",
+        ))
+    }
 }
 
 fn collect_assets(root: &Path, directory: &Path, assets: &mut Vec<PathBuf>) -> io::Result<()> {

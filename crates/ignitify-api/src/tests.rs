@@ -338,6 +338,72 @@ async fn remote_builder_routes_encrypt_tls_material_and_require_admin() {
 }
 
 #[tokio::test]
+async fn remote_server_routes_encrypt_ssh_material_and_do_not_expose_it() {
+    let state = state().await;
+    let token = session_token(&state).await;
+    let app = crate::router_with_system_metrics_and_docker_and_provider_cipher(
+        state.auth.clone(),
+        state.database.clone(),
+        state.services.clone(),
+        state.control.clone(),
+        state.runtime_health.clone(),
+        state.worker_health.clone(),
+        state.system_metrics.clone(),
+        state.docker_runtime.clone(),
+        state.terminal,
+        state.secure_cookies,
+        state.trusted_origins.clone(),
+        state.provider_cipher.clone(),
+    );
+    let unauthenticated = app
+        .clone()
+        .oneshot(request("GET", "/api/v1/remote-servers", None, ""))
+        .await
+        .unwrap();
+    assert_eq!(unauthenticated.status(), StatusCode::UNAUTHORIZED);
+
+    let created = app
+        .clone()
+        .oneshot(request(
+            "POST",
+            "/api/v1/remote-servers",
+            Some(&token),
+            r#"{"name":"Production VM","host":"production.example.com","port":22,"username":"ignitify","deploy_path":"/srv/ignitify","private_key":"-----BEGIN PRIVATE KEY-----\nprivate-key\n-----END PRIVATE KEY-----","known_hosts":"production.example.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExample","is_default":true}"#,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(created.status(), StatusCode::CREATED);
+    let body = created.into_body().collect().await.unwrap().to_bytes();
+    let created: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(created["private_key_configured"], true);
+    assert!(!String::from_utf8_lossy(&body).contains("private-key"));
+
+    let servers = app
+        .clone()
+        .oneshot(request("GET", "/api/v1/remote-servers", Some(&token), ""))
+        .await
+        .unwrap();
+    assert_eq!(servers.status(), StatusCode::OK);
+    let body = servers.into_body().collect().await.unwrap().to_bytes();
+    assert!(!String::from_utf8_lossy(&body).contains("AAAAC3Nza"));
+
+    let updated = app
+        .oneshot(request(
+            "PATCH",
+            &format!("/api/v1/remote-servers/{}", created["id"].as_str().unwrap()),
+            Some(&token),
+            r#"{"name":"Production VM","host":"production.example.com","port":2222,"username":"ignitify","deploy_path":"/srv/ignitify","is_default":true}"#,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(updated.status(), StatusCode::OK);
+    let body = updated.into_body().collect().await.unwrap().to_bytes();
+    let updated: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(updated["port"], 2222);
+    assert_eq!(updated["known_hosts_configured"], true);
+}
+
+#[tokio::test]
 async fn backup_s3_destination_routes_encrypt_credentials_and_require_admin() {
     let state = state().await;
     let token = session_token(&state).await;

@@ -8,6 +8,7 @@ mod projects;
 mod providers;
 mod refresh_tokens;
 mod remote_builders;
+mod remote_servers;
 mod services;
 mod settings;
 mod users;
@@ -44,6 +45,10 @@ pub use refresh_tokens::RefreshTokensRepository;
 pub use remote_builders::{
     NewRemoteBuilder, RemoteBuilderConnection, RemoteBuilderRecord, RemoteBuilderUpdate,
     RemoteBuildersRepository,
+};
+pub use remote_servers::{
+    NewRemoteServer, RemoteServerConnection, RemoteServerRecord, RemoteServerUpdate,
+    RemoteServersRepository,
 };
 pub use services::{
     AuthorizedService, NewServiceVariable, ServiceActor, ServiceMutationOutcome,

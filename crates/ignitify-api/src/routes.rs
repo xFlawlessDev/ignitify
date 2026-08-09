@@ -95,6 +95,19 @@ pub(crate) fn router(state: AppState) -> Router {
             post(handlers::remote_builders::make_default),
         )
         .route(
+            "/api/v1/remote-servers",
+            get(handlers::remote_servers::list).post(handlers::remote_servers::create),
+        )
+        .route(
+            "/api/v1/remote-servers/{server_id}",
+            axum::routing::delete(handlers::remote_servers::remove)
+                .patch(handlers::remote_servers::update),
+        )
+        .route(
+            "/api/v1/remote-servers/{server_id}/default",
+            post(handlers::remote_servers::make_default),
+        )
+        .route(
             "/api/v1/runtime/containers",
             get(handlers::runtime::containers),
         )

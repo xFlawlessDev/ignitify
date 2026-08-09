@@ -7,9 +7,9 @@ use uuid::Uuid;
 
 use crate::{
     ActivityActor, Database, DatabaseConfig, DomainActor, NewBackupS3Destination, NewProvider,
-    NewRemoteBuilder, NewServerCertificate, NewServiceVariable, ProjectActor, ProjectRemoveOutcome,
-    ProjectUpdateOutcome, ProviderAuthMode, ProviderKind, ServerSettingsUpdate, ServiceActor,
-    ServiceMutationOutcome,
+    NewRemoteBuilder, NewRemoteServer, NewServerCertificate, NewServiceVariable, ProjectActor,
+    ProjectRemoveOutcome, ProjectUpdateOutcome, ProviderAuthMode, ProviderKind,
+    ServerSettingsUpdate, ServiceActor, ServiceMutationOutcome,
 };
 
 async fn database() -> Database {
@@ -214,6 +214,59 @@ async fn remote_builder_default_and_secrets_are_durable() {
     );
     assert!(database.remote_builders().delete(&first.id).await.unwrap());
     assert!(database.remote_builders().active().await.unwrap().is_none());
+}
+
+#[tokio::test]
+async fn remote_server_default_and_ssh_secrets_are_durable() {
+    let database = database().await;
+    let first = database
+        .remote_servers()
+        .create(NewRemoteServer {
+            name: "Production VM".to_owned(),
+            host: "production.example.com".to_owned(),
+            port: 22,
+            username: "ignitify".to_owned(),
+            deploy_path: "/srv/ignitify".to_owned(),
+            private_key_ciphertext: "encrypted-private-key-a".to_owned(),
+            known_hosts_ciphertext: "encrypted-known-hosts-a".to_owned(),
+            is_default: true,
+        })
+        .await
+        .unwrap();
+    let second = database
+        .remote_servers()
+        .create(NewRemoteServer {
+            name: "Staging VM".to_owned(),
+            host: "staging.example.com".to_owned(),
+            port: 2222,
+            username: "deploy".to_owned(),
+            deploy_path: "/opt/ignitify".to_owned(),
+            private_key_ciphertext: "encrypted-private-key-b".to_owned(),
+            known_hosts_ciphertext: "encrypted-known-hosts-b".to_owned(),
+            is_default: true,
+        })
+        .await
+        .unwrap();
+
+    let records = database.remote_servers().list().await.unwrap();
+    assert_eq!(records.len(), 2);
+    assert_eq!(records[0].id, second.id);
+    assert!(records[0].is_default);
+
+    let active = database.remote_servers().active().await.unwrap().unwrap();
+    assert_eq!(active.host, "staging.example.com");
+    assert_eq!(active.private_key_ciphertext, "encrypted-private-key-b");
+    assert_eq!(active.known_hosts_ciphertext, "encrypted-known-hosts-b");
+
+    let restored = database
+        .remote_servers()
+        .set_default(&first.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(restored.is_default);
+    assert!(database.remote_servers().delete(&first.id).await.unwrap());
+    assert!(database.remote_servers().active().await.unwrap().is_none());
 }
 
 #[tokio::test]

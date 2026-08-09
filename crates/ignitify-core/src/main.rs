@@ -30,7 +30,7 @@ type RuntimeCapabilities = (
     Option<DockerRuntime>,
 );
 
-fn trusted_origins() -> Result<Arc<[String]>> {
+fn trusted_origins(listener_address: SocketAddr, remote_mode: bool) -> Result<Arc<[String]>> {
     let origins = env_value("IGNITIFY_TRUSTED_ORIGINS")
         .map(|origins| {
             origins
@@ -41,16 +41,34 @@ fn trusted_origins() -> Result<Arc<[String]>> {
                 .collect()
         })
         .unwrap_or_else(|| AuthConfig::default().trusted_origins);
-    let normalized = origins
+    let mut normalized = origins
         .into_iter()
         .map(|origin| normalized_origin(&origin))
         .collect::<Result<Vec<_>>>()?;
+    if !remote_mode {
+        for origin in embedded_listener_origins(listener_address) {
+            if !normalized.iter().any(|trusted| trusted == &origin) {
+                normalized.push(origin);
+            }
+        }
+    }
     if normalized.is_empty() {
         return Err(CoreError::Configuration(
             "IGNITIFY_TRUSTED_ORIGINS must contain at least one origin",
         ));
     }
     Ok(normalized.into())
+}
+
+fn embedded_listener_origins(listener_address: SocketAddr) -> [String; 2] {
+    let host = match listener_address.ip() {
+        std::net::IpAddr::V4(_) => "127.0.0.1".to_owned(),
+        std::net::IpAddr::V6(address) => format!("[{address}]"),
+    };
+    [
+        format!("http://{host}:{}", listener_address.port()),
+        format!("http://localhost:{}", listener_address.port()),
+    ]
 }
 
 fn normalized_origin(value: &str) -> Result<String> {
@@ -145,9 +163,9 @@ fn env_value(name: &str) -> Option<String> {
 async fn main() -> Result<()> {
     let _ = dotenvy::dotenv();
     let listener_address = listen_address()?;
-    let trusted_origins = trusted_origins()?;
     let secure_cookies = bool_env("IGNITIFY_SECURE_COOKIES", true)?;
     let remote_mode = remote_mode(listener_address)?;
+    let trusted_origins = trusted_origins(listener_address, remote_mode)?;
     let remote_mode =
         validate_remote_configuration(remote_mode, secure_cookies, trusted_origins.as_ref())?;
     let trust_proxy_headers = bool_env("IGNITIFY_TRUST_PROXY_HEADERS", remote_mode)?;
@@ -255,11 +273,34 @@ async fn main() -> Result<()> {
     );
     let listener = TcpListener::bind(listener_address).await?;
 
-    println!("Ignitify API listening on {}", listener.local_addr()?);
+    println!(
+        "Ignitify API listening on http://{}",
+        listener.local_addr()?
+    );
     axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
     )
     .await
     .map_err(CoreError::Io)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::net::SocketAddr;
+
+    use super::embedded_listener_origins;
+
+    #[test]
+    fn embedded_loopback_origins_match_listener_port() {
+        let address: SocketAddr = "127.0.0.1:5656".parse().unwrap();
+
+        assert_eq!(
+            embedded_listener_origins(address),
+            [
+                "http://127.0.0.1:5656".to_owned(),
+                "http://localhost:5656".to_owned(),
+            ]
+        );
+    }
 }

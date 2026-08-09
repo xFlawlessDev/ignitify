@@ -48,6 +48,8 @@ pub enum DatabaseError {
     ProviderNameConflict,
     #[error("remote builder name already exists")]
     RemoteBuilderNameConflict,
+    #[error("remote server name already exists")]
+    RemoteServerNameConflict,
     #[error("invalid stored provider kind: {0}")]
     InvalidProviderKind(String),
     #[error("invalid stored provider auth mode: {0}")]

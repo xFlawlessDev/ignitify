@@ -12,6 +12,7 @@ export default {
     docker: "Docker",
     terminal: "Terminal",
     remoteBuilders: "Remote builders",
+    remoteServers: "Remote servers",
     settings: "Settings",
     system: "System",
     expandSidebar: "Expand sidebar",
