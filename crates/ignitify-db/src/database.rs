@@ -12,7 +12,7 @@ use crate::{
     ActivityRepository, BackupDestinationsRepository, DashboardRepository, DeploymentsRepository,
     DomainsRepository, EnvironmentsRepository, ProjectsRepository, ProvidersRepository,
     RefreshTokensRepository, RemoteBuildersRepository, RemoteServersRepository, Result,
-    ServerSettingsRepository, ServicesRepository, UsersRepository,
+    ServerSettingsRepository, ServicesRepository, UptimeMonitorsRepository, UsersRepository,
 };
 
 static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!();
@@ -127,6 +127,10 @@ impl Database {
 
     pub fn server_settings(&self) -> ServerSettingsRepository {
         ServerSettingsRepository::new(self.pool.clone())
+    }
+
+    pub fn uptime_monitors(&self) -> UptimeMonitorsRepository {
+        UptimeMonitorsRepository::new(self.pool.clone())
     }
 
     pub async fn ping(&self) -> Result<()> {

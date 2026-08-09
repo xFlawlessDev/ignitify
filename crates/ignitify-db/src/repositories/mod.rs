@@ -11,6 +11,7 @@ mod remote_builders;
 mod remote_servers;
 mod services;
 mod settings;
+mod uptime_monitors;
 mod users;
 
 pub use activity::{ActivityActor, ActivityRecord, ActivityRepository};
@@ -57,5 +58,9 @@ pub use services::{
 pub use settings::{
     NewServerCertificate, ServerCertificateRecord, ServerSettingsRecord, ServerSettingsRepository,
     ServerSettingsUpdate,
+};
+pub use uptime_monitors::{
+    NewUptimeMonitor, UptimeCheckUpdate, UptimeMonitorRecord, UptimeMonitorUpdate,
+    UptimeMonitorsRepository,
 };
 pub use users::{AuditContext, AuditOutcome, UsersRepository};

@@ -194,6 +194,7 @@ async fn main() -> Result<()> {
     }
     let database = Database::connect(&database_config).await?;
     database.ping().await?;
+    let _uptime_monitor_worker = ignitify_monitoring::MonitorWorker::new(database.clone()).spawn();
 
     let auth = AuthService::new(
         database.clone(),

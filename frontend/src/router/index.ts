@@ -33,6 +33,12 @@ const router = createRouter({
       meta: { requiresAuth: true, breadcrumb: "navigation.monitoring" },
     },
     {
+      path: "/uptime",
+      name: "Uptime",
+      component: () => import("@/views/UptimeView.vue"),
+      meta: { requiresAuth: true, breadcrumb: "navigation.uptime" },
+    },
+    {
       path: "/projects",
       name: "Projects",
       component: () => import("@/views/ProjectsView.vue"),

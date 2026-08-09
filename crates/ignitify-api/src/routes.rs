@@ -137,6 +137,15 @@ pub(crate) fn router(state: AppState) -> Router {
             axum::routing::delete(handlers::runtime::remove_container),
         )
         .route("/api/v1/runtime/metrics", get(handlers::runtime::metrics))
+        .route(
+            "/api/v1/uptime-monitors",
+            get(handlers::uptime_monitors::list).post(handlers::uptime_monitors::create),
+        )
+        .route(
+            "/api/v1/uptime-monitors/{monitor_id}",
+            axum::routing::delete(handlers::uptime_monitors::remove)
+                .patch(handlers::uptime_monitors::update),
+        )
         .route("/api/v1/terminal", get(handlers::terminal::open))
         .route(
             "/api/v1/projects",

@@ -7,9 +7,10 @@ use uuid::Uuid;
 
 use crate::{
     ActivityActor, Database, DatabaseConfig, DomainActor, NewBackupS3Destination, NewProvider,
-    NewRemoteBuilder, NewRemoteServer, NewServerCertificate, NewServiceVariable, ProjectActor,
-    ProjectRemoveOutcome, ProjectUpdateOutcome, ProviderAuthMode, ProviderKind,
-    ServerSettingsUpdate, ServiceActor, ServiceMutationOutcome,
+    NewRemoteBuilder, NewRemoteServer, NewServerCertificate, NewServiceVariable, NewUptimeMonitor,
+    ProjectActor, ProjectRemoveOutcome, ProjectUpdateOutcome, ProviderAuthMode, ProviderKind,
+    ServerSettingsUpdate, ServiceActor, ServiceMutationOutcome, UptimeCheckUpdate,
+    UptimeMonitorUpdate,
 };
 
 async fn database() -> Database {
@@ -45,6 +46,99 @@ async fn migrations_create_auth_storage() {
     assert!(settings.acme_email.is_empty());
     assert_eq!(settings.certificate_provider, "lets-encrypt");
     assert_eq!(settings.fallback_page_heading, "Application not found");
+}
+
+#[tokio::test]
+async fn uptime_monitors_are_scoped_and_record_check_history() {
+    let database = database().await;
+    let owner_id = user_id(&database, "uptime-owner").await;
+    let other_id = user_id(&database, "uptime-other").await;
+    let created = database
+        .uptime_monitors()
+        .create(NewUptimeMonitor {
+            user_id: owner_id.clone(),
+            name: "Portal".to_owned(),
+            target: "https://portal.example.com/health".to_owned(),
+            kind: "http".to_owned(),
+            interval_seconds: 60,
+            enabled: true,
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(
+        database
+            .uptime_monitors()
+            .list_for_user(&owner_id)
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+    assert!(
+        database
+            .uptime_monitors()
+            .list_for_user(&other_id)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert!(matches!(
+        database
+            .uptime_monitors()
+            .create(NewUptimeMonitor {
+                user_id: owner_id.clone(),
+                name: "Portal".to_owned(),
+                target: "https://other.example.com".to_owned(),
+                kind: "http".to_owned(),
+                interval_seconds: 60,
+                enabled: true,
+            })
+            .await,
+        Err(crate::DatabaseError::UptimeMonitorNameConflict)
+    ));
+
+    database
+        .uptime_monitors()
+        .record_check(
+            &created.id,
+            &created.updated_at,
+            UptimeCheckUpdate {
+                status: "up".to_owned(),
+                latency_ms: Some(42),
+                last_error: None,
+                checked_at: Utc::now().to_rfc3339(),
+            },
+        )
+        .await
+        .unwrap();
+    let checked = database
+        .uptime_monitors()
+        .list_for_user(&owner_id)
+        .await
+        .unwrap();
+    assert_eq!(checked[0].status, "up");
+    assert_eq!(checked[0].latency_ms, Some(42));
+    assert_eq!(checked[0].history.last().map(String::as_str), Some("up"));
+
+    assert!(
+        database
+            .uptime_monitors()
+            .update(
+                &other_id,
+                &created.id,
+                UptimeMonitorUpdate {
+                    name: "Attempt".to_owned(),
+                    target: "https://other.example.com".to_owned(),
+                    kind: "http".to_owned(),
+                    interval_seconds: 60,
+                    enabled: true,
+                },
+            )
+            .await
+            .unwrap()
+            .is_none()
+    );
 }
 
 #[tokio::test]

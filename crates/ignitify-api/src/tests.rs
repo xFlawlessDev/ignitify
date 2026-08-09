@@ -142,6 +142,79 @@ async fn system_metrics_returns_provider_snapshot_for_authenticated_actor() {
 }
 
 #[tokio::test]
+async fn uptime_monitor_api_validates_and_persists_custom_endpoints() {
+    let state = state().await;
+    let token = session_token(&state).await;
+    let app = router(
+        state.auth.clone(),
+        state.database.clone(),
+        state.services.clone(),
+        state.control.clone(),
+        state.runtime_health.clone(),
+        state.worker_health.clone(),
+        state.secure_cookies,
+        state.trusted_origins.clone(),
+    );
+
+    let unauthenticated = app
+        .clone()
+        .oneshot(request("GET", "/api/v1/uptime-monitors", None, ""))
+        .await
+        .unwrap();
+    assert_eq!(unauthenticated.status(), StatusCode::UNAUTHORIZED);
+
+    let invalid = app
+        .clone()
+        .oneshot(request(
+            "POST",
+            "/api/v1/uptime-monitors",
+            Some(&token),
+            r#"{"name":"Private","target":"http://127.0.0.1:5656","kind":"http","interval_seconds":60,"enabled":true}"#,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(invalid.status(), StatusCode::BAD_REQUEST);
+
+    let created = app
+        .clone()
+        .oneshot(request(
+            "POST",
+            "/api/v1/uptime-monitors",
+            Some(&token),
+            r#"{"name":"Portal","target":"status.example.com/health","kind":"http","interval_seconds":60,"enabled":true}"#,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(created.status(), StatusCode::CREATED);
+    let created_body = created.into_body().collect().await.unwrap().to_bytes();
+    let created_json: serde_json::Value = serde_json::from_slice(&created_body).unwrap();
+    let monitor_id = created_json["id"].as_str().unwrap().to_owned();
+    assert_eq!(created_json["target"], "https://status.example.com/health");
+    assert_eq!(created_json["status"], "pending");
+
+    let listed = app
+        .clone()
+        .oneshot(request("GET", "/api/v1/uptime-monitors", Some(&token), ""))
+        .await
+        .unwrap();
+    assert_eq!(listed.status(), StatusCode::OK);
+    let listed_body = listed.into_body().collect().await.unwrap().to_bytes();
+    let listed_json: serde_json::Value = serde_json::from_slice(&listed_body).unwrap();
+    assert_eq!(listed_json.as_array().unwrap().len(), 1);
+
+    let removed = app
+        .oneshot(request(
+            "DELETE",
+            &format!("/api/v1/uptime-monitors/{monitor_id}"),
+            Some(&token),
+            "",
+        ))
+        .await
+        .unwrap();
+    assert_eq!(removed.status(), StatusCode::NO_CONTENT);
+}
+
+#[tokio::test]
 async fn provider_routes_encrypt_credentials_and_require_admin_mutations() {
     let state = state().await;
     let token = session_token(&state).await;

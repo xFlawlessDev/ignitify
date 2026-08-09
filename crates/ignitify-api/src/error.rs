@@ -50,6 +50,10 @@ pub(crate) enum ApiError {
     ProviderRemote(#[from] reqwest::Error),
     #[error("remote server connection failed")]
     RemoteServerCheckFailed,
+    #[error("remote server connection failed: {0}")]
+    RemoteServerCheckFailedWithReason(&'static str),
+    #[error("remote server connection failed: {0}")]
+    RemoteServerCheckFailedWithDiagnostic(String),
 }
 
 impl IntoResponse for ApiError {
@@ -92,6 +96,10 @@ impl IntoResponse for ApiError {
             Self::Database(DatabaseError::RemoteServerNameConflict) => (
                 StatusCode::CONFLICT,
                 "remote server name already exists".to_owned(),
+            ),
+            Self::Database(DatabaseError::UptimeMonitorNameConflict) => (
+                StatusCode::CONFLICT,
+                "uptime monitor name already exists".to_owned(),
             ),
             Self::Database(DatabaseError::ServiceNameConflict)
             | Self::Control(ignitify_control_plane::Error::Database(
@@ -176,6 +184,12 @@ impl IntoResponse for ApiError {
                 StatusCode::BAD_GATEWAY,
                 "remote server connection failed".to_owned(),
             ),
+            Self::RemoteServerCheckFailedWithReason(message) => {
+                (StatusCode::BAD_GATEWAY, message.to_owned())
+            }
+            Self::RemoteServerCheckFailedWithDiagnostic(message) => {
+                (StatusCode::BAD_GATEWAY, message)
+            }
             Self::Terminal(_) => (
                 StatusCode::SERVICE_UNAVAILABLE,
                 "host terminal is unavailable".to_owned(),

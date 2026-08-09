@@ -18,15 +18,16 @@ pub use repositories::{
     DeploymentVariableRecord, DeploymentsRepository, DomainActor, DomainMutationOutcome,
     DomainRecord, DomainVerificationRequestOutcome, DomainsRepository, EnvironmentsRepository,
     NewBackupS3Destination, NewDeployment, NewDeploymentLog, NewProjectVariable, NewProvider,
-    NewRemoteBuilder, NewRemoteServer, NewServerCertificate, NewServiceVariable, ProjectActor,
-    ProjectRemoveOutcome, ProjectUpdateOutcome, ProjectVariableRecord,
+    NewRemoteBuilder, NewRemoteServer, NewServerCertificate, NewServiceVariable, NewUptimeMonitor,
+    ProjectActor, ProjectRemoveOutcome, ProjectUpdateOutcome, ProjectVariableRecord,
     ProjectVariablesMutationOutcome, ProjectsRepository, ProviderAuthMode, ProviderKind,
     ProviderMutationOutcome, ProviderRecord, ProviderUpdate, ProvidersRepository,
     RefreshTokensRepository, RemoteBuilderConnection, RemoteBuilderRecord, RemoteBuilderUpdate,
     RemoteBuildersRepository, RemoteServerConnection, RemoteServerRecord, RemoteServerUpdate,
     RemoteServersRepository, RetrySchedule, SequenceCursor, ServerCertificateRecord,
     ServerSettingsRecord, ServerSettingsRepository, ServerSettingsUpdate, ServiceActor,
-    ServiceMutationOutcome, ServiceVariableRecord, ServicesRepository, UsersRepository,
+    ServiceMutationOutcome, ServiceVariableRecord, ServicesRepository, UptimeCheckUpdate,
+    UptimeMonitorRecord, UptimeMonitorUpdate, UptimeMonitorsRepository, UsersRepository,
 };
 
 #[cfg(test)]

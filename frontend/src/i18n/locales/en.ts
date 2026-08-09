@@ -7,6 +7,7 @@ export default {
     workspace: "Workspace",
     overview: "Overview",
     monitoring: "Monitoring",
+    uptime: "Uptime",
     projects: "Projects",
     providers: "Providers",
     docker: "Docker",

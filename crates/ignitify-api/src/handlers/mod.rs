@@ -16,3 +16,4 @@ pub(crate) mod services;
 pub(crate) mod settings;
 pub(crate) mod streams;
 pub(crate) mod terminal;
+pub(crate) mod uptime_monitors;

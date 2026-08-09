@@ -14,3 +14,4 @@ export * from "./settings";
 export * from "./backup-destinations";
 export * from "./remote-builders";
 export * from "./remote-servers";
+export * from "./uptime-monitors";

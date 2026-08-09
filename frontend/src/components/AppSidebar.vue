@@ -5,6 +5,7 @@ import {
   Container,
   Activity,
   GitBranch,
+  HeartPulse,
   LayoutDashboard,
   LogOut,
   PanelLeftClose,
@@ -39,6 +40,7 @@ const primaryNavigation = computed(() => {
   const items = [
     { labelKey: "navigation.overview", to: "/dashboard", icon: LayoutDashboard },
     { labelKey: "navigation.monitoring", to: "/monitoring", icon: Activity },
+    { labelKey: "navigation.uptime", to: "/uptime", icon: HeartPulse },
     { labelKey: "navigation.projects", to: "/projects", icon: Box },
   ];
   if (auth.isAdmin) {

@@ -1550,6 +1550,7 @@ dependencies = [
  "ignitify-db",
  "ignitify-dns",
  "ignitify-ingress-traefik",
+ "ignitify-monitoring",
  "ignitify-runtime-compose",
  "ignitify-runtime-docker",
  "ignitify-source-git",
@@ -1608,6 +1609,18 @@ dependencies = [
  "tokio",
  "tracing",
  "uuid",
+]
+
+[[package]]
+name = "ignitify-monitoring"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "ignitify-db",
+ "reqwest",
+ "tokio",
+ "tracing",
+ "url",
 ]
 
 [[package]]

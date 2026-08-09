@@ -7,6 +7,7 @@ export default {
     workspace: "Ruang kerja",
     overview: "Ringkasan",
     monitoring: "Pemantauan",
+    uptime: "Uptime",
     projects: "Proyek",
     providers: "Provider",
     docker: "Docker",

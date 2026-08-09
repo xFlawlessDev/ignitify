@@ -50,6 +50,10 @@ pub enum DatabaseError {
     RemoteBuilderNameConflict,
     #[error("remote server name already exists")]
     RemoteServerNameConflict,
+    #[error("uptime monitor name already exists")]
+    UptimeMonitorNameConflict,
+    #[error("invalid stored uptime monitor history: {0}")]
+    InvalidStoredUptimeHistory(String),
     #[error("invalid stored provider kind: {0}")]
     InvalidProviderKind(String),
     #[error("invalid stored provider auth mode: {0}")]
