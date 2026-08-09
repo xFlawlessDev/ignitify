@@ -12,42 +12,60 @@ export interface ServerCertificateSummary {
   updated_at: string;
 }
 
-export interface ServerSettingsResponse {
-  server_domain: string;
+export interface InfrastructureHealthStatus {
+  database: "ready" | "unavailable";
+  runtime: "ready" | "unavailable";
+  worker: "ready" | "unavailable";
+  ingress: "ready" | "unavailable";
+}
+
+export interface ApplicationEnvironmentStatus {
+  public_origin: string;
+  secure_cookies: boolean;
+}
+
+export interface InfrastructureSettingsResponse {
+  application: ApplicationEnvironmentStatus;
+  application_domain_suffix: string;
   https_enabled: boolean;
   automatically_provision_ssl: boolean;
+  acme_email: string;
+  dns_record_type: "a" | "cname";
+  dns_record_target: string;
   certificate_provider: ServerCertificateProvider;
   custom_certificate_id: string | null;
-  concurrent_builds: number;
   certificates: ServerCertificateSummary[];
+  health: InfrastructureHealthStatus;
   updated_at: string;
 }
 
-export interface ServerSettingsInput {
-  server_domain: string;
+export interface InfrastructureSettingsInput {
+  application_domain_suffix: string;
   https_enabled: boolean;
   automatically_provision_ssl: boolean;
+  acme_email: string;
+  dns_record_type: "a" | "cname";
+  dns_record_target: string;
   certificate_provider: ServerCertificateProvider;
   custom_certificate_id: string | null;
-  concurrent_builds: number;
 }
 
-const endpoint = "/settings/server";
+const endpoint = "/settings/infrastructure";
 
-export function apiGetServerSettings(): Promise<ApiResult<ServerSettingsResponse>> {
-  return apiFetch<ServerSettingsResponse>(endpoint);
+export function apiGetInfrastructureSettings(): Promise<ApiResult<InfrastructureSettingsResponse>> {
+  return apiFetch<InfrastructureSettingsResponse>(endpoint);
 }
 
-export function apiUpdateServerSettings(
-  input: ServerSettingsInput,
-): Promise<ApiResult<ServerSettingsResponse>> {
-  return apiFetch<ServerSettingsResponse>(endpoint, {
+export function apiUpdateInfrastructureSettings(
+  input: InfrastructureSettingsInput,
+): Promise<ApiResult<InfrastructureSettingsResponse>> {
+  return apiFetch<InfrastructureSettingsResponse>(endpoint, {
     method: "PATCH",
     body: JSON.stringify(input),
   });
 }
 
-export function apiCreateServerCertificate(
+export function apiCreateInfrastructureCertificate(
   name: string,
   certificateFile: File,
   privateKeyFile: File,
@@ -62,7 +80,9 @@ export function apiCreateServerCertificate(
   });
 }
 
-export function apiDeleteServerCertificate(certificateId: string): Promise<ApiResult<void>> {
+export function apiDeleteInfrastructureCertificate(
+  certificateId: string,
+): Promise<ApiResult<void>> {
   return apiFetch<void>(`${endpoint}/certificates/${encodeURIComponent(certificateId)}`, {
     method: "DELETE",
   });

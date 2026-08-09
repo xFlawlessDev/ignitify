@@ -7,7 +7,7 @@ use ignitify_control_plane::AgeCipher;
 use ignitify_db::{
     NewServerCertificate, ServerCertificateRecord, ServerSettingsRecord, ServerSettingsUpdate,
 };
-use ignitify_domain::DomainName;
+use ignitify_domain::{DnsRecord, DnsRecordType, DomainName};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -21,25 +21,51 @@ const MAX_CERTIFICATE_BYTES: usize = 2 * 1024 * 1024;
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct ServerSettingsRequest {
-    server_domain: String,
+pub(crate) struct InfrastructureSettingsRequest {
+    application_domain_suffix: String,
     https_enabled: bool,
     automatically_provision_ssl: bool,
+    acme_email: String,
+    #[serde(default = "default_dns_record_type")]
+    dns_record_type: String,
+    #[serde(default)]
+    dns_record_target: String,
     certificate_provider: String,
     custom_certificate_id: Option<String>,
-    concurrent_builds: i64,
+}
+
+fn default_dns_record_type() -> String {
+    "a".to_owned()
 }
 
 #[derive(Debug, Serialize)]
-pub(crate) struct ServerSettingsResponse {
-    server_domain: String,
+pub(crate) struct InfrastructureSettingsResponse {
+    application: ApplicationEnvironmentResponse,
+    application_domain_suffix: String,
     https_enabled: bool,
     automatically_provision_ssl: bool,
+    acme_email: String,
+    dns_record_type: String,
+    dns_record_target: String,
     certificate_provider: String,
     custom_certificate_id: Option<String>,
-    concurrent_builds: i64,
     certificates: Vec<CertificateSummary>,
+    health: InfrastructureHealthResponse,
     updated_at: String,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct ApplicationEnvironmentResponse {
+    public_origin: String,
+    secure_cookies: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct InfrastructureHealthResponse {
+    database: &'static str,
+    runtime: &'static str,
+    worker: &'static str,
+    ingress: &'static str,
 }
 
 #[derive(Debug, Serialize)]
@@ -68,7 +94,7 @@ impl From<ServerCertificateRecord> for CertificateSummary {
 pub(crate) async fn get(
     State(state): State<AppState>,
     headers: HeaderMap,
-) -> Result<Json<ServerSettingsResponse>, ApiError> {
+) -> Result<Json<InfrastructureSettingsResponse>, ApiError> {
     require_admin(&state, &headers).await?;
     response(&state).await.map(Json)
 }
@@ -76,8 +102,8 @@ pub(crate) async fn get(
 pub(crate) async fn update(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Json(request): Json<ServerSettingsRequest>,
-) -> Result<Json<ServerSettingsResponse>, ApiError> {
+    Json(request): Json<InfrastructureSettingsRequest>,
+) -> Result<Json<InfrastructureSettingsResponse>, ApiError> {
     require_admin(&state, &headers).await?;
     require_same_origin_request(&state, &headers)?;
     let input = validate_request(&state, request).await?;
@@ -183,9 +209,12 @@ pub(crate) async fn remove_certificate(
     if current.custom_certificate_id.as_deref() == Some(certificate_id.as_str()) {
         repository
             .update(ServerSettingsUpdate {
-                server_domain: current.server_domain,
+                application_domain_suffix: current.application_domain_suffix,
                 https_enabled: current.https_enabled,
                 automatically_provision_ssl: current.automatically_provision_ssl,
+                acme_email: current.acme_email,
+                dns_record_type: current.dns_record_type,
+                dns_record_target: current.dns_record_target,
                 certificate_provider: "none".to_owned(),
                 custom_certificate_id: None,
                 concurrent_builds: current.concurrent_builds,
@@ -196,7 +225,7 @@ pub(crate) async fn remove_certificate(
     Ok(StatusCode::NO_CONTENT)
 }
 
-async fn response(state: &AppState) -> Result<ServerSettingsResponse, ApiError> {
+async fn response(state: &AppState) -> Result<InfrastructureSettingsResponse, ApiError> {
     let repository = state.database.server_settings();
     let settings = repository.get().await?;
     let certificates = repository
@@ -205,41 +234,78 @@ async fn response(state: &AppState) -> Result<ServerSettingsResponse, ApiError> 
         .into_iter()
         .map(CertificateSummary::from)
         .collect();
-    Ok(settings_response(settings, certificates))
+    let (database, runtime, worker, ingress) = tokio::join!(
+        state.database.ping(),
+        state.runtime_health.ready(),
+        state.worker_health.ready(),
+        state.ingress_health.ready(),
+    );
+    Ok(settings_response(
+        settings,
+        certificates,
+        ApplicationEnvironmentResponse {
+            public_origin: state.trusted_origins.first().cloned().unwrap_or_default(),
+            secure_cookies: state.secure_cookies,
+        },
+        InfrastructureHealthResponse {
+            database: if database.is_ok() {
+                "ready"
+            } else {
+                "unavailable"
+            },
+            runtime: if runtime { "ready" } else { "unavailable" },
+            worker: if worker { "ready" } else { "unavailable" },
+            ingress: if ingress { "ready" } else { "unavailable" },
+        },
+    ))
 }
 
 fn settings_response(
     settings: ServerSettingsRecord,
     certificates: Vec<CertificateSummary>,
-) -> ServerSettingsResponse {
-    ServerSettingsResponse {
-        server_domain: settings.server_domain,
+    application: ApplicationEnvironmentResponse,
+    health: InfrastructureHealthResponse,
+) -> InfrastructureSettingsResponse {
+    InfrastructureSettingsResponse {
+        application,
+        application_domain_suffix: settings.application_domain_suffix,
         https_enabled: settings.https_enabled,
         automatically_provision_ssl: settings.automatically_provision_ssl,
+        acme_email: settings.acme_email,
+        dns_record_type: settings.dns_record_type,
+        dns_record_target: settings.dns_record_target,
         certificate_provider: settings.certificate_provider,
         custom_certificate_id: settings.custom_certificate_id,
-        concurrent_builds: settings.concurrent_builds,
         certificates,
+        health,
         updated_at: settings.updated_at,
     }
 }
 
 async fn validate_request(
     state: &AppState,
-    request: ServerSettingsRequest,
+    request: InfrastructureSettingsRequest,
 ) -> Result<ServerSettingsUpdate, ApiError> {
-    let server_domain = request.server_domain.trim().to_ascii_lowercase();
-    if server_domain.is_empty() {
-        return Err(ApiError::BadRequest("server domain is required"));
-    }
-    DomainName::new(&server_domain).map_err(|_| {
-        ApiError::BadRequest("server domain must be a valid hostname without a protocol or path")
-    })?;
-    if !(1..=32).contains(&request.concurrent_builds) {
+    let application_domain_suffix = request
+        .application_domain_suffix
+        .trim()
+        .to_ascii_lowercase();
+    if application_domain_suffix.is_empty() {
         return Err(ApiError::BadRequest(
-            "concurrent builds must be between 1 and 32",
+            "application domain suffix is required",
         ));
     }
+    DomainName::new(&application_domain_suffix).map_err(|_| {
+        ApiError::BadRequest(
+            "application domain suffix must be a valid hostname without a protocol or path",
+        )
+    })?;
+    let concurrent_builds = state
+        .database
+        .server_settings()
+        .get()
+        .await?
+        .concurrent_builds;
 
     let provider = request.certificate_provider.trim().to_ascii_lowercase();
     if !matches!(provider.as_str(), "none" | "lets-encrypt" | "custom") {
@@ -249,6 +315,20 @@ async fn validate_request(
         return Err(ApiError::BadRequest(
             "automatic SSL provisioning requires Let's Encrypt",
         ));
+    }
+    let acme_email = request.acme_email.trim().to_owned();
+    if request.https_enabled && request.automatically_provision_ssl && !valid_email(&acme_email) {
+        return Err(ApiError::BadRequest(
+            "a valid ACME contact email is required for automatic certificates",
+        ));
+    }
+    let dns_record_type = request.dns_record_type.trim().to_ascii_lowercase();
+    let dns_record_target = request.dns_record_target.trim().to_ascii_lowercase();
+    let dns_record_kind = DnsRecordType::try_from(dns_record_type.as_str())
+        .map_err(|_| ApiError::BadRequest("DNS record type must be A or CNAME"))?;
+    if !dns_record_target.is_empty() {
+        DnsRecord::new(dns_record_kind, &dns_record_target)
+            .map_err(|_| ApiError::BadRequest("DNS record target is invalid"))?;
     }
     let custom_certificate_id = if request.https_enabled && provider == "custom" {
         let id = request
@@ -271,17 +351,37 @@ async fn validate_request(
     };
 
     Ok(ServerSettingsUpdate {
-        server_domain,
+        application_domain_suffix,
         https_enabled: request.https_enabled,
         automatically_provision_ssl: request.https_enabled && request.automatically_provision_ssl,
+        acme_email,
+        dns_record_type,
+        dns_record_target,
         certificate_provider: if request.https_enabled {
             provider
         } else {
             "none".to_owned()
         },
         custom_certificate_id,
-        concurrent_builds: request.concurrent_builds,
+        concurrent_builds,
     })
+}
+
+fn valid_email(value: &str) -> bool {
+    if value.is_empty() || value.len() > 254 || value.chars().any(char::is_whitespace) {
+        return false;
+    }
+    let mut parts = value.split('@');
+    let Some(local) = parts.next() else {
+        return false;
+    };
+    let Some(domain) = parts.next() else {
+        return false;
+    };
+    parts.next().is_none()
+        && !local.is_empty()
+        && !domain.is_empty()
+        && DomainName::new(domain).is_ok()
 }
 
 async fn require_admin(state: &AppState, headers: &HeaderMap) -> Result<(), ApiError> {

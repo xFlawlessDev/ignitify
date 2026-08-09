@@ -13,6 +13,7 @@ ignitify-auth = { path = "../ignitify-auth" }
 ignitify-control-plane = { path = "../ignitify-control-plane" }
 ignitify-ingress-traefik = { path = "../ignitify-ingress-traefik" }
 ignitify-db = { path = "../ignitify-db" }
+ignitify-dns = { path = "../ignitify-dns" }
 ignitify-runtime-docker = { path = "../ignitify-runtime-docker" }
 ignitify-source-git = { path = "../ignitify-source-git" }
 ignitify-terminal = { path = "../ignitify-terminal" }

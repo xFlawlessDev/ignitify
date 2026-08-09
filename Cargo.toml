@@ -15,6 +15,7 @@ base64 = "0.22"
 bollard = "0.18"
 chrono = { version = "0.4", features = ["clock", "serde"] }
 futures-util = "0.3"
+hickory-resolver = "0.26.1"
 portable-pty = "0.9"
 jsonwebtoken = "9.3"
 rand = "0.8"

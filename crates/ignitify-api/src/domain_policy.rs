@@ -33,6 +33,10 @@ impl DomainPolicy {
             })
     }
 
+    pub(crate) fn restricts_to_operator_suffixes(&self) -> bool {
+        !self.allow_all && !self.allowed_suffixes.is_empty()
+    }
+
     pub(crate) fn permissive() -> Self {
         Self {
             allowed_suffixes: Arc::new([]),
@@ -55,6 +59,9 @@ mod tests {
         assert!(
             !DomainPolicy::from_suffixes(Vec::<String>::new())
                 .allows(&DomainName::new("web.apps.example.com").unwrap())
+        );
+        assert!(
+            !DomainPolicy::from_suffixes(Vec::<String>::new()).restricts_to_operator_suffixes()
         );
     }
 }

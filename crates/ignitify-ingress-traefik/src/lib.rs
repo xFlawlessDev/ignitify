@@ -33,6 +33,7 @@ pub struct TraefikIngress {
     runtime: DockerRuntime,
     operator: OperatorConfig,
     routing_policy: Arc<RwLock<RoutingPolicy>>,
+    operator_email: Arc<RwLock<Option<String>>>,
     server_settings: Option<ServerSettingsSource>,
 }
 
@@ -79,6 +80,7 @@ impl TraefikIngress {
             runtime,
             operator: OperatorConfig::from_environment(),
             routing_policy: Arc::new(RwLock::new(RoutingPolicy::default())),
+            operator_email: Arc::new(RwLock::new(None)),
             server_settings: None,
         }
     }
@@ -92,6 +94,7 @@ impl TraefikIngress {
             runtime,
             operator: OperatorConfig::from_environment(),
             routing_policy: Arc::new(RwLock::new(RoutingPolicy::default())),
+            operator_email: Arc::new(RwLock::new(None)),
             server_settings: Some(ServerSettingsSource {
                 database,
                 cipher,
@@ -110,22 +113,25 @@ impl TraefikIngress {
     }
 
     pub async fn ensure_started(&self) -> bool {
-        if self.ready().await {
+        let desired_email = self.desired_acme_email().await;
+        if self.ready().await && self.operator_email_matches(&desired_email) {
             return true;
         }
         if !self.operator.auto_start {
-            return false;
+            return self.ready().await;
         }
-        if let Err(error) = self.operator.start().await {
+        if let Err(error) = self.operator.start(desired_email.as_deref()).await {
             tracing::warn!(error = %error, "could not start the Traefik operator stack");
             return false;
         }
+        self.set_operator_email(desired_email);
         self.ready().await
     }
 
     async fn sync_server_settings(&self, source: &ServerSettingsSource) -> ControlResult<()> {
         let settings = source.database.server_settings().get().await?;
         sync_dynamic_certificates(source, &settings).await?;
+        self.reconcile_operator_email(&settings.acme_email).await?;
         let policy = RoutingPolicy::from_settings(&settings);
         let mut current = self
             .routing_policy
@@ -134,6 +140,52 @@ impl TraefikIngress {
         *current = policy;
         Ok(())
     }
+
+    async fn desired_acme_email(&self) -> Option<String> {
+        let Some(source) = &self.server_settings else {
+            return None;
+        };
+        match source.database.server_settings().get().await {
+            Ok(settings) => normalized_email(&settings.acme_email),
+            Err(error) => {
+                tracing::warn!(error = %error, "could not load the ACME contact email");
+                None
+            }
+        }
+    }
+
+    fn operator_email_matches(&self, desired: &Option<String>) -> bool {
+        self.operator_email
+            .read()
+            .map(|current| current.as_ref() == desired.as_ref())
+            .unwrap_or(false)
+    }
+
+    fn set_operator_email(&self, email: Option<String>) {
+        if let Ok(mut current) = self.operator_email.write() {
+            *current = email;
+        }
+    }
+
+    async fn reconcile_operator_email(&self, email: &str) -> ControlResult<()> {
+        let desired = normalized_email(email);
+        if self.operator_email_matches(&desired) {
+            return Ok(());
+        }
+        if self.operator.auto_start {
+            self.operator
+                .start(desired.as_deref())
+                .await
+                .map_err(|_| ControlError::Runtime)?;
+        }
+        self.set_operator_email(desired);
+        Ok(())
+    }
+}
+
+fn normalized_email(email: &str) -> Option<String> {
+    let email = email.trim();
+    (!email.is_empty()).then(|| email.to_owned())
 }
 
 #[derive(Clone)]
@@ -161,7 +213,7 @@ impl OperatorConfig {
         }
     }
 
-    async fn start(&self) -> std::result::Result<(), OperatorError> {
+    async fn start(&self, acme_email: Option<&str>) -> std::result::Result<(), OperatorError> {
         let compose_file = self
             .compose_file
             .file_name()
@@ -174,17 +226,19 @@ impl OperatorConfig {
         if !self.compose_file.is_file() {
             return Err(OperatorError::ComposeFileMissing(self.compose_file.clone()));
         }
-        let status = Command::new(&self.docker_bin)
+        let mut command = Command::new(&self.docker_bin);
+        command
             .args(["compose", "-f"])
             .arg(compose_file)
             .args(["up", "-d"])
             .current_dir(working_dir)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .await
-            .map_err(OperatorError::Command)?;
+            .stderr(Stdio::null());
+        if let Some(acme_email) = acme_email {
+            command.env("IGNITIFY_ACME_EMAIL", acme_email);
+        }
+        let status = command.status().await.map_err(OperatorError::Command)?;
         if status.success() {
             Ok(())
         } else {

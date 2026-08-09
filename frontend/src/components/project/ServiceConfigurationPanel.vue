@@ -23,6 +23,13 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import TemplateCatalogPicker from "@/components/templates/TemplateCatalogPicker.vue";
 import YamlCodeEditor from "@/components/project/YamlCodeEditor.vue";
 import { useProviderRepositories } from "@/composables/useProviderRepositories";
@@ -245,12 +252,12 @@ function selectComposeMode(value: "yaml" | "repository") {
   if (value === "yaml") sourceRepositories.reset();
 }
 
-function selectProviderEvent(event: Event) {
-  selectProvider((event.target as HTMLSelectElement).value);
+function selectProviderEvent(value: string | undefined) {
+  selectProvider(value ?? "");
 }
 
-function selectRepositoryEvent(event: Event) {
-  selectRepository((event.target as HTMLSelectElement).value);
+function selectRepositoryEvent(value: string | undefined) {
+  selectRepository(value ?? "");
 }
 
 function reset() {
@@ -551,64 +558,76 @@ watch(() => props.service.id, reset, { immediate: true });
       </div>
       <div class="grid gap-2">
         <Label for="service-config-provider">Repository provider</Label>
-        <select
-          id="service-config-provider"
-          :value="providerId"
-          class="h-9 rounded-[3px] border border-input bg-background px-3 text-sm"
-          required
-          @change="selectProviderEvent"
-        >
-          <option value="" disabled>Select a connected provider</option>
-          <option v-for="provider in availableProviders" :key="provider.id" :value="provider.id">
-            {{ provider.name }} ({{ provider.kind }})
-          </option>
-        </select>
+        <Select :model-value="providerId" required @update:model-value="selectProviderEvent">
+          <SelectTrigger id="service-config-provider" class="w-full">
+            <SelectValue placeholder="Select a connected provider" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem
+              v-for="provider in availableProviders"
+              :key="provider.id"
+              :value="provider.id"
+            >
+              {{ provider.name }} ({{ provider.kind }})
+            </SelectItem>
+          </SelectContent>
+        </Select>
         <p v-if="!availableProviders.length" class="text-[11px] text-muted-foreground">
           Connect a provider first in Providers.
         </p>
       </div>
       <div class="grid gap-3 sm:grid-cols-2">
-        <label for="service-config-repository" class="grid gap-2 text-xs text-muted-foreground">
-          Repository
-          <select
-            id="service-config-repository"
-            :value="repository"
-            class="h-9 rounded-[3px] border border-input bg-background px-3 text-sm text-foreground"
+        <div class="grid gap-2 text-xs text-muted-foreground">
+          <Label for="service-config-repository">Repository</Label>
+          <Select
+            :model-value="repository"
             :disabled="!providerId || sourceRepositories.repositoriesLoading.value"
             required
-            @change="selectRepositoryEvent"
+            @update:model-value="selectRepositoryEvent"
           >
-            <option value="" disabled>
-              {{
-                sourceRepositories.repositoriesLoading.value
-                  ? "Loading repositories..."
-                  : "Select a repository"
-              }}
-            </option>
-            <option v-for="option in repositoryOptions" :key="option.path" :value="option.path">
-              {{ option.path }}
-            </option>
-          </select>
-        </label>
-        <label for="service-config-branch" class="grid gap-2 text-xs text-muted-foreground">
-          Branch
-          <select
-            id="service-config-branch"
+            <SelectTrigger id="service-config-repository" class="w-full">
+              <SelectValue
+                :placeholder="
+                  sourceRepositories.repositoriesLoading.value
+                    ? 'Loading repositories...'
+                    : 'Select a repository'
+                "
+              />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem
+                v-for="option in repositoryOptions"
+                :key="option.path"
+                :value="option.path"
+              >
+                {{ option.path }}
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div class="grid gap-2 text-xs text-muted-foreground">
+          <Label for="service-config-branch">Branch</Label>
+          <Select
             v-model="branch"
-            class="h-9 rounded-[3px] border border-input bg-background px-3 text-sm text-foreground"
             :disabled="!repository || sourceRepositories.branchesLoading.value"
             required
           >
-            <option value="" disabled>
-              {{
-                sourceRepositories.branchesLoading.value ? "Loading branches..." : "Select a branch"
-              }}
-            </option>
-            <option v-for="option in branchOptions" :key="option.name" :value="option.name">
-              {{ option.name }}
-            </option>
-          </select>
-        </label>
+            <SelectTrigger id="service-config-branch" class="w-full">
+              <SelectValue
+                :placeholder="
+                  sourceRepositories.branchesLoading.value
+                    ? 'Loading branches...'
+                    : 'Select a branch'
+                "
+              />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem v-for="option in branchOptions" :key="option.name" :value="option.name">
+                {{ option.name }}
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       </div>
       <p v-if="sourceRepositories.repositoriesError" class="text-xs text-destructive" role="alert">
         {{ sourceRepositories.repositoriesError }}
@@ -703,77 +722,74 @@ watch(() => props.service.id, reset, { immediate: true });
           v-if="composeMode === 'repository'"
           class="grid gap-3 rounded-[8px] border border-border bg-muted/30 p-4 sm:grid-cols-3"
         >
-          <label
-            class="grid gap-2 text-xs text-muted-foreground"
-            for="service-config-compose-provider"
-          >
-            Provider
-            <select
-              id="service-config-compose-provider"
-              :value="providerId"
-              class="h-9 rounded-[3px] border border-input bg-background px-3 text-sm text-foreground"
-              required
-              @change="selectProviderEvent"
-            >
-              <option value="" disabled>Select provider</option>
-              <option
-                v-for="provider in availableProviders"
-                :key="provider.id"
-                :value="provider.id"
-              >
-                {{ provider.name }}
-              </option>
-            </select>
-          </label>
-          <label
-            class="grid gap-2 text-xs text-muted-foreground"
-            for="service-config-compose-repository"
-          >
-            Repository
-            <select
-              id="service-config-compose-repository"
-              :value="repository"
-              class="h-9 rounded-[3px] border border-input bg-background px-3 text-sm text-foreground"
+          <div class="grid gap-2 text-xs text-muted-foreground">
+            <Label for="service-config-compose-provider">Provider</Label>
+            <Select :model-value="providerId" required @update:model-value="selectProviderEvent">
+              <SelectTrigger id="service-config-compose-provider" class="w-full">
+                <SelectValue placeholder="Select provider" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem
+                  v-for="provider in availableProviders"
+                  :key="provider.id"
+                  :value="provider.id"
+                >
+                  {{ provider.name }}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div class="grid gap-2 text-xs text-muted-foreground">
+            <Label for="service-config-compose-repository">Repository</Label>
+            <Select
+              :model-value="repository"
               :disabled="!providerId || sourceRepositories.repositoriesLoading.value"
               required
-              @change="selectRepositoryEvent"
+              @update:model-value="selectRepositoryEvent"
             >
-              <option value="" disabled>
-                {{
-                  sourceRepositories.repositoriesLoading.value
-                    ? "Loading repositories..."
-                    : "Select a repository"
-                }}
-              </option>
-              <option v-for="option in repositoryOptions" :key="option.path" :value="option.path">
-                {{ option.path }}
-              </option>
-            </select>
-          </label>
-          <label
-            class="grid gap-2 text-xs text-muted-foreground"
-            for="service-config-compose-branch"
-          >
-            Branch
-            <select
-              id="service-config-compose-branch"
+              <SelectTrigger id="service-config-compose-repository" class="w-full">
+                <SelectValue
+                  :placeholder="
+                    sourceRepositories.repositoriesLoading.value
+                      ? 'Loading repositories...'
+                      : 'Select a repository'
+                  "
+                />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem
+                  v-for="option in repositoryOptions"
+                  :key="option.path"
+                  :value="option.path"
+                >
+                  {{ option.path }}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div class="grid gap-2 text-xs text-muted-foreground">
+            <Label for="service-config-compose-branch">Branch</Label>
+            <Select
               v-model="branch"
-              class="h-9 rounded-[3px] border border-input bg-background px-3 text-sm text-foreground"
               :disabled="!repository || sourceRepositories.branchesLoading.value"
               required
             >
-              <option value="" disabled>
-                {{
-                  sourceRepositories.branchesLoading.value
-                    ? "Loading branches..."
-                    : "Select a branch"
-                }}
-              </option>
-              <option v-for="option in branchOptions" :key="option.name" :value="option.name">
-                {{ option.name }}
-              </option>
-            </select>
-          </label>
+              <SelectTrigger id="service-config-compose-branch" class="w-full">
+                <SelectValue
+                  :placeholder="
+                    sourceRepositories.branchesLoading.value
+                      ? 'Loading branches...'
+                      : 'Select a branch'
+                  "
+                />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem v-for="option in branchOptions" :key="option.name" :value="option.name">
+                  {{ option.name }}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
           <label
             class="grid gap-2 text-xs text-muted-foreground sm:col-span-3"
             for="service-config-compose-path"

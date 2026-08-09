@@ -17,7 +17,9 @@ use ignitify_control_plane::{
     AgeCipher, ControlHandle, HostRuntimeMetrics, RuntimeContainer, RuntimePort, ServiceControl,
     StaticRuntimeHealth, StaticSystemMetrics, SystemMetricsSnapshot,
 };
-use ignitify_db::{DatabaseConfig, ProjectActor, UserRole as DatabaseUserRole};
+use ignitify_db::{
+    DatabaseConfig, ProjectActor, ServerSettingsUpdate, UserRole as DatabaseUserRole,
+};
 use ignitify_domain::ProjectMemberRole;
 use tower::ServiceExt;
 
@@ -308,7 +310,7 @@ fn request(method: &str, uri: &str, token: Option<&str>, body: &str) -> Request<
 }
 
 #[tokio::test]
-async fn server_settings_require_admin_and_persist_validated_updates() {
+async fn infrastructure_settings_require_admin_and_persist_validated_updates() {
     let state = state().await;
     let token = session_token(&state).await;
     let app = router(
@@ -324,7 +326,7 @@ async fn server_settings_require_admin_and_persist_validated_updates() {
 
     let unauthenticated = app
         .clone()
-        .oneshot(request("GET", "/api/v1/settings/server", None, ""))
+        .oneshot(request("GET", "/api/v1/settings/infrastructure", None, ""))
         .await
         .unwrap();
     assert_eq!(unauthenticated.status(), StatusCode::UNAUTHORIZED);
@@ -349,7 +351,7 @@ async fn server_settings_require_admin_and_persist_validated_updates() {
         .clone()
         .oneshot(request(
             "GET",
-            "/api/v1/settings/server",
+            "/api/v1/settings/infrastructure",
             Some(&user_token),
             "",
         ))
@@ -361,38 +363,61 @@ async fn server_settings_require_admin_and_persist_validated_updates() {
         .clone()
         .oneshot(request(
             "PATCH",
-            "/api/v1/settings/server",
+            "/api/v1/settings/infrastructure",
             Some(&token),
-            r#"{"server_domain":"Control.Example.com","https_enabled":true,"automatically_provision_ssl":true,"certificate_provider":"lets-encrypt","custom_certificate_id":null,"concurrent_builds":3}"#,
+            r#"{"application_domain_suffix":"Apps.Example.com","https_enabled":true,"automatically_provision_ssl":true,"acme_email":"ops@apps.example.com","dns_record_type":"a","dns_record_target":"203.0.113.10","certificate_provider":"lets-encrypt","custom_certificate_id":null}"#,
         ))
         .await
         .unwrap();
     assert_eq!(updated.status(), StatusCode::OK);
     let body = updated.into_body().collect().await.unwrap().to_bytes();
     let settings: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(settings["server_domain"], "control.example.com");
+    assert_eq!(settings["application_domain_suffix"], "apps.example.com");
+    assert_eq!(settings["acme_email"], "ops@apps.example.com");
+    assert_eq!(settings["dns_record_type"], "a");
+    assert_eq!(settings["dns_record_target"], "203.0.113.10");
     assert_eq!(settings["certificate_provider"], "lets-encrypt");
-    assert_eq!(settings["concurrent_builds"], 3);
+    assert_eq!(settings["application"]["public_origin"], "");
+    assert_eq!(settings["application"]["secure_cookies"], false);
+    assert_eq!(settings["health"]["database"], "ready");
+    assert!(settings.get("concurrent_builds").is_none());
 
     let persisted = app
         .clone()
-        .oneshot(request("GET", "/api/v1/settings/server", Some(&token), ""))
+        .oneshot(request(
+            "GET",
+            "/api/v1/settings/infrastructure",
+            Some(&token),
+            "",
+        ))
         .await
         .unwrap();
     let body = persisted.into_body().collect().await.unwrap().to_bytes();
     let settings: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(settings["server_domain"], "control.example.com");
+    assert_eq!(settings["application_domain_suffix"], "apps.example.com");
 
     let invalid = app
+        .clone()
         .oneshot(request(
             "PATCH",
-            "/api/v1/settings/server",
+            "/api/v1/settings/infrastructure",
             Some(&token),
-            r#"{"server_domain":"control.example.com","https_enabled":true,"automatically_provision_ssl":true,"certificate_provider":"custom","custom_certificate_id":null,"concurrent_builds":3}"#,
+            r#"{"application_domain_suffix":"apps.example.com","https_enabled":true,"automatically_provision_ssl":true,"acme_email":"ops@apps.example.com","dns_record_type":"a","dns_record_target":"203.0.113.10","certificate_provider":"custom","custom_certificate_id":null}"#,
         ))
         .await
         .unwrap();
     assert_eq!(invalid.status(), StatusCode::BAD_REQUEST);
+
+    let invalid_email = app
+        .oneshot(request(
+            "PATCH",
+            "/api/v1/settings/infrastructure",
+            Some(&token),
+            r#"{"application_domain_suffix":"apps.example.com","https_enabled":true,"automatically_provision_ssl":true,"acme_email":"not-an-email","dns_record_type":"a","dns_record_target":"203.0.113.10","certificate_provider":"lets-encrypt","custom_certificate_id":null}"#,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(invalid_email.status(), StatusCode::BAD_REQUEST);
 }
 
 #[tokio::test]
@@ -788,15 +813,37 @@ async fn deployment_events_replay_durable_rows_and_keep_unauthorized_hidden() {
 async fn domain_routes_require_service_port_and_exact_confirmation() {
     let state = state().await;
     let token = session_token(&state).await;
-    let app = router(
+    state
+        .database
+        .server_settings()
+        .update(ServerSettingsUpdate {
+            application_domain_suffix: "apps.example.com".to_owned(),
+            https_enabled: true,
+            automatically_provision_ssl: true,
+            acme_email: "ops@apps.example.com".to_owned(),
+            dns_record_type: "a".to_owned(),
+            dns_record_target: "203.0.113.10".to_owned(),
+            certificate_provider: "lets-encrypt".to_owned(),
+            custom_certificate_id: None,
+            concurrent_builds: 2,
+        })
+        .await
+        .unwrap();
+    let app = crate::router_with_system_metrics_and_docker_and_provider_cipher_and_ingress_and_domain_policy(
         state.auth.clone(),
         state.database.clone(),
         state.services.clone(),
         state.control.clone(),
         state.runtime_health.clone(),
         state.worker_health.clone(),
+        state.system_metrics.clone(),
+        state.docker_runtime.clone(),
+        state.terminal,
         state.secure_cookies,
         state.trusted_origins.clone(),
+        state.provider_cipher.clone(),
+        state.ingress_health.clone(),
+        state.domain_policy.clone(),
     );
     let project = app
         .clone()
@@ -842,13 +889,55 @@ async fn domain_routes_require_service_port_and_exact_confirmation() {
                 service["id"].as_str().unwrap()
             ),
             Some(&token),
-            r#"{"hostname":"app.example.com"}"#,
+            r#"{"hostname":"app.apps.example.com"}"#,
         ))
         .await
         .unwrap();
     assert_eq!(created.status(), StatusCode::ACCEPTED);
     let body = created.into_body().collect().await.unwrap().to_bytes();
     let domain: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(domain["dns_record_type"], "a");
+    assert_eq!(domain["dns_record_target"], "203.0.113.10");
+    assert_eq!(domain["dns_status"], "not_checked");
+    let allowed_custom_domain = app
+        .clone()
+        .oneshot(request(
+            "POST",
+            &format!(
+                "/api/v1/services/{}/domains",
+                service["id"].as_str().unwrap()
+            ),
+            Some(&token),
+            r#"{"hostname":"app.other.example.com"}"#,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(allowed_custom_domain.status(), StatusCode::ACCEPTED);
+    let updated_suffix = app
+        .clone()
+        .oneshot(request(
+            "PATCH",
+            "/api/v1/settings/infrastructure",
+            Some(&token),
+            r#"{"application_domain_suffix":"other.example.com","https_enabled":true,"automatically_provision_ssl":true,"acme_email":"ops@apps.example.com","dns_record_type":"a","dns_record_target":"203.0.113.10","certificate_provider":"lets-encrypt","custom_certificate_id":null}"#,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(updated_suffix.status(), StatusCode::OK);
+    let verification = app
+        .clone()
+        .oneshot(request(
+            "POST",
+            &format!("/api/v1/domains/{}/verify", domain["id"].as_str().unwrap()),
+            Some(&token),
+            "",
+        ))
+        .await
+        .unwrap();
+    assert_eq!(verification.status(), StatusCode::OK);
+    let verification = verification.into_body().collect().await.unwrap().to_bytes();
+    let verification: serde_json::Value = serde_json::from_slice(&verification).unwrap();
+    assert_eq!(verification["dns_status"], "pending");
     let wrong_confirmation = app
         .clone()
         .oneshot(request(
@@ -865,7 +954,7 @@ async fn domain_routes_require_service_port_and_exact_confirmation() {
             "DELETE",
             &format!("/api/v1/domains/{}", domain["id"].as_str().unwrap()),
             Some(&token),
-            r#"{"confirm_hostname":"app.example.com"}"#,
+            r#"{"confirm_hostname":"app.apps.example.com"}"#,
         ))
         .await
         .unwrap();

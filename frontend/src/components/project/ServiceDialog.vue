@@ -12,6 +12,13 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import type {
@@ -337,16 +344,15 @@ watch(open, (isOpen) => {
                 <span class="text-[11px] text-muted-foreground">Build from a provider repo</span>
               </button>
             </div>
-            <select
-              id="service-kind"
-              v-model="kind"
-              class="sr-only"
-              aria-hidden="true"
-              tabindex="-1"
-            >
-              <option value="image">Container image</option>
-              <option value="compose">Raw Compose / Docker</option>
-            </select>
+            <Select v-model="kind">
+              <SelectTrigger id="service-kind" class="sr-only" aria-hidden="true" tabindex="-1">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="image">Container image</SelectItem>
+                <SelectItem value="compose">Raw Compose / Docker</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
           <section
             v-if="source === 'template'"
@@ -398,21 +404,20 @@ watch(open, (isOpen) => {
             </div>
             <div class="grid gap-2">
               <Label for="service-provider">Repository provider</Label>
-              <select
-                id="service-provider"
-                v-model="providerId"
-                class="h-9 rounded-[3px] border border-input bg-background px-3 text-sm"
-                required
-              >
-                <option value="" disabled>Select a connected provider</option>
-                <option
-                  v-for="provider in availableProviders"
-                  :key="provider.id"
-                  :value="provider.id"
-                >
-                  {{ provider.name }} ({{ provider.kind }})
-                </option>
-              </select>
+              <Select v-model="providerId" required>
+                <SelectTrigger id="service-provider" class="w-full">
+                  <SelectValue placeholder="Select a connected provider" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem
+                    v-for="provider in availableProviders"
+                    :key="provider.id"
+                    :value="provider.id"
+                  >
+                    {{ provider.name }} ({{ provider.kind }})
+                  </SelectItem>
+                </SelectContent>
+              </Select>
               <p v-if="!availableProviders.length" class="text-[11px] text-muted-foreground">
                 Connect a provider first in Providers.
               </p>
@@ -527,25 +532,23 @@ watch(open, (isOpen) => {
               v-if="composeMode === 'repository'"
               class="grid gap-3 rounded-[8px] border border-border bg-muted/30 p-4 sm:grid-cols-3"
             >
-              <label
-                class="grid gap-2 text-xs text-muted-foreground sm:col-span-1"
-                for="service-provider"
-                >Provider<select
-                  id="service-provider"
-                  v-model="providerId"
-                  class="h-9 rounded-[3px] border border-input bg-background px-3 text-sm text-foreground"
-                  required
-                >
-                  <option value="" disabled>Select provider</option>
-                  <option
-                    v-for="provider in availableProviders"
-                    :key="provider.id"
-                    :value="provider.id"
-                  >
-                    {{ provider.name }}
-                  </option>
-                </select></label
-              >
+              <div class="grid gap-2 text-xs text-muted-foreground sm:col-span-1">
+                <Label for="service-provider">Provider</Label>
+                <Select v-model="providerId" required>
+                  <SelectTrigger id="service-provider" class="w-full text-foreground">
+                    <SelectValue placeholder="Select provider" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem
+                      v-for="provider in availableProviders"
+                      :key="provider.id"
+                      :value="provider.id"
+                    >
+                      {{ provider.name }}
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
               <label
                 class="grid gap-2 text-xs text-muted-foreground sm:col-span-1"
                 for="service-repository"

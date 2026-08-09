@@ -14,14 +14,15 @@ pub use repositories::{
     DashboardDeploymentRecord, DashboardProjectRecord, DashboardRecords, DashboardRepository,
     DashboardServiceRecord, DeploymentActor, DeploymentEventRecord, DeploymentLogRecord,
     DeploymentRecord, DeploymentVariableRecord, DeploymentsRepository, DomainActor,
-    DomainMutationOutcome, DomainRecord, DomainsRepository, EnvironmentsRepository, NewDeployment,
-    NewDeploymentLog, NewProjectVariable, NewProvider, NewServerCertificate, NewServiceVariable,
-    ProjectActor, ProjectRemoveOutcome, ProjectUpdateOutcome, ProjectVariableRecord,
-    ProjectVariablesMutationOutcome, ProjectsRepository, ProviderAuthMode, ProviderKind,
-    ProviderMutationOutcome, ProviderRecord, ProviderUpdate, ProvidersRepository,
-    RefreshTokensRepository, SequenceCursor, ServerCertificateRecord, ServerSettingsRecord,
-    ServerSettingsRepository, ServerSettingsUpdate, ServiceActor, ServiceMutationOutcome,
-    ServiceVariableRecord, ServicesRepository, UsersRepository,
+    DomainMutationOutcome, DomainRecord, DomainVerificationRequestOutcome, DomainsRepository,
+    EnvironmentsRepository, NewDeployment, NewDeploymentLog, NewProjectVariable, NewProvider,
+    NewServerCertificate, NewServiceVariable, ProjectActor, ProjectRemoveOutcome,
+    ProjectUpdateOutcome, ProjectVariableRecord, ProjectVariablesMutationOutcome,
+    ProjectsRepository, ProviderAuthMode, ProviderKind, ProviderMutationOutcome, ProviderRecord,
+    ProviderUpdate, ProvidersRepository, RefreshTokensRepository, SequenceCursor,
+    ServerCertificateRecord, ServerSettingsRecord, ServerSettingsRepository, ServerSettingsUpdate,
+    ServiceActor, ServiceMutationOutcome, ServiceVariableRecord, ServicesRepository,
+    UsersRepository,
 };
 
 #[cfg(test)]

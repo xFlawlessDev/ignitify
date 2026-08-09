@@ -1,12 +1,9 @@
 <script setup lang="ts">
-import { computed, onUnmounted, shallowRef, watch } from "vue";
+import { shallowRef, watch, computed } from "vue";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import DomainConfigurationPanel, {
-  type CertificateProvider,
-  type DnsValidationState,
-} from "./DomainConfigurationPanel.vue";
+import DomainConfigurationPanel from "./DomainConfigurationPanel.vue";
 import DomainRouteList from "./DomainRouteList.vue";
 import type { DomainSummary, ServiceSummary } from "@/lib/types";
 
@@ -22,23 +19,18 @@ const emit = defineEmits<{
   create: [serviceId: string, hostname: string];
   remove: [domain: DomainSummary];
   retry: [];
+  verify: [domain: DomainSummary];
 }>();
 
 const hostname = shallowRef("");
 const confirmHostname = shallowRef("");
 const serviceId = shallowRef("");
 const confirmation = shallowRef<DomainSummary | null>(null);
-const httpsEnabled = shallowRef(true);
-const automaticallyProvisionSsl = shallowRef(true);
-const certificateProvider = shallowRef<CertificateProvider>("lets-encrypt");
-const dnsStates = shallowRef<Record<string, DnsValidationState>>({});
-const dnsMessages = shallowRef<Record<string, string>>({});
-const dnsControllers = new Map<string, AbortController>();
 
 const routableServices = computed(() => props.services.filter((service) => service.internal_port));
 const domainError = computed(() => {
   const value = hostname.value.trim();
-  if (!value) return "Server domain is required.";
+  if (!value) return "Custom domain is required.";
   if (
     value.length > 253 ||
     value.includes("..") ||
@@ -48,13 +40,6 @@ const domainError = computed(() => {
       .some((label) => label.length > 63 || label.startsWith("-") || label.endsWith("-"))
   ) {
     return "Use a valid hostname without a protocol or path.";
-  }
-  return "";
-});
-const tlsError = computed(() => {
-  if (!httpsEnabled.value) return "";
-  if (automaticallyProvisionSsl.value && certificateProvider.value !== "lets-encrypt") {
-    return "Automatic SSL provisioning requires Let's Encrypt.";
   }
   return "";
 });
@@ -70,11 +55,9 @@ watch(
 );
 
 function submit() {
-  if (!serviceId.value || domainError.value || tlsError.value) return;
+  if (!serviceId.value || domainError.value) return;
   emit("create", serviceId.value, hostname.value.trim());
   hostname.value = "";
-  dnsStates.value = { ...dnsStates.value, draft: "idle" };
-  dnsMessages.value = { ...dnsMessages.value, draft: "" };
 }
 
 function requestRemove(domain: DomainSummary) {
@@ -88,70 +71,6 @@ function removeConfirmed() {
   confirmation.value = null;
   confirmHostname.value = "";
 }
-
-function updateHttpsEnabled(value: boolean) {
-  httpsEnabled.value = value;
-  if (!value) {
-    automaticallyProvisionSsl.value = false;
-    certificateProvider.value = "none";
-  }
-}
-
-function updateCertificateProvider(value: CertificateProvider) {
-  certificateProvider.value = value;
-  if (value !== "lets-encrypt") automaticallyProvisionSsl.value = false;
-}
-
-async function validateDns(hostnameValue: string, key: string) {
-  const value = hostnameValue.trim();
-  if (!value) {
-    dnsStates.value = { ...dnsStates.value, [key]: "missing" };
-    dnsMessages.value = { ...dnsMessages.value, [key]: "Enter a domain before checking DNS." };
-    return;
-  }
-
-  dnsControllers.get(key)?.abort();
-  const controller = new AbortController();
-  dnsControllers.set(key, controller);
-  dnsStates.value = { ...dnsStates.value, [key]: "checking" };
-  dnsMessages.value = { ...dnsMessages.value, [key]: "Checking DNS records..." };
-  try {
-    const response = await fetch(
-      "https://dns.google/resolve?name=" + encodeURIComponent(value) + "&type=A",
-      { headers: { Accept: "application/dns-json" }, signal: controller.signal },
-    );
-    if (!response.ok) throw new Error("DNS lookup failed");
-    const result = (await response.json()) as { Answer?: Array<{ type?: number }> };
-    const found = result.Answer?.some((record) => record.type === 1 || record.type === 5);
-    dnsStates.value = { ...dnsStates.value, [key]: found ? "valid" : "missing" };
-    dnsMessages.value = {
-      ...dnsMessages.value,
-      [key]: found ? "DNS record found." : "No A or CNAME record found.",
-    };
-  } catch (error) {
-    if (error instanceof DOMException && error.name === "AbortError") return;
-    dnsStates.value = { ...dnsStates.value, [key]: "unavailable" };
-    dnsMessages.value = {
-      ...dnsMessages.value,
-      [key]: "DNS provider unavailable. Try again later.",
-    };
-  } finally {
-    if (dnsControllers.get(key) === controller) dnsControllers.delete(key);
-  }
-}
-
-function validateDraftDns() {
-  if (domainError.value) return;
-  void validateDns(hostname.value, "draft");
-}
-
-function validateDomainDns(domain: DomainSummary) {
-  void validateDns(domain.hostname, domain.id);
-}
-
-onUnmounted(() => {
-  dnsControllers.forEach((controller) => controller.abort());
-});
 </script>
 
 <template>
@@ -161,19 +80,9 @@ onUnmounted(() => {
       :services="services"
       :server-domain="hostname"
       :service-id="serviceId"
-      :https-enabled="httpsEnabled"
-      :automatically-provision-ssl="automaticallyProvisionSsl"
-      :certificate-provider="certificateProvider"
       :domain-error="domainError"
-      :tls-error="tlsError"
-      :dns-state="dnsStates.draft ?? 'idle'"
-      :dns-message="dnsMessages.draft ?? ''"
       @update:server-domain="hostname = $event"
       @update:service-id="serviceId = $event"
-      @update:https-enabled="updateHttpsEnabled"
-      @update:automatically-provision-ssl="automaticallyProvisionSsl = $event"
-      @update:certificate-provider="updateCertificateProvider"
-      @validate-dns="validateDraftDns"
       @create="submit"
     />
 
@@ -206,10 +115,7 @@ onUnmounted(() => {
       :can-manage="canManage"
       :domains="domains"
       :services="services"
-      :https-enabled="httpsEnabled"
-      :dns-states="dnsStates"
-      :dns-messages="dnsMessages"
-      @validate-dns="validateDomainDns"
+      @verify="(domain) => emit('verify', domain)"
       @remove="requestRemove"
     />
 

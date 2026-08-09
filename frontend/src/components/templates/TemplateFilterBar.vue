@@ -2,6 +2,13 @@
 import { ListFilter, Search, X } from "@lucide/vue";
 
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 defineProps<{
   query: string;
@@ -16,6 +23,10 @@ const emit = defineEmits<{
   updateTag: [value: string];
   clear: [];
 }>();
+
+function updateTag(value: string | undefined) {
+  emit("updateTag", value ?? "all");
+}
 </script>
 
 <template>
@@ -37,21 +48,26 @@ const emit = defineEmits<{
           />
         </label>
 
-        <label class="relative block sm:w-52">
-          <span class="sr-only">Filter by category</span>
+        <div class="relative block sm:w-52">
+          <label for="template-category-filter" class="sr-only">Filter by category</label>
           <ListFilter
             class="pointer-events-none absolute top-1/2 left-3.5 size-4 -translate-y-1/2 text-muted-foreground"
             aria-hidden="true"
           />
-          <select
-            :value="activeTag"
-            class="h-9 w-full appearance-none rounded-[3px] border border-input bg-background pr-8 pl-10 text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30"
-            @change="emit('updateTag', ($event.target as HTMLSelectElement).value)"
-          >
-            <option value="all">All categories</option>
-            <option v-for="tag in tags" :key="tag" :value="tag">{{ tag }}</option>
-          </select>
-        </label>
+          <Select :model-value="activeTag" @update:model-value="updateTag">
+            <SelectTrigger
+              id="template-category-filter"
+              class="h-9 w-full pr-8 pl-10 text-sm text-foreground"
+              aria-label="Filter by category"
+            >
+              <SelectValue placeholder="All categories" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All categories</SelectItem>
+              <SelectItem v-for="tag in tags" :key="tag" :value="tag">{{ tag }}</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
 
         <Button
           v-if="query || activeTag !== 'all'"

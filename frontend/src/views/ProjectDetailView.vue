@@ -676,6 +676,7 @@ onUnmounted(() => {
         :services="serviceData"
         @create="(serviceId, hostname) => domains.create(serviceId, hostname)"
         @remove="(domain: DomainSummary) => domains.remove(domain)"
+        @verify="(domain: DomainSummary) => domains.verify(domain)"
         @retry="domains.load(serviceData.map((service) => service.id))"
       />
 

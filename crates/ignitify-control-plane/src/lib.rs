@@ -1,5 +1,11 @@
 //! Durable deployment submission, encrypted snapshots, and worker orchestration.
 
+mod domain_dns;
+
+pub use domain_dns::{
+    DnsVerificationResult, DnsVerifier, NoopDnsVerifier, reconcile_dns_verifications,
+};
+
 use std::{
     collections::BTreeMap,
     future::Future,
@@ -903,10 +909,11 @@ impl SourceBuild for NoopSourceBuild {
     }
 }
 
-pub struct WorkerDependencies<R, I, S> {
+pub struct WorkerDependencies<R, I, S, V = NoopDnsVerifier> {
     runtime: R,
     ingress: I,
     source_build: S,
+    dns_verifier: V,
 }
 
 impl<R, I, S> WorkerDependencies<R, I, S> {
@@ -915,8 +922,27 @@ impl<R, I, S> WorkerDependencies<R, I, S> {
             runtime,
             ingress,
             source_build,
+            dns_verifier: NoopDnsVerifier,
         }
     }
+}
+
+impl<R, I, S, V> WorkerDependencies<R, I, S, V> {
+    pub fn with_dns_verifier<V2>(self, dns_verifier: V2) -> WorkerDependencies<R, I, S, V2> {
+        WorkerDependencies {
+            runtime: self.runtime,
+            ingress: self.ingress,
+            source_build: self.source_build,
+            dns_verifier,
+        }
+    }
+}
+
+struct ReconciliationContext<'a, R, I, S, V> {
+    runtime: &'a R,
+    ingress: &'a I,
+    source_build: &'a S,
+    dns_verifier: &'a V,
 }
 
 #[derive(Clone)]
@@ -1054,18 +1080,30 @@ pub fn spawn_worker_with_source<R, I, S>(
     cipher: Arc<AgeCipher>,
     dependencies: WorkerDependencies<R, I, S>,
     publisher: StreamPublisher,
-    mut wake: mpsc::Receiver<()>,
+    wake: mpsc::Receiver<()>,
 ) -> (tokio::task::JoinHandle<()>, Arc<AtomicBool>)
 where
     R: ImageRuntime,
     I: Ingress,
     S: SourceBuild,
 {
-    let WorkerDependencies {
-        runtime,
-        ingress,
-        source_build,
-    } = dependencies;
+    spawn_worker_with_source_and_dns(deployments, domains, cipher, dependencies, publisher, wake)
+}
+
+pub fn spawn_worker_with_source_and_dns<R, I, S, V>(
+    deployments: DeploymentsRepository,
+    domains: DomainsRepository,
+    cipher: Arc<AgeCipher>,
+    dependencies: WorkerDependencies<R, I, S, V>,
+    publisher: StreamPublisher,
+    mut wake: mpsc::Receiver<()>,
+) -> (tokio::task::JoinHandle<()>, Arc<AtomicBool>)
+where
+    R: ImageRuntime,
+    I: Ingress,
+    S: SourceBuild,
+    V: DnsVerifier,
+{
     let ready = Arc::new(AtomicBool::new(false));
     let worker_ready = ready.clone();
     let handle = tokio::spawn(async move {
@@ -1078,15 +1116,19 @@ where
         }
 
         let _liveness = Liveness(worker_ready.clone());
+        let reconciliation = ReconciliationContext {
+            runtime: &dependencies.runtime,
+            ingress: &dependencies.ingress,
+            source_build: &dependencies.source_build,
+            dns_verifier: &dependencies.dns_verifier,
+        };
         let mut interval = tokio::time::interval(Duration::from_secs(30));
         loop {
-            match reconcile_once_with_source(
+            match reconcile_once_with_context(
                 &deployments,
                 &domains,
                 &cipher,
-                &runtime,
-                &ingress,
-                &source_build,
+                &reconciliation,
                 &publisher,
             )
             .await
@@ -1151,7 +1193,40 @@ where
     I: Ingress,
     S: SourceBuild,
 {
+    reconcile_once_with_context(
+        deployments,
+        domains,
+        cipher,
+        &ReconciliationContext {
+            runtime,
+            ingress,
+            source_build,
+            dns_verifier: &NoopDnsVerifier,
+        },
+        publisher,
+    )
+    .await
+}
+
+async fn reconcile_once_with_context<R, I, S, V>(
+    deployments: &DeploymentsRepository,
+    domains: &DomainsRepository,
+    cipher: &AgeCipher,
+    context: &ReconciliationContext<'_, R, I, S, V>,
+    publisher: &StreamPublisher,
+) -> Result<()>
+where
+    R: ImageRuntime,
+    I: Ingress,
+    S: SourceBuild,
+    V: DnsVerifier,
+{
+    let runtime = context.runtime;
+    let ingress = context.ingress;
+    let source_build = context.source_build;
+    let dns_verifier = context.dns_verifier;
     ingress.reconcile().await?;
+    reconcile_dns_verifications(domains, dns_verifier).await?;
     for deployment in deployments.nonterminal().await? {
         match deployment.state {
             DeploymentState::Queued => {}
@@ -1825,7 +1900,8 @@ mod tests {
         UserRole as DatabaseUserRole,
     };
     use ignitify_domain::{
-        DomainName, DomainStatus, ProjectInput, ServiceInput, ServiceVariableInput,
+        DnsRecord, DnsRecordType, DnsVerificationStatus, DomainName, DomainStatus, ProjectInput,
+        ServiceInput, ServiceVariableInput,
     };
 
     use super::{
@@ -1934,6 +2010,20 @@ mod tests {
         }
     }
 
+    struct ValidDnsVerifier;
+
+    impl super::DnsVerifier for ValidDnsVerifier {
+        async fn verify(
+            &self,
+            _domain: &ignitify_db::DomainRecord,
+        ) -> super::DnsVerificationResult {
+            super::DnsVerificationResult {
+                status: DnsVerificationStatus::Valid,
+                error: None,
+            }
+        }
+    }
+
     struct FakeRuntime {
         calls: Arc<Mutex<Vec<String>>>,
         routed_local_images: Arc<Mutex<Vec<Option<String>>>>,
@@ -1970,6 +2060,106 @@ mod tests {
         .unwrap();
 
         assert!(synchronized.load(Ordering::Acquire));
+    }
+
+    #[tokio::test]
+    async fn worker_completes_requested_dns_verification() {
+        let database = Database::connect(&DatabaseConfig {
+            url: "sqlite::memory:".to_owned(),
+        })
+        .await
+        .unwrap();
+        let actor_id = database
+            .users()
+            .create("owner", "hash", DatabaseUserRole::User)
+            .await
+            .unwrap()
+            .id;
+        let project = database
+            .projects()
+            .create(&actor_id, ProjectInput::new("Platform").unwrap())
+            .await
+            .unwrap();
+        let service = database
+            .services()
+            .create(
+                ServiceActor {
+                    id: &actor_id,
+                    is_admin: false,
+                },
+                project.id.as_str(),
+                ServiceInput::image(
+                    "web",
+                    "nginx@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    Some(8080),
+                    None,
+                    vec![],
+                )
+                .unwrap()
+                .configuration,
+                Vec::<NewServiceVariable>::new(),
+            )
+            .await
+            .unwrap();
+        let ignitify_db::ServiceMutationOutcome::Created(service) = service else {
+            panic!("service must exist");
+        };
+        let actor = ignitify_db::DomainActor {
+            id: &actor_id,
+            is_admin: false,
+        };
+        let domain = database
+            .domains()
+            .create(
+                actor,
+                service.id.as_str(),
+                DomainName::new("app.example.com").unwrap(),
+                DnsRecord::new(DnsRecordType::A, "203.0.113.10").unwrap(),
+            )
+            .await
+            .unwrap();
+        let ignitify_db::DomainMutationOutcome::Created(domain) = domain else {
+            panic!("domain must exist");
+        };
+        database
+            .domains()
+            .request_dns_verification(actor, domain.id.as_str())
+            .await
+            .unwrap();
+
+        let identity = age::x25519::Identity::generate().to_string();
+        let cipher = AgeCipher::from_identity(identity.expose_secret()).unwrap();
+        let runtime = FakeRuntime {
+            calls: Arc::new(Mutex::new(vec![])),
+            routed_local_images: Arc::new(Mutex::new(vec![])),
+            routes_fail: false,
+        };
+        let ingress = SyncingIngress(Arc::new(AtomicBool::new(false)));
+        let (publisher, _) = tokio::sync::broadcast::channel(16);
+
+        super::reconcile_once_with_context(
+            &database.deployments(),
+            &database.domains(),
+            &cipher,
+            &super::ReconciliationContext {
+                runtime: &runtime,
+                ingress: &ingress,
+                source_build: &super::NoopSourceBuild,
+                dns_verifier: &ValidDnsVerifier,
+            },
+            &super::StreamPublisher::new(publisher),
+        )
+        .await
+        .unwrap();
+
+        let domains = database
+            .domains()
+            .list(actor, service.id.as_str())
+            .await
+            .unwrap();
+        let domain = domains.unwrap().into_iter().next().unwrap();
+        assert_eq!(domain.dns_status, DnsVerificationStatus::Valid);
+        assert!(domain.dns_checked_at.is_some());
     }
 
     impl ImageRuntime for FakeRuntime {
@@ -2085,6 +2275,8 @@ mod tests {
                 },
                 service.id.as_str(),
                 DomainName::new("app.example.com").unwrap(),
+                ignitify_domain::DnsRecord::new(ignitify_domain::DnsRecordType::A, "203.0.113.10")
+                    .unwrap(),
             )
             .await
             .unwrap();
@@ -2224,6 +2416,8 @@ mod tests {
                 },
                 service.id.as_str(),
                 DomainName::new("app.example.com").unwrap(),
+                ignitify_domain::DnsRecord::new(ignitify_domain::DnsRecordType::A, "203.0.113.10")
+                    .unwrap(),
             )
             .await
             .unwrap();

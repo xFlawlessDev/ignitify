@@ -1,5 +1,10 @@
 import { shallowRef } from "vue";
-import { apiCreateDomain, apiListDomains, apiRemoveDomain } from "@/lib/api/domains";
+import {
+  apiCreateDomain,
+  apiListDomains,
+  apiRemoveDomain,
+  apiVerifyDomain,
+} from "@/lib/api/domains";
 import type { DomainSummary } from "@/lib/types";
 
 export function useDomains() {
@@ -45,5 +50,26 @@ export function useDomains() {
     return true;
   }
 
-  return { data, loading, error, load, create, remove };
+  async function verify(domain: DomainSummary): Promise<boolean> {
+    error.value = null;
+    const result = await apiVerifyDomain(domain.id);
+    if (!result.success) {
+      error.value = result.error ?? "Could not start DNS verification";
+      return false;
+    }
+    data.value = data.value.map((item) => (item.id === domain.id ? result.data : item));
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      await new Promise((resolve) => window.setTimeout(resolve, 750));
+      const refreshed = await apiListDomains(domain.service_id);
+      if (!refreshed.success) continue;
+      const updated = refreshed.data.find((item) => item.id === domain.id);
+      if (!updated) continue;
+      data.value = data.value.map((item) => (item.id === domain.id ? updated : item));
+      if (updated.dns_status !== "pending") return updated.dns_status === "valid";
+    }
+    return true;
+  }
+
+  return { data, loading, error, load, create, remove, verify };
 }

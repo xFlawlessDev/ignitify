@@ -12,22 +12,30 @@ import { Switch } from "@/components/ui/switch";
 import type { CertificateProvider, CustomCertificateSummary } from "./types";
 
 interface Props {
-  serverDomain: string;
+  applicationDomainSuffix: string;
   httpsEnabled: boolean;
   automaticallyProvisionSsl: boolean;
+  acmeEmail: string;
+  dnsRecordType: "a" | "cname";
+  dnsRecordTarget: string;
   certificateProvider: CertificateProvider;
   customCertificateId: string | null;
   customCertificates: CustomCertificateSummary[];
   domainError?: string;
+  emailError?: string;
+  dnsError?: string;
   tlsError?: string;
 }
 
 const props = defineProps<Props>();
 
 const emit = defineEmits<{
-  (event: "update:serverDomain", value: string): void;
+  (event: "update:applicationDomainSuffix", value: string): void;
   (event: "update:httpsEnabled", value: boolean): void;
   (event: "update:automaticallyProvisionSsl", value: boolean): void;
+  (event: "update:acmeEmail", value: string): void;
+  (event: "update:dnsRecordType", value: "a" | "cname"): void;
+  (event: "update:dnsRecordTarget", value: string): void;
   (event: "update:certificateProvider", value: CertificateProvider): void;
   (event: "update:customCertificateId", value: string | null): void;
 }>();
@@ -46,7 +54,7 @@ function updateCustomCertificate(value: string | number) {
 </script>
 
 <template>
-  <section class="app-surface" aria-labelledby="web-server-heading">
+  <section class="app-surface" aria-labelledby="application-ingress-heading">
     <header class="app-panel-header flex items-start gap-3 px-5 py-4">
       <span
         class="grid size-8 shrink-0 place-items-center rounded-[6px] border border-border bg-muted text-muted-foreground"
@@ -54,43 +62,95 @@ function updateCustomCertificate(value: string | number) {
         <Globe2 class="size-4" :stroke-width="1.5" />
       </span>
       <div>
-        <p class="ui-label">Web server</p>
-        <h2 id="web-server-heading" class="mt-1.5 text-base font-medium">Public entrypoint</h2>
-        <p class="mt-1.5 max-w-[52ch] text-xs leading-5 text-muted-foreground">
-          Set the hostname and TLS policy used for the control plane and managed ingress.
-        </p>
+        <p class="ui-label">Application ingress</p>
+        <h2 id="application-ingress-heading" class="mt-1.5 text-base font-medium">
+          Domain, DNS, and TLS policy
+        </h2>
       </div>
     </header>
 
     <div class="grid gap-5 px-5 py-5">
       <div class="grid gap-2">
-        <label for="server-domain" class="text-xs font-medium">Server domain</label>
+        <label for="application-domain-suffix" class="text-xs font-medium"
+          >Managed domain suffix</label
+        >
         <Input
-          id="server-domain"
-          :model-value="props.serverDomain"
+          id="application-domain-suffix"
+          :model-value="props.applicationDomainSuffix"
           class="rounded-[3px] font-mono text-sm"
-          placeholder="deploy.example.com"
+          placeholder="apps.example.com"
           autocomplete="off"
           spellcheck="false"
           :aria-invalid="Boolean(props.domainError)"
-          aria-describedby="server-domain-help server-domain-error"
-          @update:model-value="emit('update:serverDomain', String($event))"
+          aria-describedby="application-domain-suffix-help application-domain-suffix-error"
+          @update:model-value="emit('update:applicationDomainSuffix', String($event))"
         />
-        <p id="server-domain-help" class="text-[11px] leading-4 text-muted-foreground">
-          Hostname only, without <code class="font-mono text-foreground">http://</code> or a path.
+        <p id="application-domain-suffix-help" class="text-[11px] leading-4 text-muted-foreground">
+          Used for generated platform hostnames, for example
+          <code class="font-mono text-foreground">api.apps.example.com</code>. Custom domains may
+          use any hostname allowed by the operator policy.
         </p>
-        <p v-if="props.domainError" id="server-domain-error" class="text-[11px] text-destructive">
+        <p
+          v-if="props.domainError"
+          id="application-domain-suffix-error"
+          class="text-[11px] text-destructive"
+        >
           {{ props.domainError }}
         </p>
+      </div>
+
+      <div class="grid gap-4 border-t border-border pt-5">
+        <div class="grid gap-2">
+          <label for="dns-record-type" class="text-xs font-medium">DNS record type</label>
+          <Select
+            :model-value="props.dnsRecordType"
+            @update:model-value="
+              emit('update:dnsRecordType', String($event) === 'cname' ? 'cname' : 'a')
+            "
+          >
+            <SelectTrigger id="dns-record-type" class="w-full rounded-[3px]">
+              <SelectValue placeholder="Select DNS record type" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="a">A record</SelectItem>
+              <SelectItem value="cname">CNAME record</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div class="grid gap-2">
+          <label for="dns-record-target" class="text-xs font-medium">DNS record target</label>
+          <Input
+            id="dns-record-target"
+            :model-value="props.dnsRecordTarget"
+            class="rounded-[3px] font-mono text-sm"
+            :placeholder="props.dnsRecordType === 'a' ? '203.0.113.10' : 'edge.example.com'"
+            autocomplete="off"
+            spellcheck="false"
+            :aria-invalid="Boolean(props.dnsError)"
+            aria-describedby="dns-record-target-help dns-record-target-error"
+            @update:model-value="emit('update:dnsRecordTarget', String($event))"
+          />
+          <p id="dns-record-target-help" class="text-[11px] leading-4 text-muted-foreground">
+            The target shown to users when they configure a custom domain at their DNS provider.
+          </p>
+          <p
+            v-if="props.dnsError"
+            id="dns-record-target-error"
+            class="text-[11px] text-destructive"
+          >
+            {{ props.dnsError }}
+          </p>
+        </div>
       </div>
 
       <div class="flex items-start justify-between gap-4 border-t border-border pt-5">
         <div class="flex min-w-0 items-start gap-3">
           <LockKeyhole class="mt-0.5 size-4 shrink-0 text-muted-foreground" :stroke-width="1.5" />
           <div>
-            <label for="https-enabled" class="text-xs font-medium">Enable HTTPS</label>
+            <label for="https-enabled" class="text-xs font-medium">Default HTTPS</label>
             <p class="mt-1 max-w-[48ch] text-[11px] leading-4 text-muted-foreground">
-              Serve the server domain over TLS and configure its certificate source.
+              Use TLS for managed application routes and redirect their HTTP traffic.
             </p>
           </div>
         </div>
@@ -98,7 +158,7 @@ function updateCustomCertificate(value: string | number) {
           id="https-enabled"
           class="mt-0.5"
           :model-value="props.httpsEnabled"
-          aria-label="Enable HTTPS"
+          aria-label="Default HTTPS"
           @update:model-value="emit('update:httpsEnabled', $event)"
         />
       </div>
@@ -111,11 +171,9 @@ function updateCustomCertificate(value: string | number) {
           <div class="flex min-w-0 items-start gap-3">
             <ShieldCheck class="mt-0.5 size-4 shrink-0 text-muted-foreground" :stroke-width="1.5" />
             <div>
-              <label for="automatic-ssl" class="text-xs font-medium"
-                >Automatically provision SSL</label
-              >
+              <label for="automatic-ssl" class="text-xs font-medium">Automatic certificates</label>
               <p class="mt-1 max-w-[48ch] text-[11px] leading-4 text-muted-foreground">
-                Request and renew certificates automatically through the selected provider.
+                Request and renew certificates with Let's Encrypt.
               </p>
             </div>
           </div>
@@ -124,20 +182,20 @@ function updateCustomCertificate(value: string | number) {
             class="mt-0.5"
             :disabled="!props.httpsEnabled || props.certificateProvider !== 'lets-encrypt'"
             :model-value="props.automaticallyProvisionSsl"
-            aria-label="Automatically provision SSL"
+            aria-label="Automatic certificates"
             @update:model-value="emit('update:automaticallyProvisionSsl', $event)"
           />
         </div>
 
         <div class="grid gap-2">
-          <label for="certificate-provider" class="text-xs font-medium">Certificate provider</label>
+          <label for="certificate-provider" class="text-xs font-medium">Certificate source</label>
           <Select
             :disabled="!props.httpsEnabled"
             :model-value="props.certificateProvider"
             @update:model-value="updateProvider"
           >
             <SelectTrigger id="certificate-provider" class="w-full rounded-[3px]">
-              <SelectValue placeholder="Select certificate provider" />
+              <SelectValue placeholder="Select certificate source" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="none">None</SelectItem>
@@ -147,9 +205,27 @@ function updateCustomCertificate(value: string | number) {
               </SelectItem>
             </SelectContent>
           </Select>
-          <p class="text-[11px] leading-4 text-muted-foreground">
-            Select <span class="font-medium text-foreground">Let's Encrypt</span> to enable
-            automatic SSL provisioning.
+        </div>
+
+        <div class="grid gap-2">
+          <label for="acme-email" class="text-xs font-medium">ACME contact email</label>
+          <Input
+            id="acme-email"
+            type="email"
+            :model-value="props.acmeEmail"
+            class="rounded-[3px]"
+            placeholder="ops@example.com"
+            autocomplete="email"
+            :disabled="!props.httpsEnabled || props.certificateProvider !== 'lets-encrypt'"
+            :aria-invalid="Boolean(props.emailError)"
+            aria-describedby="acme-email-help acme-email-error"
+            @update:model-value="emit('update:acmeEmail', String($event))"
+          />
+          <p id="acme-email-help" class="text-[11px] leading-4 text-muted-foreground">
+            Used for certificate expiry and renewal notices.
+          </p>
+          <p v-if="props.emailError" id="acme-email-error" class="text-[11px] text-destructive">
+            {{ props.emailError }}
           </p>
         </div>
 
@@ -173,9 +249,6 @@ function updateCustomCertificate(value: string | number) {
               </SelectItem>
             </SelectContent>
           </Select>
-          <p class="text-[11px] leading-4 text-muted-foreground">
-            Add certificates in the Custom certificates section before selecting one here.
-          </p>
         </div>
 
         <p v-if="props.tlsError" class="text-[11px] text-destructive" role="alert">

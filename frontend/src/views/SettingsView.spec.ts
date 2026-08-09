@@ -3,13 +3,25 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp, nextTick } from "vue";
 
 const initialSettings = {
-  server_domain: "",
+  application: {
+    public_origin: "http://127.0.0.1:6565",
+    secure_cookies: false,
+  },
+  application_domain_suffix: "",
   https_enabled: false,
   automatically_provision_ssl: false,
+  acme_email: "",
+  dns_record_type: "a" as const,
+  dns_record_target: "",
   certificate_provider: "none",
   custom_certificate_id: null,
-  concurrent_builds: 2,
   certificates: [],
+  health: {
+    database: "ready",
+    runtime: "ready",
+    worker: "ready",
+    ingress: "ready",
+  },
   updated_at: "2026-01-01T00:00:00Z",
 };
 
@@ -52,7 +64,7 @@ describe("SettingsView", () => {
         fetchCalls.push([input, init]);
         const url = requestUrl(input);
         const method = init?.method ?? "GET";
-        if (url.endsWith("/settings/server") && method === "GET") {
+        if (url.endsWith("/settings/infrastructure") && method === "GET") {
           return Promise.resolve(
             new Response(JSON.stringify(initialSettings), {
               status: 200,
@@ -60,7 +72,7 @@ describe("SettingsView", () => {
             }),
           );
         }
-        if (url.endsWith("/settings/server") && method === "PATCH") {
+        if (url.endsWith("/settings/infrastructure") && method === "PATCH") {
           const body = JSON.parse(typeof init?.body === "string" ? init.body : "{}");
           return Promise.resolve(
             new Response(JSON.stringify({ ...initialSettings, ...body }), {
@@ -69,7 +81,7 @@ describe("SettingsView", () => {
             }),
           );
         }
-        if (url.endsWith("/settings/server/certificates") && method === "POST") {
+        if (url.endsWith("/settings/infrastructure/certificates") && method === "POST") {
           return Promise.resolve(
             new Response(
               JSON.stringify({
@@ -84,7 +96,7 @@ describe("SettingsView", () => {
             ),
           );
         }
-        if (url.includes("/settings/server/certificates/") && method === "DELETE") {
+        if (url.includes("/settings/infrastructure/certificates/") && method === "DELETE") {
           return Promise.resolve(new Response(null, { status: 204 }));
         }
         return Promise.resolve(
@@ -94,16 +106,21 @@ describe("SettingsView", () => {
     );
   });
 
-  it("loads and persists a valid server configuration through the API", async () => {
+  it("loads infrastructure health and persists an application ingress policy", async () => {
     const { app, host } = await mountSettings();
-    const domain = host.querySelector("#server-domain") as HTMLInputElement;
+    const domain = host.querySelector("#application-domain-suffix") as HTMLInputElement;
     const save = [...host.querySelectorAll("button")].find((button) =>
       button.textContent?.includes("Save changes"),
     ) as HTMLButtonElement;
 
     expect(save.disabled).toBe(true);
 
-    domain.value = "control.example.com";
+    expect(host.textContent).toContain("Control plane health");
+    expect(host.textContent).toContain("Traefik");
+    expect(host.textContent).toContain("Application environment");
+    expect(host.textContent).toContain("http://127.0.0.1:6565");
+
+    domain.value = "apps.example.com";
     domain.dispatchEvent(new Event("input", { bubbles: true }));
     await nextTick();
 
@@ -117,27 +134,24 @@ describe("SettingsView", () => {
     expect(
       calls.some(
         ([input, init]) =>
-          requestUrl(input).endsWith("/settings/server") && init?.method === "PATCH",
+          requestUrl(input).endsWith("/settings/infrastructure") && init?.method === "PATCH",
       ),
     ).toBe(true);
     app.unmount();
   });
 
-  it("rejects a concurrent build count outside the supported range", async () => {
+  it("rejects an invalid application domain suffix", async () => {
     const { app, host } = await mountSettings();
-    const domain = host.querySelector("#server-domain") as HTMLInputElement;
-    const builds = host.querySelector("#concurrent-builds") as HTMLInputElement;
+    const domain = host.querySelector("#application-domain-suffix") as HTMLInputElement;
     const save = [...host.querySelectorAll("button")].find((button) =>
       button.textContent?.includes("Save changes"),
     ) as HTMLButtonElement;
 
-    domain.value = "control.example.com";
+    domain.value = "https://apps.example.com";
     domain.dispatchEvent(new Event("input", { bubbles: true }));
-    builds.value = "33";
-    builds.dispatchEvent(new Event("input", { bubbles: true }));
     await nextTick();
 
-    expect(host.textContent).toContain("Use no more than 32 concurrent builds.");
+    expect(host.textContent).toContain("Use a valid hostname without a protocol or path.");
     expect(save.disabled).toBe(true);
     app.unmount();
   });

@@ -1,5 +1,12 @@
 <script setup lang="ts">
 import { computed, shallowRef } from "vue";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import type { DeploymentLog } from "@/lib/types";
 
 const props = defineProps<{
@@ -32,16 +39,17 @@ const visibleLogs = computed(() =>
         <h2 class="mt-2 text-xl leading-none font-normal">Logs</h2>
       </div>
       <div class="flex items-center gap-2">
-        <select
-          v-model="filter"
-          class="h-8 rounded-[3px] border border-input bg-background px-2 text-xs"
-          aria-label="Log stream filter"
-        >
-          <option value="all">All</option>
-          <option value="stdout">stdout</option>
-          <option value="stderr">stderr</option>
-          <option value="system">system</option>
-        </select>
+        <Select v-model="filter">
+          <SelectTrigger class="h-8 w-[100px] px-2 text-xs" aria-label="Log stream filter">
+            <SelectValue placeholder="All" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All</SelectItem>
+            <SelectItem value="stdout">stdout</SelectItem>
+            <SelectItem value="stderr">stderr</SelectItem>
+            <SelectItem value="system">system</SelectItem>
+          </SelectContent>
+        </Select>
         <span class="flex items-center gap-1.5 text-xs text-muted-foreground">
           <span
             class="status-dot"

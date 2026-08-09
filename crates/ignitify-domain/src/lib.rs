@@ -5,6 +5,10 @@ use std::{fmt, str::FromStr};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+mod dns;
+
+pub use dns::{DnsRecord, DnsRecordTarget, DnsRecordType, DnsVerificationStatus};
+
 macro_rules! uuid_id {
     ($name:ident) => {
         #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -642,6 +646,12 @@ pub enum InputError {
     InvalidDomainName,
     #[error("invalid domain status")]
     InvalidDomainStatus,
+    #[error("invalid DNS record type")]
+    InvalidDnsRecordType,
+    #[error("invalid DNS record target")]
+    InvalidDnsRecordTarget,
+    #[error("invalid DNS verification status")]
+    InvalidDnsVerificationStatus,
 }
 
 pub type Result<T> = std::result::Result<T, InputError>;

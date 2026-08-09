@@ -20,7 +20,10 @@ pub use deployments::{
     DeploymentLogRecord, DeploymentRecord, DeploymentVariableRecord, DeploymentsRepository,
     NewDeployment, NewDeploymentLog, SequenceCursor,
 };
-pub use domains::{DomainActor, DomainMutationOutcome, DomainRecord, DomainsRepository};
+pub use domains::{
+    DomainActor, DomainMutationOutcome, DomainRecord, DomainVerificationRequestOutcome,
+    DomainsRepository,
+};
 pub use environments::EnvironmentsRepository;
 pub use projects::{
     AuthorizedProjectVariables, NewProjectVariable, ProjectActor, ProjectRemoveOutcome,

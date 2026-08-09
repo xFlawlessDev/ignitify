@@ -26,6 +26,7 @@ describe("ServiceDomainsPanel", () => {
   it("creates a route for a service port and exposes DNS and public link actions", async () => {
     const component = (await import("./ServiceDomainsPanel.vue")).default;
     const onCreate = vi.fn();
+    const onVerify = vi.fn();
     const host = document.createElement("div");
     document.body.append(host);
     const app = createApp(component, {
@@ -37,6 +38,11 @@ describe("ServiceDomainsPanel", () => {
           hostname: "app.example.com",
           status: "active" as const,
           last_error: null,
+          dns_record_type: "a" as const,
+          dns_record_target: "203.0.113.10",
+          dns_status: "not_checked" as const,
+          dns_error: null,
+          dns_checked_at: null,
           created_at: "2026-08-01T00:00:00Z",
           updated_at: "2026-08-01T00:00:00Z",
         },
@@ -45,15 +51,15 @@ describe("ServiceDomainsPanel", () => {
       loading: false,
       services: [service],
       onCreate,
+      onVerify,
     });
     app.mount(host);
     await nextTick();
 
-    expect(host.textContent).toContain("Server domain");
-    expect(host.textContent).toContain("Enable HTTPS");
-    expect(host.textContent).toContain("Automatically provision SSL");
-    expect(host.textContent).toContain("Certificate provider");
-    expect(host.textContent).toContain("Validate DNS");
+    expect(host.textContent).toContain("Custom domain");
+    expect(host.textContent).toContain("DNS not verified");
+    expect(host.textContent).toContain("A 203.0.113.10");
+    expect(host.textContent).toContain("Verify DNS");
     expect(host.textContent).toContain("Open link");
 
     const domainInput = host.querySelector("#project-domain") as HTMLInputElement;
@@ -67,6 +73,10 @@ describe("ServiceDomainsPanel", () => {
     await nextTick();
 
     expect(onCreate.mock.calls[0]).toEqual(["service-1", "api.example.com"]);
+    (host.querySelector('button[title="Verify DNS"]') as HTMLButtonElement).click();
+    await nextTick();
+    const verified = onVerify.mock.calls[0]?.[0] as { id: string };
+    expect(verified.id).toBe("domain-1");
     expect((host.querySelector('a[title="Open link"]') as HTMLAnchorElement).href).toBe(
       "https://app.example.com/",
     );

@@ -1,7 +1,7 @@
 use chrono::Utc;
 use ignitify_domain::{
-    ApplicationBuilder, DomainName, ProjectInput, ProjectMemberRole, ServiceInput,
-    ServiceSourceConfig, ServiceSpec, ServiceVariableInput,
+    ApplicationBuilder, DnsRecord, DnsRecordType, DnsVerificationStatus, DomainName, ProjectInput,
+    ProjectMemberRole, ServiceInput, ServiceSourceConfig, ServiceSpec, ServiceVariableInput,
 };
 use uuid::Uuid;
 
@@ -41,6 +41,7 @@ async fn migrations_create_auth_storage() {
     let settings = database.server_settings().get().await.unwrap();
     assert!(settings.https_enabled);
     assert!(settings.automatically_provision_ssl);
+    assert!(settings.acme_email.is_empty());
     assert_eq!(settings.certificate_provider, "lets-encrypt");
 }
 
@@ -50,16 +51,20 @@ async fn server_settings_and_encrypted_certificate_records_are_durable() {
     let updated = database
         .server_settings()
         .update(ServerSettingsUpdate {
-            server_domain: "control.example.com".to_owned(),
+            application_domain_suffix: "apps.example.com".to_owned(),
             https_enabled: true,
             automatically_provision_ssl: true,
+            acme_email: "ops@apps.example.com".to_owned(),
+            dns_record_type: "a".to_owned(),
+            dns_record_target: "203.0.113.10".to_owned(),
             certificate_provider: "lets-encrypt".to_owned(),
             custom_certificate_id: None,
             concurrent_builds: 4,
         })
         .await
         .unwrap();
-    assert_eq!(updated.server_domain, "control.example.com");
+    assert_eq!(updated.application_domain_suffix, "apps.example.com");
+    assert_eq!(updated.acme_email, "ops@apps.example.com");
     assert_eq!(updated.concurrent_builds, 4);
 
     let certificate = database
@@ -761,18 +766,51 @@ async fn domain_repository_enforces_hostname_uniqueness_role_and_confirmation() 
             owner,
             service.id.as_str(),
             DomainName::new("app.example.com").unwrap(),
+            DnsRecord::new(DnsRecordType::A, "203.0.113.10").unwrap(),
         )
         .await
         .unwrap();
     let crate::DomainMutationOutcome::Created(domain) = created else {
         panic!("domain must be created");
     };
+    let verification = database
+        .domains()
+        .request_dns_verification(owner, domain.id.as_str())
+        .await
+        .unwrap();
+    let crate::DomainVerificationRequestOutcome::Requested(pending) = verification else {
+        panic!("verification must be accepted");
+    };
+    assert_eq!(pending.dns_status, DnsVerificationStatus::Pending);
+    assert_eq!(
+        database
+            .domains()
+            .pending_dns_verifications()
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+    database
+        .domains()
+        .complete_dns_verification(domain.id.as_str(), DnsVerificationStatus::Valid, None)
+        .await
+        .unwrap();
+    assert!(
+        database
+            .domains()
+            .pending_dns_verifications()
+            .await
+            .unwrap()
+            .is_empty()
+    );
     let duplicate = database
         .domains()
         .create(
             owner,
             service.id.as_str(),
             DomainName::new("app.example.com").unwrap(),
+            DnsRecord::new(DnsRecordType::A, "203.0.113.10").unwrap(),
         )
         .await;
     assert!(matches!(
@@ -972,6 +1010,7 @@ async fn service_removal_requires_confirmation_and_cascades_stopped_records() {
             },
             service.id.as_str(),
             DomainName::new("web.example.com").unwrap(),
+            DnsRecord::new(DnsRecordType::Cname, "edge.example.com").unwrap(),
         )
         .await
         .unwrap();

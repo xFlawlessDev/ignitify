@@ -1,0 +1,12 @@
+[package]
+name = "ignitify-dns"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+hickory-resolver.workspace = true
+ignitify-control-plane = { path = "../ignitify-control-plane" }
+ignitify-db = { path = "../ignitify-db" }
+ignitify-domain = { path = "../ignitify-domain" }
+

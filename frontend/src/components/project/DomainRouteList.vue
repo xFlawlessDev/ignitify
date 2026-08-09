@@ -1,19 +1,15 @@
 <script setup lang="ts">
 import { CircleCheck, CircleX, ExternalLink, Globe2, RefreshCw, Trash2 } from "@lucide/vue";
-import type { DnsValidationState } from "./DomainConfigurationPanel.vue";
 import type { DomainSummary, ServiceSummary } from "@/lib/types";
 
 const props = defineProps<{
   canManage: boolean;
   domains: DomainSummary[];
   services: ServiceSummary[];
-  httpsEnabled: boolean;
-  dnsStates: Record<string, DnsValidationState>;
-  dnsMessages: Record<string, string>;
 }>();
 
 const emit = defineEmits<{
-  validateDns: [domain: DomainSummary];
+  verify: [domain: DomainSummary];
   remove: [domain: DomainSummary];
 }>();
 
@@ -26,11 +22,23 @@ function servicePort(id: string) {
 }
 
 function domainUrl(hostname: string) {
-  return `${props.httpsEnabled ? "https" : "http"}://${hostname}`;
+  return `https://${hostname}`;
 }
 
 function statusLabel(status: DomainSummary["status"]) {
   return status === "active" ? "Active" : status === "failed" ? "Failed" : "Pending";
+}
+
+function dnsStatusLabel(status: DomainSummary["dns_status"]) {
+  return status === "valid"
+    ? "DNS verified"
+    : status === "missing"
+      ? "DNS record not found"
+      : status === "unavailable"
+        ? "DNS lookup unavailable"
+        : status === "pending"
+          ? "DNS verification pending"
+          : "DNS not verified";
 }
 </script>
 
@@ -41,7 +49,7 @@ function statusLabel(status: DomainSummary["status"]) {
         <p class="ui-label">Managed routes</p>
         <h2 id="managed-domains-heading" class="mt-1.5 text-base font-medium">Project domains</h2>
         <p class="mt-1.5 text-xs leading-5 text-muted-foreground">
-          Verify DNS before sharing a route. Links open the public endpoint in a new tab.
+          Add the DNS record shown below at your DNS provider, then verify it here.
         </p>
       </div>
       <span class="shrink-0 font-mono text-[10px] text-muted-foreground"
@@ -89,52 +97,66 @@ function statusLabel(status: DomainSummary["status"]) {
               {{ statusLabel(domain.status) }}
             </span>
           </div>
+          <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px]">
+            <span class="font-mono text-muted-foreground">
+              {{ domain.dns_record_type?.toUpperCase() ?? "DNS" }}
+              {{ domain.dns_record_target ?? "Configure target in Infrastructure" }}
+            </span>
+            <span
+              class="inline-flex items-center gap-1 font-medium"
+              :class="
+                domain.dns_status === 'valid'
+                  ? 'text-metric-green'
+                  : domain.dns_status === 'pending'
+                    ? 'text-muted-foreground'
+                    : domain.dns_status === 'not_checked'
+                      ? 'text-muted-foreground'
+                      : 'text-destructive'
+              "
+              role="status"
+              aria-live="polite"
+            >
+              <CircleCheck
+                v-if="domain.dns_status === 'valid'"
+                class="size-3.5"
+                :stroke-width="1.7"
+              />
+              <RefreshCw
+                v-else-if="domain.dns_status === 'pending'"
+                class="size-3.5 animate-spin"
+                :stroke-width="1.7"
+              />
+              <CircleX
+                v-else-if="domain.dns_status !== 'not_checked'"
+                class="size-3.5"
+                :stroke-width="1.7"
+              />
+              {{ dnsStatusLabel(domain.dns_status) }}
+            </span>
+          </div>
+          <span v-if="domain.dns_error" class="text-xs text-destructive">{{
+            domain.dns_error
+          }}</span>
           <span v-if="domain.last_error" class="text-xs text-destructive">{{
             domain.last_error
           }}</span>
-          <p
-            v-if="props.dnsStates[domain.id] && props.dnsStates[domain.id] !== 'idle'"
-            class="flex items-center gap-1.5 text-[11px]"
-            :class="
-              props.dnsStates[domain.id] === 'valid'
-                ? 'text-metric-green'
-                : props.dnsStates[domain.id] === 'checking'
-                  ? 'text-muted-foreground'
-                  : 'text-destructive'
-            "
-            role="status"
-            aria-live="polite"
-          >
-            <CircleCheck
-              v-if="props.dnsStates[domain.id] === 'valid'"
-              class="size-3.5"
-              :stroke-width="1.7"
-            />
-            <CircleX
-              v-else-if="props.dnsStates[domain.id] !== 'checking'"
-              class="size-3.5"
-              :stroke-width="1.7"
-            />
-            <RefreshCw v-else class="size-3.5 animate-spin" :stroke-width="1.7" />
-            {{ props.dnsMessages[domain.id] }}
-          </p>
         </div>
 
         <div class="flex flex-wrap items-center gap-2 lg:justify-end">
           <button
             class="inline-flex h-8 items-center gap-1.5 rounded-[3px] border border-border px-2.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
             type="button"
-            :disabled="props.dnsStates[domain.id] === 'checking'"
-            :aria-label="`Validate DNS for ${domain.hostname}`"
-            title="Validate DNS"
-            @click="emit('validateDns', domain)"
+            :disabled="domain.dns_status === 'pending'"
+            :aria-label="`Verify DNS for ${domain.hostname}`"
+            title="Verify DNS"
+            @click="emit('verify', domain)"
           >
             <RefreshCw
               class="size-3.5"
-              :class="props.dnsStates[domain.id] === 'checking' ? 'animate-spin' : ''"
+              :class="domain.dns_status === 'pending' ? 'animate-spin' : ''"
               :stroke-width="1.5"
             />
-            Validate DNS
+            Verify DNS
           </button>
           <a
             class="inline-flex h-8 items-center gap-1.5 rounded-[3px] border border-border px-2.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"

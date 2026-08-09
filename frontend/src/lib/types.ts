@@ -197,6 +197,11 @@ export interface DomainSummary {
   hostname: string;
   status: "pending" | "active" | "failed";
   last_error: string | null;
+  dns_record_type: "a" | "cname" | null;
+  dns_record_target: string | null;
+  dns_status: "not_checked" | "pending" | "valid" | "missing" | "unavailable";
+  dns_error: string | null;
+  dns_checked_at: string | null;
   created_at: string;
   updated_at: string;
 }

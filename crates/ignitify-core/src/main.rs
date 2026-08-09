@@ -7,9 +7,10 @@ use std::{env, path::PathBuf, sync::Arc};
 use ignitify_auth::{AuthConfig, AuthService};
 use ignitify_control_plane::{
     AgeCipher, ControlHandle, RuntimeSelector, ServiceControl, SystemMetricsProvider,
-    WorkerDependencies, WorkerHealth, spawn_worker_with_source,
+    WorkerDependencies, WorkerHealth, spawn_worker_with_source_and_dns,
 };
 use ignitify_db::{Database, DatabaseConfig};
+use ignitify_dns::SystemDnsVerifier;
 use ignitify_ingress_traefik::TraefikIngress;
 use ignitify_runtime_compose::ComposeRuntime;
 use ignitify_runtime_docker::DockerRuntime;
@@ -88,11 +89,12 @@ async fn main() -> Result<()> {
     let _ingress_ready = ingress.ensure_started().await;
     let source_build = GitSourceBuild::from_environment(database.clone(), &secrets_identity)?;
     let ingress_health: Arc<dyn ignitify_control_plane::RuntimeHealth> = Arc::new(ingress.clone());
-    let (_worker, worker_ready) = spawn_worker_with_source(
+    let (_worker, worker_ready) = spawn_worker_with_source_and_dns(
         database.deployments(),
         database.domains(),
         control.worker_cipher(),
-        WorkerDependencies::new(runtime, ingress, source_build),
+        WorkerDependencies::new(runtime, ingress, source_build)
+            .with_dns_verifier(SystemDnsVerifier::new()),
         control.worker_publisher(),
         wake,
     );

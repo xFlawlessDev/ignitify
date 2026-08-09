@@ -58,6 +58,18 @@ beforeEach(() => {
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ status: 404, ok: false }));
 });
 
+async function selectOption(host: HTMLElement, triggerId: string, label: string) {
+  const trigger = host.querySelector(`#${triggerId}`) as HTMLButtonElement;
+  trigger.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, button: 0 }));
+  await nextTick();
+  const option = [...document.body.querySelectorAll('[data-slot="select-item"]')].find((item) =>
+    item.textContent?.includes(label),
+  ) as HTMLElement | undefined;
+  expect(option).toBeDefined();
+  option?.dispatchEvent(new MouseEvent("pointerup", { bubbles: true, button: 0 }));
+  await nextTick();
+}
+
 describe("ServiceConfigurationPanel", () => {
   it("saves inline Compose YAML entered in the editor", async () => {
     const component = (await import("./ServiceConfigurationPanel.vue")).default;
@@ -130,14 +142,10 @@ describe("ServiceConfigurationPanel", () => {
     ) as HTMLButtonElement;
     applicationButton.click();
     await nextTick();
-    const provider = host.querySelector("#service-config-provider") as HTMLSelectElement;
-    provider.value = "provider-1";
-    provider.dispatchEvent(new Event("change", { bubbles: true }));
+    await selectOption(host, "service-config-provider", "GitHub (github)");
     await new Promise((resolve) => setTimeout(resolve, 0));
     await nextTick();
-    const repository = host.querySelector("#service-config-repository") as HTMLInputElement;
-    repository.value = "acme/site";
-    repository.dispatchEvent(new Event("change", { bubbles: true }));
+    await selectOption(host, "service-config-repository", "acme/site");
     await nextTick();
     (host.querySelector("form") as HTMLFormElement).dispatchEvent(
       new Event("submit", { bubbles: true, cancelable: true }),
@@ -325,16 +333,10 @@ port = 80
     await nextTick();
     (textButton("Provider repository") as HTMLButtonElement).click();
     await nextTick();
-    const provider = host.querySelector("#service-config-compose-provider") as HTMLSelectElement;
-    provider.value = "provider-1";
-    provider.dispatchEvent(new Event("change", { bubbles: true }));
+    await selectOption(host, "service-config-compose-provider", "GitHub");
     await new Promise((resolve) => setTimeout(resolve, 0));
     await nextTick();
-    const repository = host.querySelector(
-      "#service-config-compose-repository",
-    ) as HTMLSelectElement;
-    repository.value = "acme/stack";
-    repository.dispatchEvent(new Event("change", { bubbles: true }));
+    await selectOption(host, "service-config-compose-repository", "acme/stack");
     const exposedService = host.querySelector("#service-config-exposed") as HTMLInputElement;
     exposedService.value = "web";
     exposedService.dispatchEvent(new Event("input", { bubbles: true }));

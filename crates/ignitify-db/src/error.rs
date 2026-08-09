@@ -38,6 +38,12 @@ pub enum DatabaseError {
     DomainConfirmationMismatch,
     #[error("invalid stored domain status: {0}")]
     InvalidDomainStatus(String),
+    #[error("invalid stored DNS record type: {0}")]
+    InvalidDnsRecordType(String),
+    #[error("invalid stored DNS record target: {0}")]
+    InvalidDnsRecordTarget(String),
+    #[error("invalid stored DNS verification status: {0}")]
+    InvalidDnsVerificationStatus(String),
     #[error("provider name already exists")]
     ProviderNameConflict,
     #[error("invalid stored provider kind: {0}")]

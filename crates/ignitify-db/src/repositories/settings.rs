@@ -6,9 +6,12 @@ use crate::{DatabaseError, Result};
 
 #[derive(Debug, Clone)]
 pub struct ServerSettingsRecord {
-    pub server_domain: String,
+    pub application_domain_suffix: String,
     pub https_enabled: bool,
     pub automatically_provision_ssl: bool,
+    pub acme_email: String,
+    pub dns_record_type: String,
+    pub dns_record_target: String,
     pub certificate_provider: String,
     pub custom_certificate_id: Option<String>,
     pub concurrent_builds: i64,
@@ -17,9 +20,12 @@ pub struct ServerSettingsRecord {
 
 #[derive(Debug, Clone)]
 pub struct ServerSettingsUpdate {
-    pub server_domain: String,
+    pub application_domain_suffix: String,
     pub https_enabled: bool,
     pub automatically_provision_ssl: bool,
+    pub acme_email: String,
+    pub dns_record_type: String,
+    pub dns_record_target: String,
     pub certificate_provider: String,
     pub custom_certificate_id: Option<String>,
     pub concurrent_builds: i64,
@@ -58,7 +64,9 @@ impl ServerSettingsRepository {
 
     pub async fn get(&self) -> Result<ServerSettingsRecord> {
         let row = sqlx::query_as::<_, ServerSettingsRow>(
-            "SELECT server_domain, https_enabled, automatically_provision_ssl,
+            "SELECT server_domain AS application_domain_suffix, https_enabled, automatically_provision_ssl,
+                    acme_email,
+                    dns_record_type, dns_record_target,
                     certificate_provider, custom_certificate_id, concurrent_builds, updated_at
              FROM server_settings WHERE id = 1",
         )
@@ -75,13 +83,17 @@ impl ServerSettingsRepository {
         sqlx::query(
             "UPDATE server_settings
              SET server_domain = ?, https_enabled = ?, automatically_provision_ssl = ?,
+                 acme_email = ?, dns_record_type = ?, dns_record_target = ?,
                  certificate_provider = ?, custom_certificate_id = ?, concurrent_builds = ?,
                  updated_at = ?
              WHERE id = 1",
         )
-        .bind(&input.server_domain)
+        .bind(&input.application_domain_suffix)
         .bind(input.https_enabled)
         .bind(input.automatically_provision_ssl)
+        .bind(&input.acme_email)
+        .bind(&input.dns_record_type)
+        .bind(&input.dns_record_target)
         .bind(&input.certificate_provider)
         .bind(&input.custom_certificate_id)
         .bind(input.concurrent_builds)
@@ -168,9 +180,12 @@ impl ServerSettingsRepository {
 
 #[derive(Debug, FromRow)]
 struct ServerSettingsRow {
-    server_domain: String,
+    application_domain_suffix: String,
     https_enabled: i64,
     automatically_provision_ssl: i64,
+    acme_email: String,
+    dns_record_type: String,
+    dns_record_target: String,
     certificate_provider: String,
     custom_certificate_id: Option<String>,
     concurrent_builds: i64,
@@ -191,9 +206,12 @@ impl ServerSettingsRow {
             ));
         }
         Ok(ServerSettingsRecord {
-            server_domain: self.server_domain,
+            application_domain_suffix: self.application_domain_suffix,
             https_enabled: self.https_enabled != 0,
             automatically_provision_ssl: self.automatically_provision_ssl != 0,
+            acme_email: self.acme_email,
+            dns_record_type: self.dns_record_type,
+            dns_record_target: self.dns_record_target,
             certificate_provider: self.certificate_provider,
             custom_certificate_id: self.custom_certificate_id,
             concurrent_builds: self.concurrent_builds,

@@ -27,6 +27,18 @@ async function mount(
   return { app, host };
 }
 
+async function selectOption(triggerId: string, label: string) {
+  const trigger = document.querySelector(`#${triggerId}`) as HTMLButtonElement;
+  trigger.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, button: 0 }));
+  await nextTick();
+  const option = [...document.body.querySelectorAll('[data-slot="select-item"]')].find((item) =>
+    item.textContent?.includes(label),
+  ) as HTMLElement | undefined;
+  expect(option).toBeDefined();
+  option?.dispatchEvent(new MouseEvent("pointerup", { bubbles: true, button: 0 }));
+  await nextTick();
+}
+
 const editableService = {
   id: "service-1",
   project_id: "project-1",
@@ -134,9 +146,7 @@ describe("ServiceDialog", () => {
     ) as HTMLButtonElement;
     applicationButton.click();
     await nextTick();
-    const provider = document.querySelector("#service-provider") as HTMLSelectElement;
-    provider.value = "provider-1";
-    provider.dispatchEvent(new Event("change", { bubbles: true }));
+    await selectOption("service-provider", "GitHub (github)");
     const repository = document.querySelector("#service-repository") as HTMLInputElement;
     repository.value = "acme/site";
     repository.dispatchEvent(new Event("input", { bubbles: true }));

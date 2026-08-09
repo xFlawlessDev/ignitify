@@ -25,3 +25,9 @@ export function apiRemoveDomain(
     body: JSON.stringify({ confirm_hostname: confirmHostname }),
   });
 }
+
+export function apiVerifyDomain(domainId: string): Promise<ApiResult<DomainSummary>> {
+  return apiFetch<DomainSummary>(`/domains/${encodeURIComponent(domainId)}/verify`, {
+    method: "POST",
+  });
+}
