@@ -4,6 +4,7 @@ import {
   apiDeleteService,
   apiGetService,
   apiListServices,
+  apiRotateAutoDeploySecret,
   apiUpdateService,
 } from "@/lib/api/services";
 import type { ServiceInput, ServiceSummary } from "@/lib/types";
@@ -93,5 +94,19 @@ export function useService() {
     return true;
   }
 
-  return { data, loading, error, load, get, create, update, remove };
+  async function rotateAutoDeploySecret(serviceId: string): Promise<string | null> {
+    error.value = null;
+    const result = await apiRotateAutoDeploySecret(serviceId);
+    if (!result.success) {
+      error.value = result.error ?? "Could not rotate auto-deploy secret";
+      return null;
+    }
+    const secret = result.data.auto_deploy_webhook_secret;
+    data.value = data.value.map((item) =>
+      item.id === serviceId ? { ...item, auto_deploy_webhook_secret: secret } : item,
+    );
+    return secret;
+  }
+
+  return { data, loading, error, load, get, create, update, remove, rotateAutoDeploySecret };
 }

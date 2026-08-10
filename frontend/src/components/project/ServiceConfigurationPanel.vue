@@ -3,6 +3,7 @@ import {
   Box,
   Boxes,
   CircleAlert,
+  Copy,
   Eye,
   EyeOff,
   FileCode2,
@@ -13,6 +14,7 @@ import {
   Trash2,
 } from "@lucide/vue";
 import { computed, onMounted, reactive, shallowRef, watch } from "vue";
+import { useI18n } from "vue-i18n";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -51,11 +53,17 @@ const props = defineProps<{
   error?: string | null;
   inheritedVariables?: ProjectEnvironmentVariable[];
   providers?: ProviderSummary[];
+  rotatingAutoDeploySecret?: boolean;
   saving?: boolean;
   service: ServiceSummary;
 }>();
 
-const emit = defineEmits<{ save: [input: ServiceInput] }>();
+const emit = defineEmits<{
+  save: [input: ServiceInput];
+  rotateAutoDeploySecret: [];
+}>();
+
+const { t } = useI18n();
 
 const name = shallowRef("");
 const kind = shallowRef<"image" | "compose">("image");
@@ -69,6 +77,7 @@ const builder = shallowRef<ApplicationBuilder>("static");
 const dockerfilePath = shallowRef("Dockerfile");
 const buildCommand = shallowRef("");
 const outputDirectory = shallowRef("dist");
+const autoDeploy = shallowRef(false);
 const imageReference = shallowRef("");
 const composeYaml = shallowRef("");
 const exposedService = shallowRef("");
@@ -78,6 +87,7 @@ const appliedTemplateName = shallowRef("");
 const validationError = shallowRef<string | null>(null);
 const activeEnvironmentKind = shallowRef<"variables" | "secrets">("variables");
 const showSecretValues = shallowRef(false);
+const showAutoDeploySecret = shallowRef(false);
 const deploymentDestinationId = shallowRef("local");
 const destinations = shallowRef<RemoteServerSummary[]>([]);
 
@@ -115,6 +125,15 @@ const sourceOptions = [
 ];
 const availableProviders = computed(() =>
   (props.providers ?? []).filter((provider) => provider.token_configured),
+);
+const selectedProvider = computed(
+  () => availableProviders.value.find((provider) => provider.id === providerId.value) ?? null,
+);
+const autoDeploySupported = computed(() =>
+  ["github", "gitlab", "gitea"].includes(selectedProvider.value?.kind ?? ""),
+);
+const autoDeployWebhookUrl = computed(
+  () => `${window.location.origin}/api/v1/webhooks/services/${props.service.id}`,
 );
 const repositoryOptions = computed(() => {
   const current = repository.value;
@@ -290,6 +309,8 @@ function reset() {
     (props.service.source_config?.source === "compose" ? "docker-compose.yml" : "Dockerfile");
   buildCommand.value = props.service.source_config?.build_command ?? "";
   outputDirectory.value = props.service.source_config?.output_directory ?? "dist";
+  autoDeploy.value = props.service.source_config?.auto_deploy ?? false;
+  showAutoDeploySecret.value = false;
   imageReference.value = props.service.image_reference ?? "";
   composeYaml.value = props.service.compose_yaml ?? "";
   exposedService.value = props.service.exposed_service ?? "";
@@ -355,6 +376,12 @@ function updateSecret(index: number, isSecret: boolean) {
   if (!variable) return;
   variable.is_secret = isSecret;
   activeEnvironmentKind.value = isSecret ? "secrets" : "variables";
+}
+
+function copyAutoDeployValue(value: string) {
+  if (typeof navigator !== "undefined" && navigator.clipboard) {
+    void navigator.clipboard.writeText(value);
+  }
 }
 
 function normalizeComposeYaml(value: string) {
@@ -491,6 +518,7 @@ function submit() {
               : {}),
           }
         : {}),
+      ...(isRepositorySource() ? { auto_deploy: autoDeploy.value } : {}),
     },
     deployment_destination_id:
       deploymentDestinationId.value === "local" ? null : deploymentDestinationId.value,
@@ -498,6 +526,9 @@ function submit() {
 }
 
 watch(() => props.service.id, reset, { immediate: true });
+watch(autoDeploySupported, (supported) => {
+  if (selectedProvider.value && !supported) autoDeploy.value = false;
+});
 onMounted(() => void loadDestinations());
 </script>
 
@@ -730,6 +761,131 @@ onMounted(() => void loadDestinations());
             placeholder="dist"
           />
         </Label>
+      </div>
+    </section>
+
+    <section
+      v-if="isRepositorySource()"
+      class="grid gap-4 rounded-[8px] border border-border bg-muted/30 p-4"
+    >
+      <div class="flex items-start justify-between gap-4 max-[560px]:flex-col">
+        <div>
+          <p class="text-sm font-medium">{{ t("autoDeploy.title") }}</p>
+          <p class="mt-1 text-[11px] leading-4 text-muted-foreground">
+            {{ t("autoDeploy.description") }}
+          </p>
+        </div>
+        <Switch
+          :model-value="autoDeploy"
+          :disabled="!autoDeploySupported"
+          :aria-label="t('autoDeploy.title')"
+          @update:model-value="(value) => (autoDeploy = value)"
+        />
+      </div>
+      <p v-if="!autoDeploySupported" class="text-[11px] leading-4 text-muted-foreground">
+        {{ t("autoDeploy.unsupportedProvider") }}
+      </p>
+      <div v-else-if="autoDeploy" class="grid gap-3 border-t border-border pt-4">
+        <p
+          v-if="!service.source_config?.auto_deploy"
+          class="text-[11px] leading-4 text-muted-foreground"
+        >
+          {{ t("autoDeploy.saveFirst") }}
+        </p>
+        <template v-else>
+          <Label for="service-config-webhook-url" class="grid gap-2 text-xs text-muted-foreground">
+            {{ t("autoDeploy.webhookUrl") }}
+            <div class="flex min-w-0 gap-2">
+              <Input
+                id="service-config-webhook-url"
+                class="min-w-0 font-mono text-xs"
+                :model-value="autoDeployWebhookUrl"
+                readonly
+              />
+              <Tooltip>
+                <TooltipTrigger as-child>
+                  <Button
+                    size="icon"
+                    type="button"
+                    variant="outline"
+                    :aria-label="t('autoDeploy.copyWebhookUrl')"
+                    @click="copyAutoDeployValue(autoDeployWebhookUrl)"
+                  >
+                    <Copy :stroke-width="1.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>{{ t("autoDeploy.copyWebhookUrl") }}</TooltipContent>
+              </Tooltip>
+            </div>
+          </Label>
+          <div class="grid gap-2">
+            <div class="flex items-center justify-between gap-3">
+              <Label for="service-config-webhook-secret">{{ t("autoDeploy.webhookSecret") }}</Label>
+              <Button
+                size="sm"
+                type="button"
+                variant="outline"
+                :disabled="rotatingAutoDeploySecret"
+                @click="emit('rotateAutoDeploySecret')"
+              >
+                <Spinner v-if="rotatingAutoDeploySecret" data-icon="inline-start" />
+                {{ t("autoDeploy.rotateSecret") }}
+              </Button>
+            </div>
+            <template v-if="service.auto_deploy_webhook_secret">
+              <div class="flex min-w-0 gap-2">
+                <Input
+                  id="service-config-webhook-secret"
+                  class="min-w-0 font-mono text-xs"
+                  :model-value="service.auto_deploy_webhook_secret"
+                  :type="showAutoDeploySecret ? 'text' : 'password'"
+                  readonly
+                />
+                <Tooltip>
+                  <TooltipTrigger as-child>
+                    <Button
+                      size="icon"
+                      type="button"
+                      variant="outline"
+                      :aria-label="
+                        showAutoDeploySecret
+                          ? t('autoDeploy.hideSecret')
+                          : t('autoDeploy.revealSecret')
+                      "
+                      @click="showAutoDeploySecret = !showAutoDeploySecret"
+                    >
+                      <EyeOff v-if="showAutoDeploySecret" :stroke-width="1.5" />
+                      <Eye v-else :stroke-width="1.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>{{
+                    showAutoDeploySecret ? t("autoDeploy.hideSecret") : t("autoDeploy.revealSecret")
+                  }}</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger as-child>
+                    <Button
+                      size="icon"
+                      type="button"
+                      variant="outline"
+                      :aria-label="t('autoDeploy.copySecret')"
+                      @click="copyAutoDeployValue(service.auto_deploy_webhook_secret)"
+                    >
+                      <Copy :stroke-width="1.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>{{ t("autoDeploy.copySecret") }}</TooltipContent>
+                </Tooltip>
+              </div>
+              <p class="text-[11px] leading-4 text-muted-foreground">
+                {{ t("autoDeploy.secretShownOnce") }}
+              </p>
+            </template>
+            <p v-else class="text-[11px] leading-4 text-muted-foreground">
+              {{ t("autoDeploy.secretUnavailable") }}
+            </p>
+          </div>
+        </template>
       </div>
     </section>
 

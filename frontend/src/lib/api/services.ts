@@ -34,6 +34,19 @@ export function apiUpdateService(
   });
 }
 
+export interface AutoDeploySecretResponse {
+  auto_deploy_webhook_secret: string;
+}
+
+export function apiRotateAutoDeploySecret(
+  serviceId: string,
+): Promise<ApiResult<AutoDeploySecretResponse>> {
+  return apiFetch<AutoDeploySecretResponse>(
+    `/services/${encodeURIComponent(serviceId)}/auto-deploy-secret`,
+    { method: "POST" },
+  );
+}
+
 function validateComposeInput(input: ServiceInput): string | null {
   if (input.kind !== "compose") return null;
 

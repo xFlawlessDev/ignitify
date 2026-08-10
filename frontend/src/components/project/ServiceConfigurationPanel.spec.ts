@@ -172,6 +172,54 @@ describe("ServiceConfigurationPanel", () => {
     app.unmount();
   });
 
+  it("persists auto deploy and exposes the provider webhook setup", async () => {
+    const component = (await import("./ServiceConfigurationPanel.vue")).default;
+    const onSave = vi.fn();
+    const onRotateAutoDeploySecret = vi.fn();
+    const host = document.createElement("div");
+    document.body.append(host);
+    const app = createApp(component, {
+      service: {
+        ...service,
+        source_config: {
+          source: "application",
+          provider_id: "provider-1",
+          repository: "acme/site",
+          branch: "main",
+          builder: "railpack",
+          auto_deploy: true,
+        },
+        auto_deploy_webhook_secret: "generated-webhook-secret",
+      },
+      providers: [{ id: "provider-1", name: "GitHub", kind: "github", token_configured: true }],
+      inheritedVariables: [],
+      saving: false,
+      error: null,
+      onSave,
+      onRotateAutoDeploySecret,
+    });
+    app.use(i18n);
+    app.mount(host);
+    await nextTick();
+
+    expect(host.textContent).toContain("Auto deploy on push");
+    expect(host.querySelector("#service-config-webhook-url")).not.toBeNull();
+    (host.querySelector("form") as HTMLFormElement).dispatchEvent(
+      new Event("submit", { bubbles: true, cancelable: true }),
+    );
+    await nextTick();
+
+    expect(onSave.mock.calls[0]?.[0]).toMatchObject({
+      source_config: { auto_deploy: true },
+    });
+    const rotate = [...host.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("Rotate secret"),
+    ) as HTMLButtonElement;
+    rotate.click();
+    expect(onRotateAutoDeploySecret).toHaveBeenCalledTimes(1);
+    app.unmount();
+  });
+
   it("saves inline Compose YAML entered in the editor", async () => {
     const component = (await import("./ServiceConfigurationPanel.vue")).default;
     const onSave = vi.fn();

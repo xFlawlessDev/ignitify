@@ -464,6 +464,7 @@ async fn deployment_snapshots_keep_the_selected_destination() {
             project.id.as_str(),
             input.configuration,
             vec![],
+            None,
         )
         .await
         .unwrap();
@@ -849,6 +850,7 @@ async fn deployment_repository_enforces_idempotency_active_conflict_and_immutabl
             .unwrap()
             .configuration,
             vec![],
+            None,
         )
         .await
         .unwrap();
@@ -996,6 +998,7 @@ async fn deployment_retry_backoff_and_cancellation_are_durable() {
             .unwrap()
             .configuration,
             vec![],
+            None,
         )
         .await
         .unwrap();
@@ -1101,6 +1104,7 @@ async fn service_repository_persists_source_configuration_separately_from_runtim
         dockerfile_path: None,
         build_command: None,
         output_directory: None,
+        auto_deploy: false,
     });
     let outcome = database
         .services()
@@ -1112,6 +1116,7 @@ async fn service_repository_persists_source_configuration_separately_from_runtim
             project.id.as_str(),
             input.configuration,
             vec![],
+            None,
         )
         .await
         .unwrap();
@@ -1246,6 +1251,7 @@ async fn deployment_log_retention_keeps_newest_ten_thousand_rows() {
             .unwrap()
             .configuration,
             vec![],
+            None,
         )
         .await
         .unwrap();
@@ -1330,6 +1336,7 @@ async fn domain_repository_enforces_hostname_uniqueness_role_and_confirmation() 
             .unwrap()
             .configuration,
             vec![],
+            None,
         )
         .await
         .unwrap();
@@ -1475,7 +1482,13 @@ async fn service_repository_enforces_role_updates_generation_and_audits_without_
     };
     let created = database
         .services()
-        .create(owner, project.id.as_str(), input.configuration, variables)
+        .create(
+            owner,
+            project.id.as_str(),
+            input.configuration,
+            variables,
+            None,
+        )
         .await
         .unwrap();
     let ServiceMutationOutcome::Created(service) = created else {
@@ -1500,6 +1513,7 @@ async fn service_repository_enforces_role_updates_generation_and_audits_without_
             .unwrap()
             .configuration,
             vec![],
+            None,
         )
         .await
         .unwrap();
@@ -1519,6 +1533,7 @@ async fn service_repository_enforces_role_updates_generation_and_audits_without_
             .unwrap()
             .configuration,
             vec![],
+            None,
         )
         .await
         .unwrap();
@@ -1564,6 +1579,7 @@ async fn service_removal_requires_confirmation_and_cascades_stopped_records() {
             .unwrap()
             .configuration,
             vec![],
+            None,
         )
         .await
         .unwrap();

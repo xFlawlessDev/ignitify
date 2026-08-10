@@ -436,6 +436,8 @@ pub struct ServiceSourceConfig {
     pub build_command: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output_directory: Option<String>,
+    #[serde(default)]
+    pub auto_deploy: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -480,6 +482,12 @@ impl ServiceSourceConfig {
         if self.source == "compose"
             && self.provider_id.is_some()
             && (self.repository.is_none() || self.branch.is_none())
+        {
+            return Err(InputError::InvalidServiceSourceConfig);
+        }
+        if self.auto_deploy
+            && !((self.source == "application")
+                || (self.source == "compose" && self.provider_id.is_some()))
         {
             return Err(InputError::InvalidServiceSourceConfig);
         }

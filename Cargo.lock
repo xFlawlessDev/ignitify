@@ -1518,6 +1518,7 @@ dependencies = [
  "axum",
  "chrono",
  "futures-util",
+ "hmac",
  "http-body-util",
  "ignitify-auth",
  "ignitify-control-plane",

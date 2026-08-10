@@ -343,6 +343,12 @@ protected_mutation_param!(
     "server_id"
 );
 protected_get_param!(
+    remote_server_access_doc,
+    "/api/v1/remote-servers/{server_id}/access",
+    "Remote Servers",
+    "server_id"
+);
+protected_get_param!(
     remote_server_agent_doc,
     "/api/v1/remote-servers/{server_id}/agent",
     "Remote Servers",
@@ -464,6 +470,13 @@ protected_mutation_param!(
     "Services",
     "service_id"
 );
+protected_mutation_param!(
+    rotate_service_auto_deploy_secret_doc,
+    post,
+    "/api/v1/services/{service_id}/auto-deploy-secret",
+    "Services",
+    "service_id"
+);
 protected_get_param!(
     service_deployments_doc,
     "/api/v1/services/{service_id}/deployments",
@@ -497,6 +510,28 @@ protected_mutation_param!(
     "Services",
     "service_id"
 );
+
+#[allow(dead_code)]
+#[utoipa::path(
+    post,
+    path = "/api/v1/webhooks/services/{service_id}",
+    tag = "Webhooks",
+    params(
+        ("service_id" = String, Path, description = "Service identifier"),
+        ("X-GitHub-Event" = Option<String>, Header, description = "GitHub event name"),
+        ("X-Hub-Signature-256" = Option<String>, Header, description = "GitHub HMAC SHA-256 signature"),
+        ("X-GitLab-Event" = Option<String>, Header, description = "GitLab event name"),
+        ("X-GitLab-Token" = Option<String>, Header, description = "GitLab webhook secret token"),
+        ("X-Gitea-Event" = Option<String>, Header, description = "Gitea event name"),
+        ("X-Gitea-Signature" = Option<String>, Header, description = "Gitea HMAC SHA-256 signature")
+    ),
+    request_body = String,
+    responses(
+        (status = 204, description = "Event ignored or deployment queued"),
+        (status = 401, description = "Webhook signature or token was invalid")
+    )
+)]
+fn auto_deploy_webhook_doc() {}
 
 protected_get_param!(
     get_deployment_doc,
@@ -627,11 +662,13 @@ protected_get!(terminal_doc, "/api/v1/terminal", "Terminal");
         get_service_doc,
         update_service_doc,
         remove_service_doc,
+        rotate_service_auto_deploy_secret_doc,
         service_deployments_doc,
         deploy_service_doc,
         service_domains_doc,
         create_service_domain_doc,
         stop_service_doc,
+        auto_deploy_webhook_doc,
         get_deployment_doc,
         deployment_events_doc,
         deployment_logs_doc,
@@ -666,6 +703,7 @@ protected_get!(terminal_doc, "/api/v1/terminal", "Terminal");
         (name = "Deployments", description = "Deployment history and controls"),
         (name = "Domains", description = "Service domain management"),
         (name = "Terminal", description = "Interactive terminal connections")
+        ,(name = "Webhooks", description = "Verified source-control push event delivery")
     )
 )]
 struct ApiDoc;

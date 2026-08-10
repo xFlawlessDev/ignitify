@@ -4,7 +4,8 @@ use axum::{
     http::{HeaderMap, StatusCode},
 };
 use ignitify_control_plane::{
-    ServiceMutationOutcomeModel, ServiceReadModel, ServiceVariableReadModel,
+    AutoDeploySecretRotation, ServiceMutationOutcomeModel, ServiceReadModel,
+    ServiceVariableReadModel,
 };
 use ignitify_db::ServiceActor;
 use ignitify_domain::{
@@ -78,6 +79,8 @@ pub(crate) struct ServiceResponse {
     healthcheck: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     source_config: Option<ServiceSourceConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    auto_deploy_webhook_secret: Option<Zeroizing<String>>,
     deployment_destination_id: Option<String>,
     desired_generation: i64,
     desired_state: String,
@@ -129,6 +132,7 @@ impl From<ServiceReadModel> for ServiceResponse {
             internal_port,
             healthcheck,
             source_config: service.source_config,
+            auto_deploy_webhook_secret: service.auto_deploy_webhook_secret,
             deployment_destination_id: service.deployment_destination_id,
             desired_generation: service.desired_generation,
             desired_state: service.desired_state,
@@ -267,6 +271,34 @@ pub(crate) async fn remove(
     }
 }
 
+#[derive(Debug, Serialize)]
+pub(crate) struct AutoDeploySecretResponse {
+    auto_deploy_webhook_secret: Zeroizing<String>,
+}
+
+pub(crate) async fn rotate_auto_deploy_secret(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(service_id): Path<String>,
+) -> Result<Json<AutoDeploySecretResponse>, ApiError> {
+    let actor = require_actor(&state, &headers).await?;
+    require_same_origin_request(&state, &headers)?;
+    match state
+        .services()?
+        .rotate_auto_deploy_webhook_secret(service_actor(&actor), &service_id)
+        .await?
+    {
+        AutoDeploySecretRotation::Rotated(secret) => Ok(Json(AutoDeploySecretResponse {
+            auto_deploy_webhook_secret: secret,
+        })),
+        AutoDeploySecretRotation::Missing => Err(ApiError::NotFound),
+        AutoDeploySecretRotation::Forbidden => Err(ApiError::Forbidden),
+        AutoDeploySecretRotation::Disabled => Err(ApiError::BadRequest(
+            "auto deploy is not enabled for this service",
+        )),
+    }
+}
+
 #[cfg(test)]
 fn input(request: ServiceRequest) -> Result<ServiceInput, ApiError> {
     Ok(parse_input(request)?.input)
@@ -389,8 +421,23 @@ async fn ensure_source_provider(
     let Some(provider_id) = source_config.and_then(|config| config.provider_id.as_deref()) else {
         return Ok(());
     };
-    if state.database.providers().get(provider_id).await?.is_none() {
-        return Err(ApiError::BadRequest("selected provider was not found"));
+    let provider = state
+        .database
+        .providers()
+        .get(provider_id)
+        .await?
+        .ok_or(ApiError::BadRequest("selected provider was not found"))?;
+    if source_config.is_some_and(|config| config.auto_deploy)
+        && !matches!(
+            provider.kind,
+            ignitify_db::ProviderKind::Github
+                | ignitify_db::ProviderKind::Gitlab
+                | ignitify_db::ProviderKind::Gitea
+        )
+    {
+        return Err(ApiError::BadRequest(
+            "auto deploy requires a GitHub, GitLab, or Gitea provider",
+        ));
     }
     Ok(())
 }
@@ -527,6 +574,7 @@ mod tests {
                 dockerfile_path: Some("deploy/compose.yaml".to_owned()),
                 build_command: None,
                 output_directory: None,
+                auto_deploy: false,
             }),
             deployment_destination_id: None,
         })
@@ -560,6 +608,7 @@ mod tests {
                 dockerfile_path: None,
                 build_command: None,
                 output_directory: None,
+                auto_deploy: false,
             }),
             deployment_destination_id: None,
         })
@@ -602,6 +651,7 @@ mod tests {
                 dockerfile_path: None,
                 build_command: None,
                 output_directory: None,
+                auto_deploy: false,
             }),
             deployment_destination_id: None,
         });
@@ -636,6 +686,7 @@ mod tests {
                 dockerfile_path: None,
                 build_command: None,
                 output_directory: None,
+                auto_deploy: false,
             }),
             deployment_destination_id: None,
         })
@@ -681,6 +732,7 @@ mod tests {
                 dockerfile_path: None,
                 build_command: None,
                 output_directory: None,
+                auto_deploy: false,
             }),
             deployment_destination_id: None,
         };

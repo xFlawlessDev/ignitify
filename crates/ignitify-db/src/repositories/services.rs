@@ -33,12 +33,23 @@ pub struct AuthorizedService {
     pub kind: ServiceKind,
     pub spec: ServiceSpec,
     pub source_config: Option<ServiceSourceConfig>,
+    pub auto_deploy_secret_ciphertext: Option<String>,
     pub deployment_destination_id: Option<String>,
     pub desired_generation: i64,
     pub desired_state: String,
     pub created_at: String,
     pub updated_at: String,
     pub variables: Vec<ServiceVariableRecord>,
+}
+
+#[derive(Debug, Clone)]
+pub struct AutoDeployWebhookTarget {
+    pub service_id: String,
+    pub provider_id: String,
+    pub repository: String,
+    pub branch: String,
+    pub secret_ciphertext: String,
+    pub project_owner_id: String,
 }
 
 #[derive(Debug, Clone)]
@@ -77,7 +88,7 @@ impl ServicesRepository {
         };
         let rows = sqlx::query_as::<_, ServiceRow>(
             "SELECT s.id, e.project_id, s.environment_id, s.name, s.kind, s.desired_spec_json,
-                    s.source_config_json, s.deployment_destination_id,
+                    s.source_config_json, s.auto_deploy_secret_ciphertext, s.deployment_destination_id,
                     s.desired_generation, s.desired_state, s.created_at, s.updated_at
              FROM services s
              JOIN environments e ON e.id = s.environment_id
@@ -103,7 +114,7 @@ impl ServicesRepository {
     ) -> Result<Option<AuthorizedService>> {
         let row = sqlx::query_as::<_, ServiceRow>(
             "SELECT s.id, e.project_id, s.environment_id, s.name, s.kind, s.desired_spec_json,
-                    s.source_config_json, s.deployment_destination_id,
+                    s.source_config_json, s.auto_deploy_secret_ciphertext, s.deployment_destination_id,
                     s.desired_generation, s.desired_state, s.created_at, s.updated_at
              FROM services s
              JOIN environments e ON e.id = s.environment_id
@@ -128,6 +139,7 @@ impl ServicesRepository {
         project_id: &str,
         configuration: ServiceConfiguration,
         variables: Vec<NewServiceVariable>,
+        auto_deploy_secret_ciphertext: Option<String>,
     ) -> Result<ServiceMutationOutcome> {
         let Some(role) = self.project_role(actor, project_id).await? else {
             return Ok(ServiceMutationOutcome::Missing);
@@ -155,8 +167,8 @@ impl ServicesRepository {
         let mut tx = self.pool.begin().await?;
         ensure_destination(&mut tx, configuration.deployment_destination_id.as_deref()).await?;
         let insert = sqlx::query(
-            "INSERT INTO services (id, environment_id, name, kind, desired_spec_json, source_config_json, deployment_destination_id, desired_generation, desired_state, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, 1, 'stopped', ?, ?)",
+            "INSERT INTO services (id, environment_id, name, kind, desired_spec_json, source_config_json, auto_deploy_secret_ciphertext, deployment_destination_id, desired_generation, desired_state, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 'stopped', ?, ?)",
         )
         .bind(&service_id)
         .bind(&environment_id)
@@ -164,6 +176,7 @@ impl ServicesRepository {
         .bind(configuration.spec.kind().as_str())
         .bind(&spec_json)
         .bind(source_config_json)
+        .bind(auto_deploy_secret_ciphertext)
         .bind(&configuration.deployment_destination_id)
         .bind(&now)
         .bind(&now)
@@ -193,6 +206,7 @@ impl ServicesRepository {
         service_id: &str,
         configuration: ServiceConfiguration,
         variables: Vec<NewServiceVariable>,
+        auto_deploy_secret_ciphertext: Option<Option<String>>,
     ) -> Result<ServiceMutationOutcome> {
         let Some(current) = self.get(actor, service_id).await? else {
             return Ok(ServiceMutationOutcome::Missing);
@@ -208,18 +222,21 @@ impl ServicesRepository {
             .map(serde_json::to_string)
             .transpose()
             .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
+        let auto_deploy_secret_ciphertext =
+            auto_deploy_secret_ciphertext.unwrap_or(current.auto_deploy_secret_ciphertext);
         let now = Utc::now().to_rfc3339();
         let mut tx = self.pool.begin().await?;
         ensure_destination(&mut tx, configuration.deployment_destination_id.as_deref()).await?;
         let update = sqlx::query(
             "UPDATE services
-             SET name = ?, kind = ?, desired_spec_json = ?, source_config_json = ?, deployment_destination_id = ?, desired_generation = desired_generation + 1, updated_at = ?
+             SET name = ?, kind = ?, desired_spec_json = ?, source_config_json = ?, auto_deploy_secret_ciphertext = ?, deployment_destination_id = ?, desired_generation = desired_generation + 1, updated_at = ?
              WHERE id = ?",
         )
         .bind(&configuration.name)
         .bind(configuration.spec.kind().as_str())
         .bind(&spec_json)
         .bind(source_config_json)
+        .bind(auto_deploy_secret_ciphertext)
         .bind(&configuration.deployment_destination_id)
         .bind(&now)
         .bind(service_id)
@@ -239,6 +256,90 @@ impl ServicesRepository {
             .await?;
         insert_variables(&mut tx, service_id, &variables, &now).await?;
         insert_audit(&mut tx, actor.id, "service.update", service_id, &now).await?;
+        tx.commit().await?;
+        Ok(ServiceMutationOutcome::Updated(
+            self.get(actor, service_id)
+                .await?
+                .ok_or(sqlx::Error::RowNotFound)?,
+        ))
+    }
+
+    pub async fn auto_deploy_webhook_target(
+        &self,
+        service_id: &str,
+    ) -> Result<Option<AutoDeployWebhookTarget>> {
+        let row = sqlx::query_as::<_, AutoDeployWebhookTargetRow>(
+            "SELECT s.id AS service_id, p.owner_id AS project_owner_id, s.source_config_json,
+                    s.auto_deploy_secret_ciphertext
+             FROM services s
+             JOIN environments e ON e.id = s.environment_id
+             JOIN projects p ON p.id = e.project_id
+             WHERE s.id = ?",
+        )
+        .bind(service_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        let Some(row) = row else {
+            return Ok(None);
+        };
+        let Some(source_config_json) = row.source_config_json else {
+            return Ok(None);
+        };
+        let source_config = serde_json::from_str::<ServiceSourceConfig>(&source_config_json)
+            .map_err(|error| DatabaseError::InvalidServiceSourceConfig(error.to_string()))?;
+        let Some(secret_ciphertext) = row.auto_deploy_secret_ciphertext else {
+            return Ok(None);
+        };
+        if !source_config.auto_deploy {
+            return Ok(None);
+        }
+        let (Some(provider_id), Some(repository), Some(branch)) = (
+            source_config.provider_id,
+            source_config.repository,
+            source_config.branch,
+        ) else {
+            return Ok(None);
+        };
+        Ok(Some(AutoDeployWebhookTarget {
+            service_id: row.service_id,
+            provider_id,
+            repository,
+            branch,
+            secret_ciphertext,
+            project_owner_id: row.project_owner_id,
+        }))
+    }
+
+    pub async fn rotate_auto_deploy_secret(
+        &self,
+        actor: ServiceActor<'_>,
+        service_id: &str,
+        ciphertext: String,
+    ) -> Result<ServiceMutationOutcome> {
+        let Some(current) = self.get(actor, service_id).await? else {
+            return Ok(ServiceMutationOutcome::Missing);
+        };
+        if !actor.is_admin && !current.role.can_manage_services() {
+            return Ok(ServiceMutationOutcome::Forbidden);
+        }
+        let now = Utc::now().to_rfc3339();
+        let mut tx = self.pool.begin().await?;
+        sqlx::query(
+            "UPDATE services SET auto_deploy_secret_ciphertext = ?, updated_at = ? WHERE id = ?",
+        )
+        .bind(ciphertext)
+        .bind(&now)
+        .bind(service_id)
+        .execute(&mut *tx)
+        .await?;
+        insert_audit(
+            &mut tx,
+            actor.id,
+            "service.auto_deploy_secret.rotate",
+            service_id,
+            &now,
+        )
+        .await?;
         tx.commit().await?;
         Ok(ServiceMutationOutcome::Updated(
             self.get(actor, service_id)
@@ -399,6 +500,7 @@ impl ServicesRepository {
             kind,
             spec,
             source_config,
+            auto_deploy_secret_ciphertext: row.auto_deploy_secret_ciphertext,
             deployment_destination_id: row.deployment_destination_id,
             desired_generation: row.desired_generation,
             desired_state: row.desired_state,
@@ -496,11 +598,20 @@ struct ServiceRow {
     kind: String,
     desired_spec_json: String,
     source_config_json: Option<String>,
+    auto_deploy_secret_ciphertext: Option<String>,
     deployment_destination_id: Option<String>,
     desired_generation: i64,
     desired_state: String,
     created_at: String,
     updated_at: String,
+}
+
+#[derive(Debug, FromRow)]
+struct AutoDeployWebhookTargetRow {
+    service_id: String,
+    project_owner_id: String,
+    source_config_json: Option<String>,
+    auto_deploy_secret_ciphertext: Option<String>,
 }
 
 #[derive(Debug, FromRow)]

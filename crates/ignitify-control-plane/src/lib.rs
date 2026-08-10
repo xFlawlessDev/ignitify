@@ -37,11 +37,15 @@ use tokio::{
     sync::{broadcast, mpsc},
     task::JoinSet,
 };
+use uuid::Uuid;
 use zeroize::Zeroizing;
 
 const MAX_RUNTIME_START_ATTEMPTS: i64 = 3;
 const HEALTH_GATE_TIMEOUT: Duration = Duration::from_secs(300);
 const MAX_CONCURRENT_DEPLOYMENT_JOBS: usize = 32;
+
+type AutoDeploySecretUpdate = Option<Option<String>>;
+type AutoDeploySecretUpdatePreparation = (AutoDeploySecretUpdate, Option<Zeroizing<String>>);
 
 #[derive(Clone)]
 pub struct ServiceControl {
@@ -198,15 +202,23 @@ impl ServiceControl {
         input: ServiceInput,
     ) -> Result<ServiceMutationOutcomeModel> {
         let (configuration, variables) = self.encrypt_variables(input)?;
+        let (auto_deploy_secret_ciphertext, auto_deploy_webhook_secret) =
+            self.auto_deploy_secret_for_create(&configuration)?;
         Ok(
             match self
                 .services
-                .create(actor, project_id, configuration, variables)
+                .create(
+                    actor,
+                    project_id,
+                    configuration,
+                    variables,
+                    auto_deploy_secret_ciphertext,
+                )
                 .await?
             {
-                ServiceMutationOutcome::Created(service) => {
-                    ServiceMutationOutcomeModel::Created(self.read_model(service)?)
-                }
+                ServiceMutationOutcome::Created(service) => ServiceMutationOutcomeModel::Created(
+                    self.read_model_with_auto_deploy_secret(service, auto_deploy_webhook_secret)?,
+                ),
                 ServiceMutationOutcome::Updated(_) => {
                     unreachable!("service create cannot return update")
                 }
@@ -247,10 +259,21 @@ impl ServiceControl {
             &current.variables,
             &preserved_secret_keys,
         )?;
+        let (auto_deploy_secret_ciphertext, auto_deploy_webhook_secret) = self
+            .auto_deploy_secret_for_update(
+                &configuration,
+                current.auto_deploy_secret_ciphertext.as_deref(),
+            )?;
         Ok(
             match self
                 .services
-                .update(actor, service_id, configuration, variables)
+                .update(
+                    actor,
+                    service_id,
+                    configuration,
+                    variables,
+                    auto_deploy_secret_ciphertext,
+                )
                 .await?
             {
                 ServiceMutationOutcome::Created(_) => {
@@ -259,9 +282,9 @@ impl ServiceControl {
                 ServiceMutationOutcome::Removed(_) => {
                     unreachable!("service update cannot return remove")
                 }
-                ServiceMutationOutcome::Updated(service) => {
-                    ServiceMutationOutcomeModel::Updated(self.read_model(service)?)
-                }
+                ServiceMutationOutcome::Updated(service) => ServiceMutationOutcomeModel::Updated(
+                    self.read_model_with_auto_deploy_secret(service, auto_deploy_webhook_secret)?,
+                ),
                 ServiceMutationOutcome::Missing => ServiceMutationOutcomeModel::Missing,
                 ServiceMutationOutcome::Forbidden => ServiceMutationOutcomeModel::Forbidden,
             },
@@ -293,6 +316,63 @@ impl ServiceControl {
         )
     }
 
+    pub async fn rotate_auto_deploy_webhook_secret(
+        &self,
+        actor: ServiceActor<'_>,
+        service_id: &str,
+    ) -> Result<AutoDeploySecretRotation> {
+        let Some(service) = self.services.get(actor, service_id).await? else {
+            return Ok(AutoDeploySecretRotation::Missing);
+        };
+        if !actor.is_admin && !service.role.can_manage_services() {
+            return Ok(AutoDeploySecretRotation::Forbidden);
+        }
+        if !service
+            .source_config
+            .as_ref()
+            .is_some_and(|source| source.auto_deploy)
+        {
+            return Ok(AutoDeploySecretRotation::Disabled);
+        }
+        let secret = generate_auto_deploy_secret();
+        let ciphertext = self.cipher.encrypt(secret.as_bytes())?;
+        match self
+            .services
+            .rotate_auto_deploy_secret(actor, service_id, ciphertext)
+            .await?
+        {
+            ServiceMutationOutcome::Updated(_) => Ok(AutoDeploySecretRotation::Rotated(secret)),
+            ServiceMutationOutcome::Missing => Ok(AutoDeploySecretRotation::Missing),
+            ServiceMutationOutcome::Forbidden => Ok(AutoDeploySecretRotation::Forbidden),
+            ServiceMutationOutcome::Created(_) | ServiceMutationOutcome::Removed(_) => {
+                unreachable!("auto deploy secret rotation cannot create or remove a service")
+            }
+        }
+    }
+
+    pub async fn auto_deploy_webhook_target(
+        &self,
+        service_id: &str,
+    ) -> Result<Option<AutoDeployWebhookTargetModel>> {
+        let Some(target) = self.services.auto_deploy_webhook_target(service_id).await? else {
+            return Ok(None);
+        };
+        let plaintext = self.cipher.decrypt(&target.secret_ciphertext)?;
+        let secret =
+            std::str::from_utf8(plaintext.as_slice()).map_err(|_| Error::InvalidCiphertext)?;
+        if secret.is_empty() {
+            return Err(Error::InvalidCiphertext);
+        }
+        Ok(Some(AutoDeployWebhookTargetModel {
+            service_id: target.service_id,
+            provider_id: target.provider_id,
+            repository: target.repository,
+            branch: target.branch,
+            secret: Zeroizing::new(secret.to_owned()),
+            project_owner_id: target.project_owner_id,
+        }))
+    }
+
     fn encrypt_variables(
         &self,
         input: ServiceInput,
@@ -313,6 +393,42 @@ impl ServiceControl {
             })
             .collect::<Result<Vec<_>>>()?;
         Ok((input.configuration, variables))
+    }
+
+    fn auto_deploy_secret_for_create(
+        &self,
+        configuration: &ignitify_domain::ServiceConfiguration,
+    ) -> Result<(Option<String>, Option<Zeroizing<String>>)> {
+        if !configuration
+            .source_config
+            .as_ref()
+            .is_some_and(|source| source.auto_deploy)
+        {
+            return Ok((None, None));
+        }
+        let secret = generate_auto_deploy_secret();
+        let ciphertext = self.cipher.encrypt(secret.as_bytes())?;
+        Ok((Some(ciphertext), Some(secret)))
+    }
+
+    fn auto_deploy_secret_for_update(
+        &self,
+        configuration: &ignitify_domain::ServiceConfiguration,
+        current_secret_ciphertext: Option<&str>,
+    ) -> Result<AutoDeploySecretUpdatePreparation> {
+        let auto_deploy_enabled = configuration
+            .source_config
+            .as_ref()
+            .is_some_and(|source| source.auto_deploy);
+        if !auto_deploy_enabled {
+            return Ok((current_secret_ciphertext.is_some().then_some(None), None));
+        }
+        if current_secret_ciphertext.is_some() {
+            return Ok((None, None));
+        }
+        let secret = generate_auto_deploy_secret();
+        let ciphertext = self.cipher.encrypt(secret.as_bytes())?;
+        Ok((Some(Some(ciphertext)), Some(secret)))
     }
 
     fn encrypt_variables_preserving_secrets(
@@ -386,6 +502,7 @@ impl ServiceControl {
             kind: service.kind.as_str().to_owned(),
             spec: service.spec,
             source_config: service.source_config,
+            auto_deploy_webhook_secret: None,
             deployment_destination_id: service.deployment_destination_id,
             desired_generation: service.desired_generation,
             desired_state: service.desired_state,
@@ -393,6 +510,16 @@ impl ServiceControl {
             updated_at: service.updated_at,
             variables,
         })
+    }
+
+    fn read_model_with_auto_deploy_secret(
+        &self,
+        service: AuthorizedService,
+        auto_deploy_webhook_secret: Option<Zeroizing<String>>,
+    ) -> Result<ServiceReadModel> {
+        let mut model = self.read_model(service)?;
+        model.auto_deploy_webhook_secret = auto_deploy_webhook_secret;
+        Ok(model)
     }
 
     fn read_project_environment(
@@ -459,7 +586,21 @@ impl ControlHandle {
         service_id: &str,
         idempotency_key: &str,
     ) -> Result<DeploymentSubmission> {
+        self.submit_deploy_with_source_revision(actor, service_id, idempotency_key, None)
+            .await
+    }
+
+    pub async fn submit_deploy_with_source_revision(
+        &self,
+        actor: DeploymentActor<'_>,
+        service_id: &str,
+        idempotency_key: &str,
+        source_revision: Option<&str>,
+    ) -> Result<DeploymentSubmission> {
         validate_idempotency_key(idempotency_key)?;
+        if let Some(source_revision) = source_revision {
+            validate_source_revision(source_revision)?;
+        }
         let Some(service) = self
             .deployments
             .service_for_deployment(actor, service_id)
@@ -484,7 +625,7 @@ impl ControlHandle {
                     spec,
                     source_config,
                     deployment_destination_id: service.deployment_destination_id.clone(),
-                    source_revision: None,
+                    source_revision: source_revision.map(str::to_owned),
                     variables_ciphertext,
                 },
             )
@@ -2290,12 +2431,31 @@ pub struct ServiceReadModel {
     pub kind: String,
     pub spec: ignitify_domain::ServiceSpec,
     pub source_config: Option<ignitify_domain::ServiceSourceConfig>,
+    pub auto_deploy_webhook_secret: Option<Zeroizing<String>>,
     pub deployment_destination_id: Option<String>,
     pub desired_generation: i64,
     pub desired_state: String,
     pub created_at: String,
     pub updated_at: String,
     pub variables: Vec<ServiceVariableReadModel>,
+}
+
+#[derive(Debug)]
+pub struct AutoDeployWebhookTargetModel {
+    pub service_id: String,
+    pub provider_id: String,
+    pub repository: String,
+    pub branch: String,
+    pub secret: Zeroizing<String>,
+    pub project_owner_id: String,
+}
+
+#[derive(Debug)]
+pub enum AutoDeploySecretRotation {
+    Rotated(Zeroizing<String>),
+    Missing,
+    Forbidden,
+    Disabled,
 }
 
 #[derive(Debug, Clone)]
@@ -2353,6 +2513,8 @@ pub enum Error {
     InvalidCiphertext,
     #[error("idempotency key must use visible ASCII and be 1 to 128 bytes")]
     InvalidIdempotencyKey,
+    #[error("source revision must be a 40 to 64 character lowercase hexadecimal commit id")]
+    InvalidSourceRevision,
     #[error("image runtime failed")]
     Runtime,
     #[error("source build failed: {0}")]
@@ -2375,6 +2537,24 @@ fn validate_idempotency_key(value: &str) -> Result<()> {
         return Err(Error::InvalidIdempotencyKey);
     }
     Ok(())
+}
+
+fn validate_source_revision(value: &str) -> Result<()> {
+    if !(40..=64).contains(&value.len())
+        || value.bytes().any(|byte| !byte.is_ascii_hexdigit())
+        || value.bytes().all(|byte| byte == b'0')
+    {
+        return Err(Error::InvalidSourceRevision);
+    }
+    Ok(())
+}
+
+fn generate_auto_deploy_secret() -> Zeroizing<String> {
+    Zeroizing::new(format!(
+        "{}{}",
+        Uuid::new_v4().simple(),
+        Uuid::new_v4().simple()
+    ))
 }
 
 #[cfg(test)]
@@ -2633,6 +2813,7 @@ mod tests {
                 .unwrap()
                 .configuration,
                 Vec::<NewServiceVariable>::new(),
+                None,
             )
             .await
             .unwrap();
@@ -2801,6 +2982,7 @@ mod tests {
                 project.id.as_str(),
                 input.configuration,
                 Vec::<NewServiceVariable>::new(),
+                None,
             )
             .await
             .unwrap();
@@ -2962,6 +3144,7 @@ mod tests {
                 .unwrap()
                 .configuration,
                 Vec::<NewServiceVariable>::new(),
+                None,
             )
             .await
             .unwrap();

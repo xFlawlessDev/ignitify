@@ -8,6 +8,7 @@ license.workspace = true
 axum.workspace = true
 chrono.workspace = true
 futures-util.workspace = true
+hmac.workspace = true
 ignitify-auth = { path = "../ignitify-auth" }
 ignitify-control-plane = { path = "../ignitify-control-plane" }
 ignitify-db = { path = "../ignitify-db" }

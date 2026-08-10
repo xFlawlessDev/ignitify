@@ -15,6 +15,12 @@ pub(crate) fn router(state: AppState) -> Router {
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", openapi::document()))
         .route("/health", get(handlers::health::health))
         .route(
+            "/api/v1/webhooks/services/{service_id}",
+            post(handlers::webhooks::receive_push).layer(DefaultBodyLimit::max(
+                handlers::webhooks::WEBHOOK_BODY_LIMIT,
+            )),
+        )
+        .route(
             "/api/v1/auth/bootstrap",
             get(handlers::auth::bootstrap_status).post(handlers::auth::bootstrap),
         )
@@ -114,11 +120,15 @@ pub(crate) fn router(state: AppState) -> Router {
             "/api/v1/remote-servers/{server_id}/default",
             post(handlers::remote_servers::make_default),
         )
-        .route(
-            "/api/v1/remote-servers/{server_id}/check",
-            post(handlers::remote_servers::check),
-        )
-        .route(
+          .route(
+              "/api/v1/remote-servers/{server_id}/check",
+              post(handlers::remote_servers::check),
+          )
+          .route(
+              "/api/v1/remote-servers/{server_id}/access",
+              get(handlers::remote_servers::access),
+          )
+          .route(
             "/api/v1/remote-servers/{server_id}/agent",
             get(handlers::remote_agent::status),
         )
@@ -197,6 +207,10 @@ pub(crate) fn router(state: AppState) -> Router {
             get(handlers::services::get)
                 .patch(handlers::services::update)
                 .delete(handlers::services::remove),
+        )
+        .route(
+            "/api/v1/services/{service_id}/auto-deploy-secret",
+            post(handlers::services::rotate_auto_deploy_secret),
         )
         .route(
             "/api/v1/services/{service_id}/deployments",

@@ -80,6 +80,7 @@ const viewTabs = computed(() => [
 const selectedDeploymentId = shallowRef<string | null>(null);
 const streamLogs = shallowRef<DeploymentLog[]>([]);
 const saving = shallowRef(false);
+const rotatingAutoDeploySecret = shallowRef(false);
 const deleteConfirmation = shallowRef(false);
 const deleteConfirmName = shallowRef("");
 const deleting = shallowRef(false);
@@ -262,6 +263,22 @@ async function saveConfiguration(input: ServiceInput) {
     return;
   }
   toast.error("Could not save service configuration", {
+    description: services.error.value ?? "Try again in a moment.",
+  });
+}
+
+async function rotateAutoDeploySecret() {
+  const current = service.value;
+  if (!current) return;
+  rotatingAutoDeploySecret.value = true;
+  const secret = await services.rotateAutoDeploySecret(current.id);
+  rotatingAutoDeploySecret.value = false;
+  if (secret) {
+    service.value = { ...current, auto_deploy_webhook_secret: secret };
+    toast.success("Webhook secret rotated");
+    return;
+  }
+  toast.error("Could not rotate webhook secret", {
     description: services.error.value ?? "Try again in a moment.",
   });
 }
@@ -491,9 +508,11 @@ onUnmounted(() => {
           :error="serviceConfigError"
           :inherited-variables="environmentData.variables"
           :providers="providerData"
+          :rotating-auto-deploy-secret="rotatingAutoDeploySecret"
           :saving="saving"
           :service="service"
           @save="saveConfiguration"
+          @rotate-auto-deploy-secret="rotateAutoDeploySecret"
         />
         <ServiceDomainsPanel
           v-else-if="activeView === 'domains'"

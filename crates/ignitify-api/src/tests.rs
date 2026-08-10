@@ -11,6 +11,7 @@ use axum::{
     http::{Request, StatusCode},
 };
 use futures_util::StreamExt;
+use hmac::{Hmac, Mac};
 use http_body_util::BodyExt;
 use ignitify_auth::AuthConfig;
 use ignitify_control_plane::{
@@ -652,6 +653,7 @@ async fn openapi_document_and_swagger_ui_are_served() {
         "/api/v1/projects/{project_id}/services",
         "/api/v1/services/{service_id}/deployments",
         "/api/v1/deployments/{deployment_id}/rollback",
+        "/api/v1/webhooks/services/{service_id}",
     ] {
         assert!(paths.contains_key(path), "missing OpenAPI path: {path}");
     }
@@ -676,6 +678,159 @@ async fn openapi_document_and_swagger_ui_are_served() {
         .await
         .unwrap();
     assert_eq!(swagger_ui.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn verified_github_push_webhook_queues_one_pinned_deployment() {
+    let state = state().await;
+    let token = session_token(&state).await;
+    let app = crate::routes::router(state.clone());
+    let provider = app
+        .clone()
+        .oneshot(request(
+            "POST",
+            "/api/v1/providers",
+            Some(&token),
+            r#"{"name":"GitHub","kind":"github","auth_mode":"token","base_url":"https://github.com","token":"provider-token"}"#,
+        ))
+        .await
+        .unwrap()
+        .into_body()
+        .collect()
+        .await
+        .unwrap()
+        .to_bytes();
+    let provider: serde_json::Value = serde_json::from_slice(&provider).unwrap();
+    let provider_id = provider["id"]
+        .as_str()
+        .unwrap_or_else(|| panic!("provider creation failed: {provider}"));
+    let project = app
+        .clone()
+        .oneshot(request(
+            "POST",
+            "/api/v1/projects",
+            Some(&token),
+            r#"{"name":"Webhook app"}"#,
+        ))
+        .await
+        .unwrap()
+        .into_body()
+        .collect()
+        .await
+        .unwrap()
+        .to_bytes();
+    let project: serde_json::Value = serde_json::from_slice(&project).unwrap();
+    let service_body = serde_json::json!({
+        "name": "web",
+        "kind": "image",
+        "internal_port": 8080,
+        "healthcheck": null,
+        "variables": [],
+        "source_config": {
+            "source": "application",
+            "provider_id": provider_id,
+            "repository": "acme/site",
+            "branch": "main",
+            "builder": "railpack",
+            "auto_deploy": true
+        }
+    });
+    let service = app
+        .clone()
+        .oneshot(request(
+            "POST",
+            &format!(
+                "/api/v1/projects/{}/services",
+                project["id"].as_str().unwrap()
+            ),
+            Some(&token),
+            &service_body.to_string(),
+        ))
+        .await
+        .unwrap()
+        .into_body()
+        .collect()
+        .await
+        .unwrap()
+        .to_bytes();
+    let service: serde_json::Value = serde_json::from_slice(&service).unwrap();
+    let service_id = service["id"]
+        .as_str()
+        .unwrap_or_else(|| panic!("service creation failed: {service}"));
+    let secret = service["auto_deploy_webhook_secret"]
+        .as_str()
+        .unwrap_or_else(|| panic!("service response omitted auto-deploy secret: {service}"));
+    let body = br#"{"ref":"refs/heads/main","after":"0123456789abcdef0123456789abcdef01234567","repository":{"full_name":"acme/site"}}"#;
+    let mut invalid = Request::builder()
+        .method("POST")
+        .uri(format!("/api/v1/webhooks/services/{service_id}"))
+        .header("content-type", "application/json")
+        .header("x-github-event", "push")
+        .header("x-hub-signature-256", "sha256:invalid")
+        .body(Body::from(body.as_slice().to_vec()))
+        .unwrap();
+    invalid
+        .headers_mut()
+        .insert("x-github-delivery", "delivery-1".parse().unwrap());
+    assert_eq!(
+        app.clone().oneshot(invalid).await.unwrap().status(),
+        StatusCode::UNAUTHORIZED
+    );
+
+    let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes()).unwrap();
+    mac.update(body);
+    let signature = format!("sha256:{:x}", mac.finalize().into_bytes());
+    let mut valid = Request::builder()
+        .method("POST")
+        .uri(format!("/api/v1/webhooks/services/{service_id}"))
+        .header("content-type", "application/json")
+        .header("x-github-event", "push")
+        .header("x-hub-signature-256", signature)
+        .header("x-github-delivery", "delivery-1")
+        .body(Body::from(body.as_slice().to_vec()))
+        .unwrap();
+    assert_eq!(
+        app.clone().oneshot(valid).await.unwrap().status(),
+        StatusCode::NO_CONTENT
+    );
+    valid = Request::builder()
+        .method("POST")
+        .uri(format!("/api/v1/webhooks/services/{service_id}"))
+        .header("content-type", "application/json")
+        .header("x-github-event", "push")
+        .header("x-hub-signature-256", {
+            let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes()).unwrap();
+            mac.update(body);
+            format!("sha256:{:x}", mac.finalize().into_bytes())
+        })
+        .header("x-github-delivery", "delivery-1")
+        .body(Body::from(body.as_slice().to_vec()))
+        .unwrap();
+    assert_eq!(
+        app.oneshot(valid).await.unwrap().status(),
+        StatusCode::NO_CONTENT
+    );
+
+    let deployments = state
+        .database
+        .deployments()
+        .list(
+            ignitify_db::DeploymentActor {
+                id: "owner",
+                is_admin: true,
+            },
+            service_id,
+            None,
+            None,
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(deployments.len(), 1);
+    assert_eq!(
+        deployments[0].source_revision.as_deref(),
+        Some("0123456789abcdef0123456789abcdef01234567")
+    );
 }
 
 async fn session_token(state: &AppState) -> String {

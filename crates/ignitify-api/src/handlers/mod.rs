@@ -18,3 +18,4 @@ pub(crate) mod settings;
 pub(crate) mod streams;
 pub(crate) mod terminal;
 pub(crate) mod uptime_monitors;
+pub(crate) mod webhooks;

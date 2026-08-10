@@ -166,6 +166,7 @@ export interface ServiceSourceConfig {
   dockerfile_path?: string;
   build_command?: string;
   output_directory?: string;
+  auto_deploy?: boolean;
 }
 
 export interface ServiceVariableSummary {
@@ -390,4 +391,5 @@ export interface ServiceSummary {
   variables: ServiceVariableSummary[];
   source_config?: ServiceSourceConfig;
   deployment_destination_id?: string | null;
+  auto_deploy_webhook_secret?: string;
 }

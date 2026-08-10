@@ -56,8 +56,8 @@ pub use remote_servers::{
     RemoteServersRepository,
 };
 pub use services::{
-    AuthorizedService, NewServiceVariable, ServiceActor, ServiceMutationOutcome,
-    ServiceVariableRecord, ServicesRepository,
+    AuthorizedService, AutoDeployWebhookTarget, NewServiceVariable, ServiceActor,
+    ServiceMutationOutcome, ServiceVariableRecord, ServicesRepository,
 };
 pub use settings::{
     NewServerCertificate, ServerCertificateRecord, ServerSettingsRecord, ServerSettingsRepository,

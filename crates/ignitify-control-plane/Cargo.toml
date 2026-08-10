@@ -13,8 +13,8 @@ serde_json.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+uuid.workspace = true
 zeroize.workspace = true
 
 [dev-dependencies]
 sqlx.workspace = true
-uuid.workspace = true
