@@ -58,7 +58,7 @@ export function useOperationsDashboard() {
         const project = service ? projects.get(service.project_id) : undefined;
         return project ? [{ deployment, project, service }] : [];
       })
-      .slice(0, 8);
+      .slice(0, 5);
   });
 
   async function load() {

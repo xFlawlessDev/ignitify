@@ -14,6 +14,7 @@ import { toast } from "vue-sonner";
 import { RouterLink } from "vue-router";
 import DeploymentList from "@/components/dashboard/DeploymentList.vue";
 import MetricTile from "@/components/dashboard/MetricTile.vue";
+import OperationsTopology from "@/components/dashboard/OperationsTopology.vue";
 import RuntimeStatusPanel from "@/components/runtime/RuntimeStatusPanel.vue";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -219,6 +220,15 @@ onMounted(() => void loadDashboard());
         </template>
       </div>
     </section>
+
+    <OperationsTopology
+      v-if="loading || data.projects.length"
+      :deployments="data.deployments"
+      :loading="loading"
+      :projects="data.projects"
+      :runtime="runtime"
+      :services="data.services"
+    />
 
     <section
       v-if="!loading && !error && !data.projects.length"
