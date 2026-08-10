@@ -2,6 +2,8 @@
 import {
   Box,
   Check,
+  ChevronLeft,
+  ChevronRight,
   CircleAlert,
   CircleDotDashed,
   GitBranch,
@@ -64,6 +66,22 @@ const detailTabs = computed(() =>
 const serviceDeployments = computed(() =>
   props.deployments.filter((deployment) => deployment.service_id === props.service.id),
 );
+const DEPLOYMENTS_PER_PAGE = 6;
+const deploymentCurrentPage = shallowRef(1);
+const deploymentCount = computed(() => serviceDeployments.value.length);
+const deploymentPageCount = computed(() =>
+  Math.max(1, Math.ceil(deploymentCount.value / DEPLOYMENTS_PER_PAGE)),
+);
+const visibleDeployments = computed(() => {
+  const start = (deploymentCurrentPage.value - 1) * DEPLOYMENTS_PER_PAGE;
+  return serviceDeployments.value.slice(start, start + DEPLOYMENTS_PER_PAGE);
+});
+const firstVisibleDeployment = computed(() =>
+  deploymentCount.value === 0 ? 0 : (deploymentCurrentPage.value - 1) * DEPLOYMENTS_PER_PAGE + 1,
+);
+const lastVisibleDeployment = computed(() =>
+  Math.min(deploymentCurrentPage.value * DEPLOYMENTS_PER_PAGE, deploymentCount.value),
+);
 const latestDeployment = computed(() => serviceDeployments.value[0] ?? null);
 const rollbackTarget = computed(
   () => serviceDeployments.value.find((deployment) => deployment.status === "healthy") ?? null,
@@ -121,7 +139,27 @@ watch(
   () => [props.service.id, props.hideConfig] as const,
   () => {
     activeTab.value = props.hideConfig ? "deployment" : "config";
+    deploymentCurrentPage.value = 1;
   },
+);
+
+watch(
+  deploymentPageCount,
+  (count) => {
+    if (deploymentCurrentPage.value > count) deploymentCurrentPage.value = count;
+  },
+  { immediate: true },
+);
+
+watch(
+  [serviceDeployments, () => props.selectedDeploymentId],
+  ([deployments, deploymentId]) => {
+    const selectedIndex = deployments.findIndex((deployment) => deployment.id === deploymentId);
+    if (selectedIndex >= 0) {
+      deploymentCurrentPage.value = Math.floor(selectedIndex / DEPLOYMENTS_PER_PAGE) + 1;
+    }
+  },
+  { immediate: true },
 );
 
 function statusBadgeClass(status: DeploymentState) {
@@ -178,6 +216,17 @@ function formatRetry(value: string) {
 function selectDeployment(deployment: DeploymentSummary) {
   activeTab.value = "logs";
   emit("selectDeployment", deployment.id);
+}
+
+function goToPreviousDeploymentPage() {
+  deploymentCurrentPage.value = Math.max(1, deploymentCurrentPage.value - 1);
+}
+
+function goToNextDeploymentPage() {
+  deploymentCurrentPage.value = Math.min(
+    deploymentPageCount.value,
+    deploymentCurrentPage.value + 1,
+  );
 }
 </script>
 
@@ -376,7 +425,7 @@ function selectDeployment(deployment: DeploymentSummary) {
 
       <div v-if="serviceDeployments.length" class="divide-y divide-border border-y border-border">
         <div
-          v-for="deployment in serviceDeployments"
+          v-for="deployment in visibleDeployments"
           :key="deployment.id"
           class="flex items-center gap-3 px-2 py-3 transition-colors max-[560px]:items-start max-[560px]:flex-col"
           :class="selectedDeploymentId === deployment.id ? 'bg-muted' : 'hover:bg-muted/40'"
@@ -424,6 +473,39 @@ function selectDeployment(deployment: DeploymentSummary) {
       <p v-else class="text-sm text-muted-foreground">
         Deploy this service to create its first revision.
       </p>
+      <nav
+        v-if="deploymentPageCount > 1"
+        class="flex items-center justify-between gap-4 border-t border-border pt-4 max-[560px]:items-start max-[560px]:flex-col"
+        aria-label="Deployment history pagination"
+      >
+        <p class="text-xs text-muted-foreground" aria-live="polite">
+          Showing {{ firstVisibleDeployment }}–{{ lastVisibleDeployment }} of
+          {{ deploymentCount }} deployments
+        </p>
+        <div class="flex items-center gap-2">
+          <Button
+            size="icon-sm"
+            variant="outline"
+            :disabled="deploymentCurrentPage === 1"
+            aria-label="Previous deployment page"
+            @click="goToPreviousDeploymentPage"
+          >
+            <ChevronLeft class="size-4" :stroke-width="1.5" />
+          </Button>
+          <span class="min-w-20 text-center font-mono text-xs text-muted-foreground">
+            Page {{ deploymentCurrentPage }} of {{ deploymentPageCount }}
+          </span>
+          <Button
+            size="icon-sm"
+            variant="outline"
+            :disabled="deploymentCurrentPage === deploymentPageCount"
+            aria-label="Next deployment page"
+            @click="goToNextDeploymentPage"
+          >
+            <ChevronRight class="size-4" :stroke-width="1.5" />
+          </Button>
+        </div>
+      </nav>
     </div>
 
     <div v-else class="p-5">

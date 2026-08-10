@@ -234,4 +234,54 @@ describe("ServiceDetailPanel", () => {
     expect(host.textContent).toContain("Setup required");
     app.unmount();
   });
+
+  it("paginates deployment history", async () => {
+    const component = (await import("./ServiceDetailPanel.vue")).default;
+    const deployments = Array.from({ length: 7 }, (_, index) => ({
+      id: `deployment-${7 - index}`,
+      service_id: "service-1",
+      generation: 7 - index,
+      status: "stopped" as const,
+      failure_reason: null,
+      created_at: `2026-08-${String(7 - index).padStart(2, "0")}T00:00:00Z`,
+      started_at: null,
+      finished_at: "2026-08-01T00:01:00Z",
+    }));
+    const host = document.createElement("div");
+    document.body.append(host);
+    const app = createApp(component, {
+      service,
+      deployments,
+      logs: [],
+      connected: false,
+      streamError: null,
+      submitting: false,
+      canManage: true,
+      selectedDeploymentId: null,
+      onDeploy: vi.fn(),
+      onStop: vi.fn(),
+      onRollback: vi.fn(),
+      onEdit: vi.fn(),
+      onSelectDeployment: vi.fn(),
+    });
+    app.mount(host);
+    await nextTick();
+
+    const deploymentsTab = [...host.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("Deployments"),
+    ) as HTMLButtonElement;
+    deploymentsTab.click();
+    await nextTick();
+
+    expect(host.textContent).toContain("Showing 1–6 of 7 deployments");
+    expect(host.textContent).toContain("Generation 7");
+    expect(host.textContent).not.toContain("Generation 1");
+
+    (host.querySelector('button[aria-label="Next deployment page"]') as HTMLButtonElement).click();
+    await nextTick();
+
+    expect(host.textContent).toContain("Showing 7–7 of 7 deployments");
+    expect(host.textContent).toContain("Generation 1");
+    app.unmount();
+  });
 });

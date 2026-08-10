@@ -1,16 +1,55 @@
 <script setup lang="ts">
-import { Activity, CircleAlert, RefreshCw } from "@lucide/vue";
+import { Activity, ChevronLeft, ChevronRight, CircleAlert, RefreshCw } from "@lucide/vue";
+import { computed, shallowRef, watch } from "vue";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { ActivitySummary } from "@/lib/types";
 
-defineProps<{
+const props = defineProps<{
   activity: ActivitySummary[];
   error: string | null;
   loading: boolean;
 }>();
 
 defineEmits<{ retry: [] }>();
+
+const ACTIVITY_PER_PAGE = 10;
+const currentPage = shallowRef(1);
+const activityCount = computed(() => props.activity.length);
+const pageCount = computed(() => Math.max(1, Math.ceil(activityCount.value / ACTIVITY_PER_PAGE)));
+const visibleActivity = computed(() => {
+  const start = (currentPage.value - 1) * ACTIVITY_PER_PAGE;
+  return props.activity.slice(start, start + ACTIVITY_PER_PAGE);
+});
+const firstVisibleActivity = computed(() =>
+  activityCount.value === 0 ? 0 : (currentPage.value - 1) * ACTIVITY_PER_PAGE + 1,
+);
+const lastVisibleActivity = computed(() =>
+  Math.min(currentPage.value * ACTIVITY_PER_PAGE, activityCount.value),
+);
+
+watch(
+  pageCount,
+  (count) => {
+    if (currentPage.value > count) currentPage.value = count;
+  },
+  { immediate: true },
+);
+
+watch(
+  () => props.activity,
+  () => {
+    currentPage.value = 1;
+  },
+);
+
+function goToPreviousPage() {
+  currentPage.value = Math.max(1, currentPage.value - 1);
+}
+
+function goToNextPage() {
+  currentPage.value = Math.min(pageCount.value, currentPage.value + 1);
+}
 
 function formatTime(value: string) {
   return new Intl.DateTimeFormat(undefined, {
@@ -59,7 +98,7 @@ function formatTime(value: string) {
     </div>
     <div v-else class="divide-y divide-border">
       <div
-        v-for="item in activity"
+        v-for="item in visibleActivity"
         :key="item.id"
         class="grid gap-1 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_auto]"
       >
@@ -75,5 +114,38 @@ function formatTime(value: string) {
         </time>
       </div>
     </div>
+    <nav
+      v-if="pageCount > 1"
+      class="flex items-center justify-between gap-4 border-t border-border px-5 py-3 max-[560px]:items-start max-[560px]:flex-col"
+      aria-label="Project activity pagination"
+    >
+      <p class="text-xs text-muted-foreground" aria-live="polite">
+        Showing {{ firstVisibleActivity }}–{{ lastVisibleActivity }} of {{ activityCount }} activity
+        entries
+      </p>
+      <div class="flex items-center gap-2">
+        <Button
+          size="icon-sm"
+          variant="outline"
+          :disabled="currentPage === 1"
+          aria-label="Previous activity page"
+          @click="goToPreviousPage"
+        >
+          <ChevronLeft class="size-4" :stroke-width="1.5" />
+        </Button>
+        <span class="min-w-20 text-center font-mono text-xs text-muted-foreground">
+          Page {{ currentPage }} of {{ pageCount }}
+        </span>
+        <Button
+          size="icon-sm"
+          variant="outline"
+          :disabled="currentPage === pageCount"
+          aria-label="Next activity page"
+          @click="goToNextPage"
+        >
+          <ChevronRight class="size-4" :stroke-width="1.5" />
+        </Button>
+      </div>
+    </nav>
   </section>
 </template>
