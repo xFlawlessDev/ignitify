@@ -3,6 +3,7 @@ import {
   Box,
   CircleAlert,
   CircleCheckBig,
+  Globe2,
   Layers3,
   Plus,
   RefreshCw,
@@ -18,10 +19,43 @@ import OperationsTopology from "@/components/dashboard/OperationsTopology.vue";
 import RuntimeStatusPanel from "@/components/runtime/RuntimeStatusPanel.vue";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useDomains } from "@/composables/useDomains";
 import { useOperationsDashboard } from "@/composables/useOperationsDashboard";
+import { useI18n } from "vue-i18n";
 
 const { data, error, load, loading, metrics, recentDeployments, runtime } =
   useOperationsDashboard();
+const domains = useDomains();
+const { t } = useI18n();
+
+const domainMetrics = computed(() => ({
+  active: domains.data.value.filter((domain) => domain.status === "active").length,
+  failed: domains.data.value.filter((domain) => domain.status === "failed").length,
+  pending: domains.data.value.filter((domain) => domain.status === "pending").length,
+  total: domains.data.value.length,
+}));
+
+const domainMetricDetail = computed(() => {
+  if (domains.error.value) return t("dashboard.domainRoutesUnavailable");
+  if (domains.loading.value && !domainMetrics.value.total) {
+    return t("dashboard.loadingDomainRoutes");
+  }
+  if (!domainMetrics.value.total) return t("dashboard.noPublicDomains");
+  if (domainMetrics.value.failed) {
+    return t("dashboard.domainRoutesNeedAttention", domainMetrics.value.failed);
+  }
+  if (domainMetrics.value.pending) {
+    return t("dashboard.domainRoutesPending", domainMetrics.value.pending);
+  }
+  return t("dashboard.domainRoutesActive", domainMetrics.value.active);
+});
+
+const domainMetricTone = computed(() => {
+  if (domains.error.value || domainMetrics.value.failed) return "destructive";
+  if (domainMetrics.value.pending) return "live";
+  if (domainMetrics.value.active) return "healthy";
+  return "neutral";
+});
 
 const workspaceStatus = computed(() => {
   if (error.value) {
@@ -97,8 +131,19 @@ const operationsLabel = computed(
 
 async function loadDashboard(showSuccess = false) {
   await load();
+  const serviceIds = data.value.services.map((service) => service.id);
+  if (serviceIds.length) {
+    await domains.load(serviceIds);
+  } else {
+    domains.clear();
+  }
+
   if (error.value) {
     toast.error("Operations unavailable", { description: error.value });
+    return;
+  }
+  if (domains.error.value) {
+    toast.error(t("dashboard.domainRoutesUnavailable"), { description: domains.error.value });
     return;
   }
   if (showSuccess) toast.success("Operations refreshed");
@@ -182,10 +227,10 @@ onMounted(() => void loadDashboard());
         <p class="font-mono text-[11px] text-muted-foreground">{{ operationsLabel }}</p>
       </div>
       <div
-        class="mt-3 app-surface grid divide-y divide-border sm:grid-cols-2 sm:divide-x sm:divide-y-0 lg:grid-cols-4"
+        class="mt-3 app-surface grid divide-y divide-border sm:grid-cols-2 sm:divide-x sm:divide-y-0 lg:grid-cols-5"
       >
         <template v-if="loading && !data.projects.length">
-          <div v-for="index in 4" :key="index" class="min-h-36 bg-background p-5">
+          <div v-for="index in 5" :key="index" class="min-h-36 bg-background p-5">
             <Skeleton class="h-3 w-20" />
             <Skeleton class="mt-12 h-9 w-12" />
           </div>
@@ -217,6 +262,15 @@ onMounted(() => void loadDashboard());
             :icon="metrics.failed ? CircleAlert : CircleCheckBig"
             :tone="metrics.failed ? 'destructive' : 'healthy'"
           />
+          <MetricTile
+            :label="t('dashboard.domains')"
+            :value="
+              domains.loading.value && !domainMetrics.total ? '...' : String(domainMetrics.total)
+            "
+            :detail="domainMetricDetail"
+            :icon="domains.error.value || domainMetrics.failed ? CircleAlert : Globe2"
+            :tone="domainMetricTone"
+          />
         </template>
       </div>
     </section>
@@ -224,6 +278,9 @@ onMounted(() => void loadDashboard());
     <OperationsTopology
       v-if="loading || data.projects.length"
       :deployments="data.deployments"
+      :domains="domains.data.value"
+      :domains-error="domains.error.value"
+      :domains-loading="domains.loading.value"
       :loading="loading"
       :projects="data.projects"
       :runtime="runtime"

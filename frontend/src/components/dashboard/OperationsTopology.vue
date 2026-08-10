@@ -4,9 +4,10 @@ import { Controls } from "@vue-flow/controls";
 import { Handle, Position, useVueFlow, VueFlow, type Edge, type Node } from "@vue-flow/core";
 import "@vue-flow/controls/dist/style.css";
 import "@vue-flow/core/dist/style.css";
-import { Box, GitBranch, Layers3, Rocket, Server, X } from "@lucide/vue";
+import { Box, GitBranch, Globe2, Layers3, Rocket, Server, X } from "@lucide/vue";
 import { computed, shallowRef, watch } from "vue";
 import { useRouter } from "vue-router";
+import { useI18n } from "vue-i18n";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import type {
@@ -14,6 +15,7 @@ import type {
   DashboardServiceSummary,
   DeploymentState,
   DeploymentSummary,
+  DomainSummary,
   RuntimeStatus,
 } from "@/lib/types";
 
@@ -29,18 +31,29 @@ interface TopologyNodeData {
   projectId?: string;
   serviceId?: string;
   generation?: number;
+  domains?: DomainSummary[];
+  domainsUnavailable?: boolean;
+  domainsLoading?: boolean;
 }
 
 interface Props {
   deployments: DeploymentSummary[];
+  domains: DomainSummary[];
+  domainsError?: string | null;
+  domainsLoading?: boolean;
   loading?: boolean;
   projects: DashboardProjectSummary[];
   runtime: RuntimeStatus | null;
   services: DashboardServiceSummary[];
 }
 
-const props = withDefaults(defineProps<Props>(), { loading: false });
+const props = withDefaults(defineProps<Props>(), {
+  domainsError: null,
+  domainsLoading: false,
+  loading: false,
+});
 const router = useRouter();
+const { t } = useI18n();
 const flow = useVueFlow();
 const flowNodes = shallowRef<Node<TopologyNodeData>[]>([]);
 const flowEdges = shallowRef<Edge[]>([]);
@@ -64,9 +77,15 @@ const topologySummary = computed(() => {
   const active = [...latestDeployments().values()].filter((deployment) =>
     isActive(deployment.status),
   ).length;
-  return active
+  const deploymentSummary = active
     ? `${active} deployment${active === 1 ? "" : "s"} moving`
     : `${props.services.length} service${props.services.length === 1 ? "" : "s"} mapped`;
+  const domainSummary = props.domainsError
+    ? t("dashboard.domainRoutesUnavailable")
+    : props.domainsLoading && !props.domains.length
+      ? t("dashboard.loadingDomainRoutes")
+      : t("dashboard.domainRoutes", props.domains.length);
+  return `${deploymentSummary} / ${domainSummary}`;
 });
 
 function isActive(status: DeploymentState) {
@@ -118,6 +137,33 @@ function edgeStyle(tone: TopologyTone) {
   return { stroke: "var(--border)", strokeWidth: 1.25 };
 }
 
+function toneForDomains(domains: DomainSummary[], unavailable = false): TopologyTone {
+  if (unavailable) return "failed";
+  if (domains.some((domain) => domain.status === "failed")) return "failed";
+  if (domains.some((domain) => domain.status === "pending")) return "live";
+  if (domains.some((domain) => domain.status === "active")) return "healthy";
+  return "neutral";
+}
+
+function domainStatusLabel(status: DomainSummary["status"]) {
+  if (status === "active") return t("dashboard.domainActive");
+  if (status === "failed") return t("dashboard.domainFailed");
+  return t("dashboard.domainPending");
+}
+
+function domainLabel(domains: DomainSummary[], loading: boolean, unavailable: boolean) {
+  const [primary] = domains;
+  if (!primary) {
+    if (unavailable) return t("dashboard.domainRoutesUnavailable");
+    return loading ? t("dashboard.loadingDomainRoutes") : t("dashboard.noPublicDomain");
+  }
+  return domains.length === 1 ? primary.hostname : `${primary.hostname} +${domains.length - 1}`;
+}
+
+function domainUrl(hostname: string) {
+  return `https://${hostname}`;
+}
+
 function latestDeployments() {
   const ordered = [...props.deployments].sort((left, right) =>
     right.created_at.localeCompare(left.created_at),
@@ -131,10 +177,16 @@ function latestDeployments() {
 
 function updateTopology() {
   const servicesByProject = new Map<string, DashboardServiceSummary[]>();
+  const domainsByService = new Map<string, DomainSummary[]>();
   for (const service of props.services) {
     const services = servicesByProject.get(service.project_id) ?? [];
     services.push(service);
     servicesByProject.set(service.project_id, services);
+  }
+  for (const domain of props.domains) {
+    const domains = domainsByService.get(domain.service_id) ?? [];
+    domains.push(domain);
+    domainsByService.set(domain.service_id, domains);
   }
   const latestByService = latestDeployments();
   const hostReady =
@@ -196,6 +248,7 @@ function updateTopology() {
 
     for (const [serviceIndex, service] of projectServices.entries()) {
       const deployment = latestByService.get(service.id);
+      const serviceDomains = domainsByService.get(service.id) ?? [];
       const serviceTone = toneForDeployment(deployment);
       const serviceId = `service:${service.id}`;
       const deploymentId = deployment ? `deployment:${deployment.id}` : null;
@@ -212,6 +265,9 @@ function updateTopology() {
           detail: `${service.kind} service / target ${service.desired_state}`,
           projectId: project.id,
           serviceId: service.id,
+          domains: serviceDomains,
+          domainsUnavailable: Boolean(props.domainsError),
+          domainsLoading: props.domainsLoading,
           status: deployment ? deploymentLabels[deployment.status] : "Awaiting deployment",
           tone: serviceTone,
         },
@@ -313,9 +369,19 @@ function actionLabel(node: Node<TopologyNodeData>) {
   return node.data.serviceId ? "Open service" : "Open project";
 }
 
-watch(() => [props.deployments, props.projects, props.runtime, props.services], updateTopology, {
-  immediate: true,
-});
+watch(
+  () => [
+    props.deployments,
+    props.domains,
+    props.domainsError,
+    props.domainsLoading,
+    props.projects,
+    props.runtime,
+    props.services,
+  ],
+  updateTopology,
+  { immediate: true },
+);
 
 flow.onPaneClick(closeInspector);
 </script>
@@ -480,6 +546,23 @@ flow.onPaneClick(closeInspector);
               <p class="ui-label">Service</p>
               <p class="mt-1 truncate text-xs font-medium">{{ data.label }}</p>
               <p
+                class="mt-1 flex min-w-0 items-center gap-1 truncate font-mono text-[10px]"
+                :class="
+                  statusClass(toneForDomains(data.domains ?? [], Boolean(data.domainsUnavailable)))
+                "
+              >
+                <Globe2 class="size-3 shrink-0" :stroke-width="1.5" />
+                <span class="truncate">
+                  {{
+                    domainLabel(
+                      data.domains ?? [],
+                      Boolean(data.domainsLoading),
+                      Boolean(data.domainsUnavailable),
+                    )
+                  }}
+                </span>
+              </p>
+              <p
                 class="mt-2 flex items-center gap-1.5 font-mono text-[10px]"
                 :class="statusClass(data.tone)"
               >
@@ -590,6 +673,47 @@ flow.onPaneClick(closeInspector);
           <p class="border-t border-border pt-4 text-xs leading-5 text-muted-foreground">
             {{ selectedNode.data.detail }}
           </p>
+          <section
+            v-if="selectedNode.data.kind === 'service'"
+            class="border-t border-border pt-4"
+            :aria-label="t('dashboard.serviceDomains')"
+          >
+            <p class="ui-label">{{ t("dashboard.serviceDomains") }}</p>
+            <p v-if="selectedNode.data.domainsUnavailable" class="mt-2 text-xs text-destructive">
+              {{ t("dashboard.domainRoutesUnavailable") }}
+            </p>
+            <p
+              v-else-if="selectedNode.data.domainsLoading && !selectedNode.data.domains?.length"
+              class="mt-2 text-xs text-muted-foreground"
+            >
+              {{ t("dashboard.loadingDomainRoutes") }}
+            </p>
+            <div v-if="selectedNode.data.domains?.length" class="mt-2 grid divide-y divide-border">
+              <div
+                v-for="domain in selectedNode.data.domains"
+                :key="domain.id"
+                class="flex min-w-0 items-center justify-between gap-3 py-2 first:pt-0 last:pb-0"
+              >
+                <a
+                  class="min-w-0 truncate font-mono text-[11px] text-foreground hover:underline"
+                  :href="domainUrl(domain.hostname)"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {{ domain.hostname }}
+                </a>
+                <span class="shrink-0 text-[10px]" :class="statusClass(toneForDomains([domain]))">
+                  {{ domainStatusLabel(domain.status) }}
+                </span>
+              </div>
+            </div>
+            <p
+              v-else-if="!selectedNode.data.domainsUnavailable"
+              class="mt-2 text-xs text-muted-foreground"
+            >
+              {{ t("dashboard.noPublicDomain") }}
+            </p>
+          </section>
           <dl
             v-if="selectedNode.data.kind === 'host' && runtime?.metrics"
             class="grid grid-cols-2 gap-x-5 gap-y-3 border-t border-border pt-4 text-xs"
