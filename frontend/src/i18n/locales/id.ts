@@ -87,6 +87,31 @@ export default {
     secretShownOnce:
       "Gunakan secret ini pada konfigurasi webhook provider. Secret tidak tersedia setelah halaman dimuat ulang.",
     secretUnavailable: "Rotasi secret untuk mengonfigurasi atau mengganti webhook provider.",
+    webhookGuide: {
+      title: "Panduan memasang webhook repository",
+      publicEndpoint:
+        "URL webhook harus dapat diakses publik melalui HTTPS. Provider repository tidak dapat mengirim event ke localhost.",
+      github: {
+        open: "Buka Settings repository, lalu Webhooks, kemudian pilih Add webhook.",
+        credentials:
+          "Tempel URL webhook yang disalin pada Payload URL, pilih application/json, lalu tempel secret webhook.",
+        events: "Pilih Just the push event.",
+        create: "Biarkan Active aktif dan pilih Add webhook.",
+      },
+      gitlab: {
+        open: "Buka Settings project, lalu Webhooks.",
+        credentials: "Tempel URL webhook dan secret token webhook yang disalin.",
+        events: "Aktifkan Push events saja.",
+        create: "Pilih Add webhook.",
+      },
+      gitea: {
+        open: "Buka Settings repository, lalu Webhooks, kemudian tambahkan webhook Gitea.",
+        credentials:
+          "Tempel URL webhook yang disalin pada Target URL, pilih application/json, lalu tempel secret webhook.",
+        events: "Aktifkan Push Events saja.",
+        create: "Pilih Add Webhook.",
+      },
+    },
   },
   appUpdate: {
     version: "Versi {version}",

@@ -87,6 +87,31 @@ export default {
     secretShownOnce:
       "Use this secret in the provider webhook configuration. It is not available after refresh.",
     secretUnavailable: "Rotate the secret to configure or replace the provider webhook.",
+    webhookGuide: {
+      title: "Set up the repository webhook",
+      publicEndpoint:
+        "The webhook URL must be publicly reachable over HTTPS. Repository providers cannot deliver events to localhost.",
+      github: {
+        open: "Open the repository Settings, then Webhooks, and select Add webhook.",
+        credentials:
+          "Paste the copied webhook URL as Payload URL, choose application/json, and paste the webhook secret.",
+        events: "Choose Just the push event.",
+        create: "Keep Active enabled and select Add webhook.",
+      },
+      gitlab: {
+        open: "Open the project Settings, then Webhooks.",
+        credentials: "Paste the copied webhook URL and webhook secret token.",
+        events: "Enable Push events only.",
+        create: "Select Add webhook.",
+      },
+      gitea: {
+        open: "Open the repository Settings, then Webhooks, and add a Gitea webhook.",
+        credentials:
+          "Paste the copied webhook URL as Target URL, choose application/json, and paste the webhook secret.",
+        events: "Enable Push Events only.",
+        create: "Select Add Webhook.",
+      },
+    },
   },
   appUpdate: {
     version: "Version {version}",

@@ -204,6 +204,13 @@ describe("ServiceConfigurationPanel", () => {
 
     expect(host.textContent).toContain("Auto deploy on push");
     expect(host.querySelector("#service-config-webhook-url")).not.toBeNull();
+    const guide = [...host.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("Set up the repository webhook"),
+    ) as HTMLButtonElement;
+    expect(guide).toBeDefined();
+    guide.click();
+    await nextTick();
+    expect(guide.dataset.state).toBe("open");
     (host.querySelector("form") as HTMLFormElement).dispatchEvent(
       new Event("submit", { bubbles: true, cancelable: true }),
     );

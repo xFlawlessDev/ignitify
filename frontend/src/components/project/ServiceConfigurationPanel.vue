@@ -16,6 +16,12 @@ import {
 import { computed, onMounted, reactive, shallowRef, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -880,6 +886,36 @@ onMounted(() => void loadDestinations());
               <p class="text-[11px] leading-4 text-muted-foreground">
                 {{ t("autoDeploy.secretShownOnce") }}
               </p>
+              <Accordion type="single" collapsible class="border-y border-border">
+                <AccordionItem value="webhook-guide">
+                  <AccordionTrigger class="py-3 text-xs">
+                    {{ t("autoDeploy.webhookGuide.title") }}
+                  </AccordionTrigger>
+                  <AccordionContent class="text-xs text-muted-foreground">
+                    <p class="leading-4">{{ t("autoDeploy.webhookGuide.publicEndpoint") }}</p>
+                    <ol class="mt-3 grid list-decimal gap-2 pl-5 leading-4">
+                      <template v-if="selectedProvider?.kind === 'github'">
+                        <li>{{ t("autoDeploy.webhookGuide.github.open") }}</li>
+                        <li>{{ t("autoDeploy.webhookGuide.github.credentials") }}</li>
+                        <li>{{ t("autoDeploy.webhookGuide.github.events") }}</li>
+                        <li>{{ t("autoDeploy.webhookGuide.github.create") }}</li>
+                      </template>
+                      <template v-else-if="selectedProvider?.kind === 'gitlab'">
+                        <li>{{ t("autoDeploy.webhookGuide.gitlab.open") }}</li>
+                        <li>{{ t("autoDeploy.webhookGuide.gitlab.credentials") }}</li>
+                        <li>{{ t("autoDeploy.webhookGuide.gitlab.events") }}</li>
+                        <li>{{ t("autoDeploy.webhookGuide.gitlab.create") }}</li>
+                      </template>
+                      <template v-else-if="selectedProvider?.kind === 'gitea'">
+                        <li>{{ t("autoDeploy.webhookGuide.gitea.open") }}</li>
+                        <li>{{ t("autoDeploy.webhookGuide.gitea.credentials") }}</li>
+                        <li>{{ t("autoDeploy.webhookGuide.gitea.events") }}</li>
+                        <li>{{ t("autoDeploy.webhookGuide.gitea.create") }}</li>
+                      </template>
+                    </ol>
+                  </AccordionContent>
+                </AccordionItem>
+              </Accordion>
             </template>
             <p v-else class="text-[11px] leading-4 text-muted-foreground">
               {{ t("autoDeploy.secretUnavailable") }}
