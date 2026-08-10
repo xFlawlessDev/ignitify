@@ -760,33 +760,8 @@ fn inspect_yaml(value: &Yaml, depth: usize, services: &mut usize) -> Result<()> 
                         return Err(Error::Policy("too many services"));
                     }
                 }
-                if matches!(
-                    key.as_str(),
-                    "build"
-                        | "ports"
-                        | "network_mode"
-                        | "pid"
-                        | "ipc"
-                        | "uts"
-                        | "privileged"
-                        | "cap_add"
-                        | "cap_drop"
-                        | "devices"
-                        | "gpus"
-                        | "volumes_from"
-                        | "runtime"
-                        | "security_opt"
-                        | "sysctls"
-                        | "include"
-                        | "extends"
-                        | "profiles"
-                        | "env_file"
-                        | "label_file"
-                        | "external"
-                        | "driver"
-                        | "driver_opts"
-                ) {
-                    return Err(Error::Policy("unsupported or unsafe Compose field"));
+                if let Some(reason) = forbidden_compose_field(key) {
+                    return Err(Error::Policy(reason));
                 }
                 if key == "image"
                     && !matches!(child, Yaml::String(image) if is_compose_image(image))
@@ -922,36 +897,20 @@ fn validate_json_keys(value: &Value, generated: bool, path: &[&str]) -> Result<(
         for (key, child) in map {
             let generated_network =
                 generated && path == ["networks", "ignitify-proxy"] && key == "external";
-            let forbidden = matches!(
-                key.as_str(),
-                "build"
-                    | "ports"
-                    | "network_mode"
-                    | "pid"
-                    | "ipc"
-                    | "uts"
-                    | "privileged"
-                    | "cap_add"
-                    | "cap_drop"
-                    | "devices"
-                    | "gpus"
-                    | "volumes_from"
-                    | "runtime"
-                    | "security_opt"
-                    | "sysctls"
-                    | "external_links"
-                    | "configs"
-                    | "secrets"
-                    | "driver_opts"
-                    | "<<"
-            ) || (key.starts_with("traefik.") && !generated)
-                || (key == "external" && child.as_bool() == Some(true) && !generated_network)
-                || key == "bind";
             if key == "type" && child.as_str() == Some("bind") {
                 return Err(Error::Policy("bind mounts are forbidden"));
             }
-            if forbidden {
-                return Err(Error::Policy("unsupported or unsafe Compose field"));
+            if let Some(reason) = forbidden_canonical_field(key) {
+                return Err(Error::Policy(reason));
+            }
+            if key == "external" && child.as_bool() == Some(true) && !generated_network {
+                return Err(Error::Policy("external Compose resources are forbidden"));
+            }
+            if key.starts_with("traefik.") && !generated {
+                return Err(Error::Policy("raw Traefik labels are forbidden"));
+            }
+            if key == "bind" {
+                return Err(Error::Policy("bind mounts are forbidden"));
             }
             let next_path = if path.len() < 2 {
                 let mut next_path = path.to_vec();
@@ -968,6 +927,41 @@ fn validate_json_keys(value: &Value, generated: bool, path: &[&str]) -> Result<(
         }
     }
     Ok(())
+}
+
+fn forbidden_compose_field(key: &str) -> Option<&'static str> {
+    match key {
+        "build" => Some("Compose builds are forbidden"),
+        "ports" => Some("Compose host ports are forbidden"),
+        "network_mode" => Some("Compose network mode is forbidden"),
+        "pid" | "ipc" | "uts" => Some("Compose namespace sharing is forbidden"),
+        "privileged" => Some("privileged Compose services are forbidden"),
+        "cap_add" | "cap_drop" => Some("Compose capability changes are forbidden"),
+        "devices" | "gpus" | "runtime" => Some("Compose device access is forbidden"),
+        "volumes_from" => Some("Compose shared volumes are forbidden"),
+        "security_opt" | "sysctls" => Some("Compose security options are forbidden"),
+        "include" | "extends" => Some("Compose file inclusion is forbidden"),
+        "profiles" => Some("Compose profiles are forbidden"),
+        "env_file" | "label_file" => Some("Compose external files are forbidden"),
+        "external" => Some("external Compose resources are forbidden"),
+        "driver" | "driver_opts" => Some("configured Compose volume drivers are forbidden"),
+        "external_links" => Some("Compose external links are forbidden"),
+        "configs" | "secrets" => Some("Compose external resources are forbidden"),
+        "<<" => Some("YAML merge keys are forbidden"),
+        _ => None,
+    }
+}
+
+fn forbidden_canonical_field(key: &str) -> Option<&'static str> {
+    match key {
+        "build" | "ports" | "network_mode" | "pid" | "ipc" | "uts" | "privileged" | "cap_add"
+        | "cap_drop" | "devices" | "gpus" | "volumes_from" | "runtime" | "security_opt"
+        | "sysctls" | "driver_opts" => forbidden_compose_field(key),
+        "external_links" => Some("Compose external links are forbidden"),
+        "configs" | "secrets" => Some("Compose external resources are forbidden"),
+        "<<" => Some("YAML merge keys are forbidden"),
+        _ => None,
+    }
 }
 
 fn ensure_exposed_service(value: &Value, service: &str) -> Result<()> {
@@ -1039,7 +1033,7 @@ pub enum Error {
 
 #[cfg(test)]
 mod tests {
-    use super::{MAX_DEPTH, preflight_yaml, service_statuses, validate_canonical};
+    use super::{Error, MAX_DEPTH, preflight_yaml, service_statuses, validate_canonical};
     use serde_json::json;
 
     use {
@@ -1371,6 +1365,30 @@ mod tests {
         let yaml = "services:\n  router:\n    image: decolua/9router:0.5.40\n  headroom:\n    image: ghcr.io/chopratejas/headroom:0.6.7\n";
         assert!(preflight_yaml(yaml).is_err());
         assert!(!super::is_compose_image("decolua/9router"));
+    }
+
+    #[test]
+    fn reports_the_specific_rejected_compose_field() {
+        assert!(matches!(
+            preflight_yaml(
+                "services:\n  web:\n    image: nginx@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n    ports:\n      - 8080:8080\n"
+            ),
+            Err(Error::Policy("Compose host ports are forbidden"))
+        ));
+        assert!(matches!(
+            validate_canonical(
+                &json!({
+                    "services": {
+                        "web": {
+                            "image": "nginx@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                            "ports": ["8080:8080"],
+                        }
+                    }
+                }),
+                false,
+            ),
+            Err(Error::Policy("Compose host ports are forbidden"))
+        ));
     }
 
     #[test]
