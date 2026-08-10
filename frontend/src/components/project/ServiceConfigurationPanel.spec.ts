@@ -438,9 +438,6 @@ port = 80
     await new Promise((resolve) => setTimeout(resolve, 0));
     await nextTick();
     await selectOption(host, "service-config-compose-repository", "acme/stack");
-    const exposedService = host.querySelector("#service-config-exposed") as HTMLInputElement;
-    exposedService.value = "web";
-    exposedService.dispatchEvent(new Event("input", { bubbles: true }));
     await new Promise((resolve) => setTimeout(resolve, 0));
     await nextTick();
     (host.querySelector("form") as HTMLFormElement).dispatchEvent(
@@ -450,8 +447,6 @@ port = 80
 
     expect(onSave.mock.calls[0]?.[0]).toMatchObject({
       kind: "compose",
-      compose_yaml: "",
-      exposed_service: "web",
       source_config: {
         source: "compose",
         provider_id: "provider-1",
@@ -460,6 +455,10 @@ port = 80
         dockerfile_path: "docker-compose.yml",
       },
     });
+    const saved = onSave.mock.calls[0]?.[0] as ServiceInput | undefined;
+    expect(saved?.compose_yaml).toBeUndefined();
+    expect(saved?.exposed_service).toBeUndefined();
+    expect(host.querySelector("#service-config-exposed")).toBeNull();
     app.unmount();
   });
 });

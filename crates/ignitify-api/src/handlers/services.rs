@@ -22,6 +22,7 @@ use crate::{
 };
 
 const APPLICATION_RUNTIME_PLACEHOLDER: &str = "ignitify-source-placeholder@sha256:0000000000000000000000000000000000000000000000000000000000000000";
+const GIT_COMPOSE_PLACEHOLDER_SERVICE: &str = "ignitify";
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct ServiceRequest {
@@ -279,11 +280,20 @@ fn parse_input(request: ServiceRequest) -> Result<ParsedServiceInput, ApiError> 
     let git_compose_source = source_config
         .as_ref()
         .is_some_and(|source| source.source == "compose" && source.provider_id.is_some());
+    let exposed_service = request
+        .exposed_service
+        .filter(|service| !service.trim().is_empty())
+        .unwrap_or_else(|| {
+            if git_compose_source {
+                GIT_COMPOSE_PLACEHOLDER_SERVICE.to_owned()
+            } else {
+                String::new()
+            }
+        });
     let compose_yaml = request
         .compose_yaml
         .filter(|yaml| !yaml.trim().is_empty())
         .unwrap_or_else(|| {
-            let exposed_service = request.exposed_service.as_deref().unwrap_or("web");
             if git_compose_source {
                 format!(
                     "services:\n  {exposed_service}:\n    image: ignitify-source-placeholder@sha256:{}\n",
@@ -332,7 +342,7 @@ fn parse_input(request: ServiceRequest) -> Result<ParsedServiceInput, ApiError> 
         "compose" => ServiceInput::compose(
             request.name,
             compose_yaml,
-            request.exposed_service.unwrap_or_default(),
+            exposed_service,
             request.internal_port,
             variables,
         ),
@@ -526,6 +536,45 @@ mod tests {
             panic!("expected Compose service specification");
         };
         assert!(yaml.contains("ignitify-source-placeholder@sha256:"));
+    }
+
+    #[test]
+    fn git_compose_source_does_not_require_an_exposed_service_before_checkout() {
+        let result = input(ServiceRequest {
+            name: "stack".to_owned(),
+            kind: Some("compose".to_owned()),
+            image_reference: None,
+            compose_yaml: None,
+            exposed_service: None,
+            internal_port: Some(80),
+            healthcheck: None,
+            variables: vec![],
+            source_config: Some(ServiceSourceConfig {
+                source: "compose".to_owned(),
+                template: None,
+                setup_required: None,
+                provider_id: Some("provider-1".to_owned()),
+                repository: Some("acme/stack".to_owned()),
+                branch: Some("main".to_owned()),
+                builder: None,
+                dockerfile_path: None,
+                build_command: None,
+                output_directory: None,
+            }),
+            deployment_destination_id: None,
+        })
+        .unwrap();
+
+        let ServiceSpec::Compose {
+            yaml,
+            exposed_service,
+            ..
+        } = result.configuration.spec
+        else {
+            panic!("expected Compose service specification");
+        };
+        assert!(yaml.contains("services:\n  ignitify:"));
+        assert_eq!(exposed_service, "ignitify");
     }
 
     #[test]

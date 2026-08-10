@@ -10,6 +10,8 @@ export function apiCreateService(
   projectId: string,
   input: ServiceInput,
 ): Promise<ApiResult<ServiceSummary>> {
+  const validationError = validateComposeInput(input);
+  if (validationError) return rejectedServiceInput(validationError);
   return apiFetch<ServiceSummary>(`/projects/${encodeURIComponent(projectId)}/services`, {
     method: "POST",
     body: JSON.stringify(input),
@@ -24,26 +26,34 @@ export function apiUpdateService(
   serviceId: string,
   input: ServiceInput,
 ): Promise<ApiResult<ServiceSummary>> {
-  if (input.kind === "compose") {
-    const composeYaml = input.compose_yaml ?? "";
-    if (!composeYaml.trim()) {
-      return Promise.resolve({
-        success: false,
-        data: null as unknown as ServiceSummary,
-        error: "Compose YAML is required before saving the service.",
-      });
-    }
-    if (composeYaml.length > 1024 * 1024 || composeYaml.includes(String.fromCharCode(0))) {
-      return Promise.resolve({
-        success: false,
-        data: null as unknown as ServiceSummary,
-        error: "Compose YAML must be at most 1 MiB and cannot contain NUL characters.",
-      });
-    }
-  }
+  const validationError = validateComposeInput(input);
+  if (validationError) return rejectedServiceInput(validationError);
   return apiFetch<ServiceSummary>(`/services/${encodeURIComponent(serviceId)}`, {
     method: "PATCH",
     body: JSON.stringify(input),
+  });
+}
+
+function validateComposeInput(input: ServiceInput): string | null {
+  if (input.kind !== "compose") return null;
+
+  const composeYaml = input.compose_yaml ?? "";
+  const isGitComposeSource =
+    input.source_config?.source === "compose" && Boolean(input.source_config.provider_id?.trim());
+  if (!isGitComposeSource && !composeYaml.trim()) {
+    return "Compose YAML is required before saving the service.";
+  }
+  if (composeYaml.length > 1024 * 1024 || composeYaml.includes(String.fromCharCode(0))) {
+    return "Compose YAML must be at most 1 MiB and cannot contain NUL characters.";
+  }
+  return null;
+}
+
+function rejectedServiceInput(error: string): Promise<ApiResult<ServiceSummary>> {
+  return Promise.resolve({
+    success: false,
+    data: null as unknown as ServiceSummary,
+    error,
   });
 }
 

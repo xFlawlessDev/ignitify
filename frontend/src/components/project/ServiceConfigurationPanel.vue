@@ -151,6 +151,9 @@ const supportsBuildCommand = computed(
 const usesStaticOutput = computed(
   () => source.value === "application" && builder.value === "static",
 );
+const isGitComposeSource = computed(
+  () => source.value === "compose" && composeMode.value === "repository",
+);
 const serviceVariableCount = computed(
   () => variables.filter((variable) => !variable.is_secret).length,
 );
@@ -397,6 +400,7 @@ function submit() {
   }
   if (
     kind.value === "compose" &&
+    !isGitComposeSource.value &&
     (!exposedService.value.trim() || (composeMode.value === "yaml" && !submittedComposeYaml.trim()))
   ) {
     validationError.value = "Compose YAML and exposed service are required.";
@@ -445,8 +449,8 @@ function submit() {
           healthcheck: healthcheckArguments.length ? healthcheckArguments : null,
         }
       : {
-          compose_yaml: submittedComposeYaml,
-          exposed_service: exposedService.value.trim(),
+          ...(isGitComposeSource.value ? {} : { compose_yaml: submittedComposeYaml }),
+          ...(isGitComposeSource.value ? {} : { exposed_service: exposedService.value.trim() }),
           healthcheck: null,
         }),
     internal_port: parsedPort,
@@ -889,7 +893,7 @@ onMounted(() => void loadDestinations());
             privileged mode, devices, or raw Traefik labels.
           </p>
         </div>
-        <div class="grid gap-2">
+        <div v-if="!isGitComposeSource" class="grid gap-2">
           <Label for="service-config-exposed">Exposed Compose service</Label>
           <Input id="service-config-exposed" v-model="exposedService" placeholder="web" required />
         </div>

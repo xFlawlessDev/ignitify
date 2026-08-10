@@ -34,6 +34,7 @@ use tokio::{
     process::Command,
 };
 use url::Url;
+use yaml_rust2::YamlLoader;
 
 const DEFAULT_BUILD_ROOT: &str = "data/builds";
 const DEFAULT_COMMAND_TIMEOUT_SECONDS: u64 = 900;
@@ -41,6 +42,8 @@ const DEFAULT_STATIC_BUILD_IMAGE: &str = "node:22.23.1-alpine3.24@sha256:16e22a5
 const DEFAULT_CADDY_IMAGE: &str =
     "caddy:2.11.4-alpine@sha256:98eb57d882ccd5213d1688764db10c1ca2c58a1ca3a6717a3411ad798f7a423a";
 const DEFAULT_RAILPACK_FRONTEND_IMAGE: &str = "ghcr.io/railwayapp/railpack-frontend:latest@sha256:bc73534934e7929ab3dc41765fb7e25c8c69d9be98c43ef8792fea51f65317bd";
+const AUTO_EXPOSED_SERVICE: &str = "ignitify";
+const SOURCE_PLACEHOLDER_IMAGE: &str = "ignitify-source-placeholder@sha256:0000000000000000000000000000000000000000000000000000000000000000";
 
 #[derive(Clone)]
 pub struct GitSourceBuild {
@@ -950,7 +953,7 @@ enum BuildError {
     RemoteBuilderRequired,
     #[error("static source builds require internal port 80")]
     StaticPort,
-    #[error("Git Compose source requires a Compose service configuration")]
+    #[error("Git Compose source must define at least one valid Compose service")]
     InvalidComposeSource,
     #[error("source provider is missing")]
     ProviderMissing,
@@ -1114,15 +1117,50 @@ fn compose_runtime_spec(
     yaml: String,
 ) -> Result<ServiceSpec, BuildError> {
     let ServiceSpec::Compose {
-        exposed_service,
+        exposed_service: configured_exposed_service,
         internal_port,
         ..
     } = deployment_spec
     else {
         return Err(BuildError::InvalidComposeSource);
     };
+    let exposed_service = if has_auto_exposed_service(deployment_spec) {
+        first_compose_service(&yaml)?
+    } else {
+        configured_exposed_service.to_owned()
+    };
     ServiceSpec::compose(yaml, exposed_service, *internal_port)
         .map_err(|_| BuildError::InvalidComposeSource)
+}
+
+fn has_auto_exposed_service(spec: &ServiceSpec) -> bool {
+    let ServiceSpec::Compose {
+        yaml,
+        exposed_service,
+        ..
+    } = spec
+    else {
+        return false;
+    };
+    exposed_service == AUTO_EXPOSED_SERVICE
+        && yaml
+            == &format!(
+                "services:\n  {AUTO_EXPOSED_SERVICE}:\n    image: {SOURCE_PLACEHOLDER_IMAGE}\n"
+            )
+}
+
+fn first_compose_service(yaml: &str) -> Result<String, BuildError> {
+    let documents =
+        YamlLoader::load_from_str(yaml).map_err(|_| BuildError::InvalidComposeSource)?;
+    let services = documents
+        .first()
+        .and_then(|document| document["services"].as_hash())
+        .ok_or(BuildError::InvalidComposeSource)?;
+    services
+        .keys()
+        .find_map(|name| name.as_str())
+        .map(str::to_owned)
+        .ok_or(BuildError::InvalidComposeSource)
 }
 
 fn static_dockerfile(
@@ -1212,7 +1250,8 @@ async fn cleanup_checkout(checkout: &Checkout) {
 #[cfg(test)]
 mod tests {
     use super::{
-        BuildError, BuildLimiter, compose_runtime_spec, is_git_revision, is_local_image_id,
+        AUTO_EXPOSED_SERVICE, BuildError, BuildLimiter, SOURCE_PLACEHOLDER_IMAGE,
+        compose_runtime_spec, first_compose_service, is_git_revision, is_local_image_id,
         relative_path, shell_quote, source_build_error, static_dockerfile,
     };
     use ignitify_db::{Database, DatabaseConfig};
@@ -1269,7 +1308,7 @@ mod tests {
     }
 
     #[test]
-    fn git_compose_uses_checked_out_yaml_with_configured_routing() {
+    fn git_compose_preserves_an_explicit_exposed_service() {
         let configured = ServiceSpec::compose(
             "services:\n  web:\n    image: nginx@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n",
             "web",
@@ -1278,7 +1317,7 @@ mod tests {
         .unwrap();
         let runtime = compose_runtime_spec(
             &configured,
-            "services:\n  web:\n    image: caddy@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n"
+            "services:\n  app:\n    image: caddy@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n"
                 .to_owned(),
         )
         .unwrap();
@@ -1293,6 +1332,39 @@ mod tests {
         assert!(yaml.contains("caddy@sha256:"));
         assert_eq!(exposed_service, "web");
         assert_eq!(internal_port, Some(8080));
+    }
+
+    #[test]
+    fn git_compose_auto_detects_the_first_service() {
+        let configured = ServiceSpec::compose(
+            format!(
+                "services:\n  {AUTO_EXPOSED_SERVICE}:\n    image: {SOURCE_PLACEHOLDER_IMAGE}\n"
+            ),
+            AUTO_EXPOSED_SERVICE,
+            Some(8080),
+        )
+        .unwrap();
+        let runtime = compose_runtime_spec(
+            &configured,
+            "services:\n  app:\n    image: caddy@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n"
+                .to_owned(),
+        )
+        .unwrap();
+        let ServiceSpec::Compose {
+            exposed_service, ..
+        } = runtime
+        else {
+            panic!("expected Compose runtime specification");
+        };
+        assert_eq!(exposed_service, "app");
+    }
+
+    #[test]
+    fn git_compose_source_requires_at_least_one_service() {
+        assert!(matches!(
+            first_compose_service("services: {}\n"),
+            Err(BuildError::InvalidComposeSource)
+        ));
     }
 
     #[test]

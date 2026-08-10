@@ -18,3 +18,4 @@ thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 url.workspace = true
+yaml-rust2.workspace = true
