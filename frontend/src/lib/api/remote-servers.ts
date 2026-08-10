@@ -50,6 +50,21 @@ export interface RemoteServerInput {
   is_default: boolean;
 }
 
+export interface CreateRemoteServerInput {
+  name: string;
+  host: string;
+  port: number;
+  username: string;
+}
+
+export interface CreatedRemoteServer extends RemoteServerSummary {
+  public_key: string;
+}
+
+export interface RemoteServerAccess {
+  public_key: string;
+}
+
 export interface RemoteServerCheckResult {
   connected: boolean;
   latency_ms: number;
@@ -62,12 +77,16 @@ export function apiListRemoteServers(): Promise<ApiResult<RemoteServerSummary[]>
 }
 
 export function apiCreateRemoteServer(
-  input: RemoteServerInput,
-): Promise<ApiResult<RemoteServerSummary>> {
-  return apiFetch<RemoteServerSummary>(endpoint, {
+  input: CreateRemoteServerInput,
+): Promise<ApiResult<CreatedRemoteServer>> {
+  return apiFetch<CreatedRemoteServer>(endpoint, {
     method: "POST",
     body: JSON.stringify(input),
   });
+}
+
+export function apiGetRemoteServerAccess(serverId: string): Promise<ApiResult<RemoteServerAccess>> {
+  return apiFetch<RemoteServerAccess>(`${endpoint}/${encodeURIComponent(serverId)}/access`);
 }
 
 export function apiUpdateRemoteServer(

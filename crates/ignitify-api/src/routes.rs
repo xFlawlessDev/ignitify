@@ -120,15 +120,15 @@ pub(crate) fn router(state: AppState) -> Router {
             "/api/v1/remote-servers/{server_id}/default",
             post(handlers::remote_servers::make_default),
         )
-          .route(
-              "/api/v1/remote-servers/{server_id}/check",
-              post(handlers::remote_servers::check),
-          )
-          .route(
-              "/api/v1/remote-servers/{server_id}/access",
-              get(handlers::remote_servers::access),
-          )
-          .route(
+        .route(
+            "/api/v1/remote-servers/{server_id}/check",
+            post(handlers::remote_servers::check),
+        )
+        .route(
+            "/api/v1/remote-servers/{server_id}/access",
+            get(handlers::remote_servers::access),
+        )
+        .route(
             "/api/v1/remote-servers/{server_id}/agent",
             get(handlers::remote_agent::status),
         )

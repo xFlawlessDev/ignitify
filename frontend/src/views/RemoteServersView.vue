@@ -17,6 +17,7 @@ import {
   X,
 } from "@lucide/vue";
 import { computed, onMounted, onUnmounted, reactive, shallowRef, watch } from "vue";
+import { useI18n } from "vue-i18n";
 import { toast } from "vue-sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -36,6 +37,7 @@ import {
   apiCheckRemoteServer,
   apiCreateRemoteServer,
   apiDeleteRemoteServer,
+  apiGetRemoteServerAccess,
   apiInstallRemoteServerAgent,
   apiListRemoteServers,
   apiSetDefaultRemoteServer,
@@ -56,8 +58,14 @@ interface ConnectionCheckState {
   message: string;
 }
 
+interface RemoteServerAccessSetup {
+  server: RemoteServerSummary;
+  publicKey: string;
+}
+
 type SecretInputMode = "file" | "text";
 
+const { t } = useI18n();
 const servers = shallowRef<RemoteServerSummary[]>([]);
 const selectedServerId = shallowRef<string | null>(null);
 const loading = shallowRef(true);
@@ -65,6 +73,7 @@ const saving = shallowRef(false);
 const removing = shallowRef(false);
 const requestError = shallowRef("");
 const dialogOpen = shallowRef(false);
+const accessDialogOpen = shallowRef(false);
 const deleteDialogOpen = shallowRef(false);
 const serverPendingDeletion = shallowRef<RemoteServerSummary | null>(null);
 const editingId = shallowRef<string | null>(null);
@@ -79,6 +88,8 @@ const checkingServerId = shallowRef<string | null>(null);
 const installingAgentServerId = shallowRef<string | null>(null);
 const connectionCheck = shallowRef<ConnectionCheckState | null>(null);
 const copiedGuideCommand = shallowRef<string | null>(null);
+const accessSetup = shallowRef<RemoteServerAccessSetup | null>(null);
+const loadingAccessServerId = shallowRef<string | null>(null);
 
 const linuxGuideCommands = {
   generate: 'ssh-keygen -t ed25519 -N "" -f ./ignitify_deploy -C "ignitify-deploy"',
@@ -105,9 +116,11 @@ const selectedServer = computed(
 const selectedConnectionCheck = computed(() =>
   connectionCheck.value?.serverId === selectedServerId.value ? connectionCheck.value : null,
 );
-const privateKeyProvided = computed(() =>
-  privateKeyMode.value === "text" ? !!form.privateKeyText.trim() : !!privateKeyFile.value,
-);
+const installPublicKeyCommand = computed(() => {
+  if (!accessSetup.value) return "";
+  const publicKey = accessSetup.value.publicKey.replaceAll("'", "'\\''");
+  return `mkdir -p ~/.ssh && chmod 700 ~/.ssh && printf '%s\\n' '${publicKey}' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys`;
+});
 const publicKeyProvided = computed(() =>
   publicKeyMode.value === "text" ? !!form.publicKeyText.trim() : !!publicKeyFile.value,
 );
@@ -170,10 +183,10 @@ const formError = computed(() => {
   if (!/^[a-z_][a-z0-9_-]{0,31}$/.test(form.username.trim())) {
     return "Enter a valid Linux SSH username.";
   }
+  if (!editingId.value) return "";
   if (!form.deployPath.trim().startsWith("/")) {
     return "Deployment path must start with /.";
   }
-  if (!editingId.value && !privateKeyProvided.value) return "An SSH private key is required.";
   if (
     editingId.value &&
     selectedServer.value &&
@@ -182,8 +195,6 @@ const formError = computed(() => {
   ) {
     return "An SSH public key is required for this server.";
   }
-  if (!editingId.value && !publicKeyProvided.value) return "An SSH public key is required.";
-  if (!editingId.value && !form.knownHosts.trim()) return "known_hosts is required.";
   return "";
 });
 
@@ -341,6 +352,19 @@ async function copyGuideCommand(command: string) {
   }
 }
 
+async function showAccessSetup(server: RemoteServerSummary) {
+  loadingAccessServerId.value = server.id;
+  const result = await apiGetRemoteServerAccess(server.id);
+  loadingAccessServerId.value = null;
+  if (!result.success) {
+    const message = result.error ?? t("remoteServerOnboarding.accessLoadError");
+    toast.error(t("remoteServerOnboarding.accessLoadFailed"), { description: message });
+    return;
+  }
+  accessSetup.value = { server, publicKey: result.data.public_key };
+  accessDialogOpen.value = true;
+}
+
 async function loadServers(showSuccess = false): Promise<boolean> {
   loading.value = true;
   requestError.value = "";
@@ -373,6 +397,27 @@ async function saveServer() {
   requestError.value = "";
   const wasEditing = Boolean(editingId.value);
   try {
+    if (!editingId.value) {
+      const result = await apiCreateRemoteServer({
+        name: form.name.trim(),
+        host: form.host.trim(),
+        port: Number(form.port),
+        username: form.username.trim(),
+      });
+      if (!result.success) {
+        requestError.value = result.error ?? t("remoteServerOnboarding.createError");
+        toast.error(t("remoteServerOnboarding.createFailed"), { description: requestError.value });
+        return;
+      }
+      const { public_key: publicKey, ...server } = result.data;
+      if (!(await loadServers())) return;
+      selectedServerId.value = server.id;
+      updateDialog(false);
+      accessSetup.value = { server, publicKey };
+      accessDialogOpen.value = true;
+      toast.success(t("remoteServerOnboarding.created"), { description: server.name });
+      return;
+    }
     const privateKey =
       privateKeyMode.value === "text"
         ? form.privateKeyText.trim() || undefined
@@ -396,9 +441,7 @@ async function saveServer() {
       known_hosts: form.knownHosts.trim() || undefined,
       is_default: form.isDefault,
     };
-    const result = editingId.value
-      ? await apiUpdateRemoteServer(editingId.value, input)
-      : await apiCreateRemoteServer(input);
+    const result = await apiUpdateRemoteServer(editingId.value, input);
     if (!result.success) {
       requestError.value = result.error ?? "Unable to save remote server.";
       toast.error("Could not save remote server", { description: requestError.value });
@@ -707,6 +750,25 @@ onUnmounted(() => {
                 class="w-full"
                 size="sm"
                 type="button"
+                :disabled="loadingAccessServerId === selectedServer.id"
+                @click="showAccessSetup(selectedServer)"
+              >
+                <Copy
+                  class="size-4"
+                  :class="loadingAccessServerId === selectedServer.id ? 'animate-pulse' : ''"
+                  :stroke-width="1.5"
+                />
+                {{
+                  loadingAccessServerId === selectedServer.id
+                    ? t("remoteServerOnboarding.loadingAccess")
+                    : t("remoteServerOnboarding.showAccess")
+                }}
+              </Button>
+              <Button
+                variant="outline"
+                class="w-full"
+                size="sm"
+                type="button"
                 :disabled="installingAgentServerId === selectedServer.id"
                 @click="installAgent(selectedServer)"
               >
@@ -805,13 +867,87 @@ onUnmounted(() => {
           <DialogTitle class="text-base font-medium">
             {{ editingId ? "Edit remote server" : "Add remote server" }}
           </DialogTitle>
-          <DialogDescription class="text-xs leading-5">
+          <DialogDescription v-if="editingId" class="text-xs leading-5">
             Private keys, public keys, and host trust records are encrypted before they are stored.
             Leave credential fields empty when editing to preserve their current values.
           </DialogDescription>
+          <DialogDescription v-else class="text-xs leading-5">
+            {{ t("remoteServerOnboarding.createDescription") }}
+          </DialogDescription>
         </DialogHeader>
 
-        <details class="border-y border-border py-3 text-xs">
+        <form v-if="!editingId" class="grid gap-4" @submit.prevent="saveServer">
+          <div class="grid gap-4 sm:grid-cols-2">
+            <div class="grid gap-2">
+              <Label for="remote-server-name" class="text-xs font-medium">{{
+                t("remoteServerOnboarding.name")
+              }}</Label>
+              <Input
+                id="remote-server-name"
+                v-model="form.name"
+                class="rounded-[3px]"
+                autocomplete="off"
+              />
+            </div>
+            <div class="grid gap-2">
+              <Label for="remote-server-host" class="text-xs font-medium">{{
+                t("remoteServerOnboarding.host")
+              }}</Label>
+              <Input
+                id="remote-server-host"
+                v-model="form.host"
+                class="rounded-[3px] font-mono text-xs"
+                placeholder="deploy.example.com"
+                autocomplete="off"
+              />
+            </div>
+          </div>
+          <div class="grid gap-4 sm:grid-cols-[110px_minmax(0,1fr)]">
+            <div class="grid gap-2">
+              <Label for="remote-server-port" class="text-xs font-medium">{{
+                t("remoteServerOnboarding.port")
+              }}</Label>
+              <Input
+                id="remote-server-port"
+                v-model.number="form.port"
+                class="rounded-[3px] font-mono text-xs"
+                type="number"
+                min="1"
+                max="65535"
+                inputmode="numeric"
+              />
+            </div>
+            <div class="grid gap-2">
+              <Label for="remote-server-user" class="text-xs font-medium">{{
+                t("remoteServerOnboarding.user")
+              }}</Label>
+              <Input
+                id="remote-server-user"
+                v-model="form.username"
+                class="rounded-[3px] font-mono text-xs"
+                autocomplete="username"
+              />
+            </div>
+          </div>
+
+          <p v-if="showValidation && formError" class="text-[11px] text-destructive" role="alert">
+            {{ formError }}
+          </p>
+
+          <DialogFooter>
+            <DialogClose as-child
+              ><Button variant="outline" type="button">Cancel</Button></DialogClose
+            >
+            <Button type="submit" :disabled="saving">
+              <Server class="size-4" :stroke-width="1.5" />
+              {{
+                saving ? t("remoteServerOnboarding.creating") : t("remoteServerOnboarding.create")
+              }}
+            </Button>
+          </DialogFooter>
+        </form>
+
+        <details v-if="editingId" class="border-y border-border py-3 text-xs">
           <summary class="cursor-pointer font-medium text-foreground">
             Linux SSH setup guide
           </summary>
@@ -930,7 +1066,7 @@ onUnmounted(() => {
           </div>
         </details>
 
-        <form class="grid gap-4" @submit.prevent="saveServer">
+        <form v-if="editingId" class="grid gap-4" @submit.prevent="saveServer">
           <div class="grid gap-4 sm:grid-cols-2">
             <div class="grid gap-2">
               <Label for="remote-server-name" class="text-xs font-medium">Server name</Label>
@@ -1138,6 +1274,99 @@ onUnmounted(() => {
             </Button>
           </DialogFooter>
         </form>
+      </DialogContent>
+    </Dialog>
+
+    <Dialog :open="accessDialogOpen" @update:open="(open) => !open && (accessDialogOpen = false)">
+      <DialogContent class="rounded-[10px] shadow-none sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle class="text-base font-medium">{{
+            t("remoteServerOnboarding.accessTitle")
+          }}</DialogTitle>
+          <DialogDescription class="text-xs leading-5">
+            {{
+              t("remoteServerOnboarding.accessDescription", {
+                target: `${accessSetup?.server.username}@${accessSetup?.server.host}`,
+              })
+            }}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div class="grid gap-4">
+          <div class="grid gap-2">
+            <div class="flex items-center justify-between gap-3">
+              <Label class="text-xs font-medium">{{ t("remoteServerOnboarding.publicKey") }}</Label>
+              <Button
+                variant="ghost"
+                size="icon"
+                class="size-7 shrink-0 rounded-[4px]"
+                type="button"
+                :aria-label="
+                  copiedGuideCommand === accessSetup?.publicKey
+                    ? t('remoteServerOnboarding.copied')
+                    : t('remoteServerOnboarding.copyPublicKey')
+                "
+                :title="
+                  copiedGuideCommand === accessSetup?.publicKey
+                    ? t('remoteServerOnboarding.copied')
+                    : t('remoteServerOnboarding.copyPublicKey')
+                "
+                @click="accessSetup && copyGuideCommand(accessSetup.publicKey)"
+              >
+                <Check
+                  v-if="copiedGuideCommand === accessSetup?.publicKey"
+                  class="size-3.5 text-metric-green"
+                  :stroke-width="1.8"
+                />
+                <Copy v-else class="size-3.5" :stroke-width="1.5" />
+              </Button>
+            </div>
+            <pre
+              class="overflow-x-auto rounded-[4px] border border-border bg-muted/50 p-3 font-mono text-[10px] leading-4 text-foreground"
+            ><code>{{ accessSetup?.publicKey }}</code></pre>
+          </div>
+
+          <div class="grid gap-2">
+            <div class="flex items-center justify-between gap-3">
+              <Label class="text-xs font-medium">{{
+                t("remoteServerOnboarding.installCommand")
+              }}</Label>
+              <Button
+                variant="ghost"
+                size="icon"
+                class="size-7 shrink-0 rounded-[4px]"
+                type="button"
+                :aria-label="
+                  copiedGuideCommand === installPublicKeyCommand
+                    ? t('remoteServerOnboarding.copied')
+                    : t('remoteServerOnboarding.copyInstallCommand')
+                "
+                :title="
+                  copiedGuideCommand === installPublicKeyCommand
+                    ? t('remoteServerOnboarding.copied')
+                    : t('remoteServerOnboarding.copyInstallCommand')
+                "
+                @click="copyGuideCommand(installPublicKeyCommand)"
+              >
+                <Check
+                  v-if="copiedGuideCommand === installPublicKeyCommand"
+                  class="size-3.5 text-metric-green"
+                  :stroke-width="1.8"
+                />
+                <Copy v-else class="size-3.5" :stroke-width="1.5" />
+              </Button>
+            </div>
+            <pre
+              class="max-h-40 overflow-auto rounded-[4px] border border-border bg-muted/50 p-3 font-mono text-[10px] leading-4 text-foreground"
+            ><code>{{ installPublicKeyCommand }}</code></pre>
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button type="button" @click="accessDialogOpen = false">{{
+            t("remoteServerOnboarding.done")
+          }}</Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
 

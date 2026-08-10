@@ -414,7 +414,7 @@ async fn remote_builder_routes_encrypt_tls_material_and_require_admin() {
 }
 
 #[tokio::test]
-async fn remote_server_routes_encrypt_ssh_material_and_do_not_expose_it() {
+async fn remote_server_routes_hide_private_credentials_and_provide_access_setup() {
     let state = state().await;
     let token = session_token(&state).await;
     let app = crate::router_with_system_metrics_and_docker_and_provider_cipher(
@@ -449,22 +449,39 @@ async fn remote_server_routes_encrypt_ssh_material_and_do_not_expose_it() {
         .unwrap();
     assert_eq!(unauthenticated_check.status(), StatusCode::UNAUTHORIZED);
 
-    let created = app
+    let invalid_create = app
         .clone()
         .oneshot(request(
             "POST",
             "/api/v1/remote-servers",
             Some(&token),
-            r#"{"name":"Production VM","host":"production.example.com","port":22,"username":"ignitify","deploy_path":"/srv/ignitify","private_key":"-----BEGIN PRIVATE KEY-----\nprivate-key\n-----END PRIVATE KEY-----","public_key":"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExample deploy@host","known_hosts":"production.example.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExample","is_default":true}"#,
+            r#"{"name":"Production VM","host":"not a valid host","port":22,"username":"ignitify"}"#,
         ))
         .await
         .unwrap();
-    assert_eq!(created.status(), StatusCode::CREATED);
-    let body = created.into_body().collect().await.unwrap().to_bytes();
-    let created: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(created["private_key_configured"], true);
-    assert_eq!(created["public_key_configured"], true);
-    assert!(!String::from_utf8_lossy(&body).contains("private-key"));
+    assert_eq!(invalid_create.status(), StatusCode::BAD_REQUEST);
+
+    let cipher = state.provider_cipher.as_ref().unwrap();
+    let created = state
+        .database
+        .remote_servers()
+        .create(NewRemoteServer {
+            name: "Production VM".to_owned(),
+            host: "production.example.com".to_owned(),
+            port: 22,
+            username: "ignitify".to_owned(),
+            deploy_path: "/srv/ignitify".to_owned(),
+            private_key_ciphertext: cipher.encrypt(b"private-key").unwrap(),
+            public_key_ciphertext: cipher
+                .encrypt(b"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExample deploy@host")
+                .unwrap(),
+            known_hosts_ciphertext: cipher
+                .encrypt(b"production.example.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExample")
+                .unwrap(),
+            is_default: true,
+        })
+        .await
+        .unwrap();
 
     let servers = app
         .clone()
@@ -475,10 +492,28 @@ async fn remote_server_routes_encrypt_ssh_material_and_do_not_expose_it() {
     let body = servers.into_body().collect().await.unwrap().to_bytes();
     assert!(!String::from_utf8_lossy(&body).contains("AAAAC3Nza"));
 
+    let access = app
+        .clone()
+        .oneshot(request(
+            "GET",
+            &format!("/api/v1/remote-servers/{}/access", created.id),
+            Some(&token),
+            "",
+        ))
+        .await
+        .unwrap();
+    assert_eq!(access.status(), StatusCode::OK);
+    let body = access.into_body().collect().await.unwrap().to_bytes();
+    let access: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(
+        access["public_key"],
+        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExample deploy@host"
+    );
+
     let updated = app
         .oneshot(request(
             "PATCH",
-            &format!("/api/v1/remote-servers/{}", created["id"].as_str().unwrap()),
+            &format!("/api/v1/remote-servers/{}", created.id),
             Some(&token),
             r#"{"name":"Production VM","host":"production.example.com","port":2222,"username":"ignitify","deploy_path":"/srv/ignitify","is_default":true}"#,
         ))

@@ -28,7 +28,21 @@ use crate::{
     state::AppState,
 };
 
+mod onboarding;
+
+use onboarding::{GeneratedKeyPair, generate_key_pair, scan_known_hosts};
+
 const MAX_SSH_SECRET_BYTES: usize = 256 * 1024;
+const DEFAULT_REMOTE_DEPLOY_PATH: &str = "/srv/ignitify";
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct CreateRemoteServerRequest {
+    name: String,
+    host: String,
+    port: u16,
+    username: String,
+}
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -70,6 +84,18 @@ pub(crate) struct RemoteServerCheckResponse {
     latency_ms: u64,
 }
 
+#[derive(Debug, Serialize)]
+pub(crate) struct RemoteServerCreateResponse {
+    #[serde(flatten)]
+    server: RemoteServerResponse,
+    public_key: String,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct RemoteServerAccessResponse {
+    public_key: String,
+}
+
 impl RemoteServerResponse {
     fn from_record(value: RemoteServerRecord, agent: Option<RemoteServerAgentResponse>) -> Self {
         Self {
@@ -106,19 +132,33 @@ pub(crate) async fn list(
 pub(crate) async fn create(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Json(request): Json<RemoteServerRequest>,
-) -> Result<(StatusCode, Json<RemoteServerResponse>), ApiError> {
+    Json(request): Json<CreateRemoteServerRequest>,
+) -> Result<(StatusCode, Json<RemoteServerCreateResponse>), ApiError> {
     require_admin(&state, &headers).await?;
     require_same_origin_request(&state, &headers)?;
+    let input = validated_create_request(request)?;
+    let key_pair = generate_key_pair().await?;
+    let known_hosts = scan_known_hosts(&input.host, input.port).await?;
+    let is_default = state.database.remote_servers().list().await?.is_empty();
+    let public_key = key_pair.public_key.clone();
     let record = state
         .database
         .remote_servers()
-        .create(encrypt_create_request(&state, request)?)
+        .create(encrypt_generated_create_request(
+            &state,
+            input,
+            key_pair,
+            known_hosts,
+            is_default,
+        )?)
         .await?;
     wake_worker(&state);
     Ok((
         StatusCode::CREATED,
-        Json(remote_server_response(&state, record).await?),
+        Json(RemoteServerCreateResponse {
+            server: remote_server_response(&state, record).await?,
+            public_key,
+        }),
     ))
 }
 
@@ -182,6 +222,29 @@ async fn remote_server_response(
         .await?
         .map(Into::into);
     Ok(RemoteServerResponse::from_record(record, agent))
+}
+
+pub(crate) async fn access(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(server_id): Path<String>,
+) -> Result<Json<RemoteServerAccessResponse>, ApiError> {
+    require_admin(&state, &headers).await?;
+    let connection = state
+        .database
+        .remote_servers()
+        .connection(&server_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+    let cipher = provider_cipher(&state)?;
+    let public_key = cipher
+        .decrypt(&connection.public_key_ciphertext)
+        .map_err(|_| ApiError::RemoteServerSetupFailed)?;
+    let public_key =
+        String::from_utf8(public_key.to_vec()).map_err(|_| ApiError::RemoteServerSetupFailed)?;
+    let public_key =
+        validate_public_key(public_key).map_err(|_| ApiError::RemoteServerSetupFailed)?;
+    Ok(Json(RemoteServerAccessResponse { public_key }))
 }
 
 pub(crate) async fn check(
@@ -375,31 +438,43 @@ fn public_key_material(value: &str) -> Option<(&str, &str)> {
     Some((fields.next()?, fields.next()?))
 }
 
-fn encrypt_create_request(
+#[derive(Debug)]
+struct ValidatedCreateRemoteServerRequest {
+    name: String,
+    host: String,
+    port: u16,
+    username: String,
+}
+
+fn validated_create_request(
+    request: CreateRemoteServerRequest,
+) -> Result<ValidatedCreateRemoteServerRequest, ApiError> {
+    Ok(ValidatedCreateRemoteServerRequest {
+        name: normalized_name(request.name)?,
+        host: normalized_host(request.host)?,
+        port: validated_port(request.port)?,
+        username: normalized_username(request.username)?,
+    })
+}
+
+fn encrypt_generated_create_request(
     state: &AppState,
-    request: RemoteServerRequest,
+    input: ValidatedCreateRemoteServerRequest,
+    key_pair: GeneratedKeyPair,
+    known_hosts: String,
+    is_default: bool,
 ) -> Result<NewRemoteServer, ApiError> {
-    let input = validated_request(request)?;
     let cipher = provider_cipher(state)?;
-    let private_key = input
-        .private_key
-        .ok_or(ApiError::BadRequest("SSH private key is required"))?;
-    let public_key = input
-        .public_key
-        .ok_or(ApiError::BadRequest("SSH public key is required"))?;
-    let known_hosts = input
-        .known_hosts
-        .ok_or(ApiError::BadRequest("known_hosts is required"))?;
     Ok(NewRemoteServer {
         name: input.name,
         host: input.host,
         port: input.port,
         username: input.username,
-        deploy_path: input.deploy_path,
-        private_key_ciphertext: cipher.encrypt(private_key.as_bytes())?,
-        public_key_ciphertext: cipher.encrypt(public_key.as_bytes())?,
+        deploy_path: DEFAULT_REMOTE_DEPLOY_PATH.to_owned(),
+        private_key_ciphertext: cipher.encrypt(key_pair.private_key.as_slice())?,
+        public_key_ciphertext: cipher.encrypt(key_pair.public_key.as_bytes())?,
         known_hosts_ciphertext: cipher.encrypt(known_hosts.as_bytes())?,
-        is_default: input.is_default,
+        is_default,
     })
 }
 
@@ -675,7 +750,7 @@ fn optional_public_key(value: Option<String>) -> Result<Option<String>, ApiError
         .transpose()
 }
 
-fn validate_public_key(value: String) -> Result<String, ApiError> {
+pub(super) fn validate_public_key(value: String) -> Result<String, ApiError> {
     let mut fields = value.split_ascii_whitespace();
     let key_type = fields.next();
     let key = fields.next();
@@ -706,7 +781,7 @@ fn optional_known_hosts(value: Option<String>) -> Result<Option<String>, ApiErro
         .transpose()
 }
 
-fn validate_known_hosts(value: String) -> Result<String, ApiError> {
+pub(super) fn validate_known_hosts(value: String) -> Result<String, ApiError> {
     let has_host_key = value.lines().any(|line| {
         let line = line.trim();
         if line.is_empty() || line.starts_with('#') {

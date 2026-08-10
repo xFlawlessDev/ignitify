@@ -54,6 +54,10 @@ pub(crate) enum ApiError {
     RemoteServerCheckFailedWithReason(&'static str),
     #[error("remote server connection failed: {0}")]
     RemoteServerCheckFailedWithDiagnostic(String),
+    #[error("remote server setup failed")]
+    RemoteServerSetupFailed,
+    #[error("remote server setup failed: {0}")]
+    RemoteServerSetupFailedWithReason(&'static str),
     #[error("remote monitoring agent endpoint is unavailable")]
     RemoteAgentEndpointUnavailable,
     #[error("remote monitoring agent provisioning failed")]
@@ -211,6 +215,13 @@ impl IntoResponse for ApiError {
             }
             Self::RemoteServerCheckFailedWithDiagnostic(message) => {
                 (StatusCode::BAD_GATEWAY, message)
+            }
+            Self::RemoteServerSetupFailed => (
+                StatusCode::BAD_GATEWAY,
+                "remote server setup failed".to_owned(),
+            ),
+            Self::RemoteServerSetupFailedWithReason(message) => {
+                (StatusCode::BAD_GATEWAY, message.to_owned())
             }
             Self::RemoteAgentEndpointUnavailable => (
                 StatusCode::SERVICE_UNAVAILABLE,
