@@ -106,6 +106,7 @@ const refreshing = shallowRef(false);
 const saving = shallowRef(false);
 const error = shallowRef<string | null>(null);
 const hasLoaded = shallowRef(false);
+let monitorMutationVersion = 0;
 
 function synchronizeMonitors(records: UptimeMonitorSummary[]) {
   const existingById = new Map(monitors.value.map((monitor) => [monitor.id, monitor]));
@@ -136,6 +137,7 @@ function synchronizeMonitor(monitor: UptimeMonitor) {
 export function useUptimeMonitors() {
   async function reloadMonitors() {
     const initialLoad = !hasLoaded.value;
+    const mutationVersion = monitorMutationVersion;
     if (initialLoad) {
       loading.value = true;
     } else {
@@ -144,10 +146,12 @@ export function useUptimeMonitors() {
     error.value = null;
     try {
       const result = await apiListUptimeMonitors();
-      if (result.success) {
+      if (result.success && mutationVersion === monitorMutationVersion) {
         synchronizeMonitors(result.data);
       } else {
-        error.value = result.error ?? "Unable to load uptime monitors.";
+        if (!result.success) {
+          error.value = result.error ?? "Unable to load uptime monitors.";
+        }
       }
       return result.success;
     } finally {
@@ -173,6 +177,7 @@ export function useUptimeMonitors() {
     }
     const monitor = fromApi(result.data);
     synchronizeMonitor(monitor);
+    monitorMutationVersion += 1;
     return monitor;
   }
 
@@ -192,6 +197,7 @@ export function useUptimeMonitors() {
     }
     const monitor = fromApi(result.data);
     synchronizeMonitor(monitor);
+    monitorMutationVersion += 1;
     return monitor;
   }
 
@@ -204,6 +210,7 @@ export function useUptimeMonitors() {
       error.value = result.error ?? "Unable to remove uptime monitor.";
       return false;
     }
+    monitorMutationVersion += 1;
     const index = monitors.value.findIndex((monitor) => monitor.id === id);
     if (index >= 0) {
       monitors.value.splice(index, 1);

@@ -135,4 +135,48 @@ describe("useUptimeMonitors", () => {
     expect(uptime.monitors.value[0]?.intervalSeconds).toBe(300);
     expect(uptime.refreshing.value).toBeFalsy();
   });
+
+  it("does not replace a monitor created while a reload is in flight", async () => {
+    const summary = {
+      id: "monitor-1",
+      name: "Customer portal",
+      target: "https://portal.example.com/health",
+      kind: "http" as const,
+      interval_seconds: 60,
+      enabled: true,
+      status: "pending" as const,
+      history: Array.from({ length: 30 }, () => "unknown" as const),
+      latency_ms: null,
+      last_checked_at: null,
+      last_error: null,
+      created_at: "2026-08-10T00:00:00Z",
+      updated_at: "2026-08-10T00:00:00Z",
+    };
+    let resolveList: ((value: unknown) => void) | undefined;
+    api.list.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveList = resolve;
+        }),
+    );
+    api.create.mockResolvedValue({ success: true, data: summary });
+
+    const { useUptimeMonitors } = await import("./useUptimeMonitors");
+    const uptime = useUptimeMonitors();
+    const reload = uptime.reloadMonitors();
+    await uptime.addMonitor({
+      name: summary.name,
+      target: summary.target,
+      kind: summary.kind,
+      intervalSeconds: summary.interval_seconds,
+      enabled: summary.enabled,
+    });
+
+    resolveList?.({ success: true, data: [] });
+    await reload;
+
+    expect(uptime.monitors.value).toHaveLength(1);
+    expect(uptime.monitors.value[0]?.id).toBe(summary.id);
+    expect(uptime.monitors.value[0]?.name).toBe(summary.name);
+  });
 });
