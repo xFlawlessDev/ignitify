@@ -1,6 +1,11 @@
 <script setup lang="ts">
-import { Check, Cpu, Pencil, Plus, RefreshCw, Server, Trash2, Upload } from "@lucide/vue";
-import { computed, onMounted, reactive, shallowRef } from "vue";
+import { Background } from "@vue-flow/background";
+import { Controls } from "@vue-flow/controls";
+import { Handle, Position, useVueFlow, VueFlow, type Edge, type Node } from "@vue-flow/core";
+import "@vue-flow/controls/dist/style.css";
+import "@vue-flow/core/dist/style.css";
+import { Check, Cpu, Pencil, Plus, RefreshCw, Server, Trash2, Upload, X } from "@lucide/vue";
+import { computed, onMounted, reactive, shallowRef, watch } from "vue";
 import { toast } from "vue-sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -25,16 +30,28 @@ import {
   type RemoteBuilderSummary,
 } from "@/lib/api";
 
+interface FlowNodeData {
+  label?: string;
+  builder?: RemoteBuilderSummary;
+}
+
 const builders = shallowRef<RemoteBuilderSummary[]>([]);
+const selectedBuilderId = shallowRef<string | null>(null);
 const loading = shallowRef(true);
 const saving = shallowRef(false);
+const removing = shallowRef(false);
 const requestError = shallowRef("");
 const dialogOpen = shallowRef(false);
+const deleteDialogOpen = shallowRef(false);
+const builderPendingDeletion = shallowRef<RemoteBuilderSummary | null>(null);
 const editingId = shallowRef<string | null>(null);
 const caFile = shallowRef<File | null>(null);
 const clientCertificateFile = shallowRef<File | null>(null);
 const clientKeyFile = shallowRef<File | null>(null);
 const showValidation = shallowRef(false);
+const flowNodes = shallowRef<Node<FlowNodeData>[]>([]);
+const flowEdges = shallowRef<Edge[]>([]);
+const flow = useVueFlow();
 
 const form = reactive({
   name: "",
@@ -43,6 +60,65 @@ const form = reactive({
   tlsServerName: "",
   isDefault: true,
 });
+
+const selectedBuilder = computed(
+  () => builders.value.find((builder) => builder.id === selectedBuilderId.value) ?? null,
+);
+
+function updateFlowTopology() {
+  flowNodes.value = [
+    {
+      id: "control-plane",
+      type: "origin",
+      label: "This Ignitify host",
+      position: { x: 70, y: 212 },
+      data: { label: "This Ignitify host" },
+      draggable: false,
+      selectable: false,
+      sourcePosition: Position.Right,
+    },
+    ...builders.value.map((builder, index) => ({
+      id: builder.id,
+      type: "remote",
+      label: builder.name,
+      position: { x: 448, y: 84 + index * 176 },
+      data: { label: builder.name, builder },
+      draggable: false,
+      sourcePosition: Position.Right,
+      targetPosition: Position.Left,
+    })),
+  ];
+
+  flowEdges.value = builders.value.map((builder) => ({
+    id: `control-plane-${builder.id}`,
+    source: "control-plane",
+    target: builder.id,
+    type: "smoothstep",
+    label: "mTLS BuildKit",
+    labelShowBg: true,
+    labelBgPadding: [4, 3],
+    labelBgBorderRadius: 3,
+    labelStyle: { fontSize: "10px" },
+    selectable: false,
+    focusable: false,
+  }));
+}
+
+watch(builders, updateFlowTopology, { immediate: true });
+
+function selectBuilder(builderId: string) {
+  selectedBuilderId.value = builderId;
+}
+
+function closeInspector() {
+  selectedBuilderId.value = null;
+}
+
+flow.onNodeClick(({ node }) => {
+  if (node.type === "remote") selectBuilder(node.id);
+});
+
+flow.onPaneClick(closeInspector);
 
 const formError = computed(() => {
   if (!form.name.trim()) return "Builder name is required.";
@@ -109,6 +185,9 @@ async function loadBuilders(showSuccess = false): Promise<boolean> {
   const result = await apiListRemoteBuilders();
   if (result.success) {
     builders.value = result.data;
+    if (!result.data.some((builder) => builder.id === selectedBuilderId.value)) {
+      selectedBuilderId.value = null;
+    }
     if (showSuccess) toast.success("Remote builders refreshed");
     loading.value = false;
     return true;
@@ -174,15 +253,27 @@ async function setDefault(builder: RemoteBuilderSummary) {
   toast.success("Default builder updated", { description: builder.name });
 }
 
-async function removeBuilder(builder: RemoteBuilderSummary) {
+function requestDelete(builder: RemoteBuilderSummary) {
+  builderPendingDeletion.value = builder;
+  deleteDialogOpen.value = true;
+}
+
+async function removeBuilder() {
+  const builder = builderPendingDeletion.value;
+  if (!builder) return;
+  removing.value = true;
   requestError.value = "";
   const result = await apiDeleteRemoteBuilder(builder.id);
+  removing.value = false;
   if (!result.success) {
     requestError.value = result.error ?? "Unable to remove remote builder.";
     toast.error("Could not remove remote builder", { description: requestError.value });
     return;
   }
   builders.value = builders.value.filter((item) => item.id !== builder.id);
+  closeInspector();
+  builderPendingDeletion.value = null;
+  deleteDialogOpen.value = false;
   toast.success("Remote builder removed", { description: builder.name });
 }
 
@@ -218,90 +309,242 @@ onMounted(loadBuilders);
       </div>
     </header>
 
-    <section class="app-surface mt-6" aria-labelledby="remote-builders-heading">
-      <header class="app-panel-header flex items-start gap-3 px-5 py-4">
-        <span
-          class="grid size-8 shrink-0 place-items-center rounded-[6px] border border-border bg-muted text-muted-foreground"
-        >
-          <Cpu class="size-4" :stroke-width="1.5" />
-        </span>
-        <div>
-          <p class="ui-label">BuildKit fleet</p>
-          <h2 id="remote-builders-heading" class="mt-1.5 text-base font-medium">
-            Configured builders
-          </h2>
-          <p class="mt-1.5 max-w-[62ch] text-xs leading-5 text-muted-foreground">
-            The default builder receives all application source builds. Without a default, builds
-            run locally on this host.
-          </p>
+    <section class="app-surface mt-6 overflow-hidden" aria-labelledby="remote-builders-heading">
+      <header class="app-panel-header flex items-start justify-between gap-4 px-5 py-4">
+        <div class="flex min-w-0 items-start gap-3">
+          <span
+            class="grid size-8 shrink-0 place-items-center rounded-[6px] border border-border bg-muted text-muted-foreground"
+          >
+            <Cpu class="size-4" :stroke-width="1.5" />
+          </span>
+          <div>
+            <p class="ui-label">BuildKit fleet</p>
+            <h2 id="remote-builders-heading" class="mt-1.5 text-base font-medium">
+              Builder topology
+            </h2>
+          </div>
         </div>
+        <span class="shrink-0 font-mono text-[10px] text-muted-foreground">
+          {{ builders.length }} {{ builders.length === 1 ? "BUILDER" : "BUILDERS" }}
+        </span>
       </header>
 
-      <div v-if="loading" class="px-5 py-6 text-xs text-muted-foreground">Loading builders…</div>
-      <div v-else-if="builders.length" class="divide-y divide-border">
-        <article v-for="builder in builders" :key="builder.id" class="px-5 py-4">
-          <div class="flex items-start gap-3">
-            <Server class="mt-0.5 size-4 shrink-0 text-muted-foreground" :stroke-width="1.5" />
-            <div class="min-w-0 flex-1">
-              <div class="flex flex-wrap items-center gap-2">
-                <p class="text-sm font-medium">{{ builder.name }}</p>
+      <div class="relative h-[calc(100svh_-_15rem)] min-h-[560px] max-h-[860px]">
+        <div v-if="loading" class="grid size-full place-items-center text-xs text-muted-foreground">
+          Loading builders…
+        </div>
+        <VueFlow
+          v-else
+          class="size-full bg-muted/35 [&_.vue-flow__controls-button:last-child]:border-b-0 [&_.vue-flow__controls-button:hover]:bg-muted [&_.vue-flow__controls-button]:size-[18px] [&_.vue-flow__controls-button]:border-b [&_.vue-flow__controls-button]:border-border [&_.vue-flow__controls-button]:bg-card [&_.vue-flow__controls-button]:text-foreground [&_.vue-flow__controls]:overflow-hidden [&_.vue-flow__controls]:rounded-[3px] [&_.vue-flow__controls]:border [&_.vue-flow__controls]:border-border [&_.vue-flow__controls]:shadow-none [&_.vue-flow__edge-path]:stroke-[1.25] [&_.vue-flow__edge-path]:stroke-border [&_.vue-flow__edge-text]:fill-muted-foreground [&_.vue-flow__edge-text]:font-mono [&_.vue-flow__edge-textbg]:fill-card"
+          v-model:nodes="flowNodes"
+          v-model:edges="flowEdges"
+          :min-zoom="0.55"
+          :max-zoom="1.4"
+          :nodes-draggable="false"
+          :nodes-connectable="false"
+          :elements-selectable="false"
+          :zoom-on-double-click="false"
+          :fit-view-on-init="true"
+          :default-viewport="{ x: 0, y: 0, zoom: 1 }"
+        >
+          <Background :gap="20" :size="1" color="var(--border)" />
+          <Controls position="bottom-right" :show-interactive="false" />
+
+          <template #node-origin>
+            <div
+              class="nodrag nopan nowheel grid w-[258px] grid-cols-[32px_minmax(0,1fr)] gap-3 rounded-[8px] border border-border bg-card p-4 text-foreground shadow-none"
+            >
+              <Handle
+                type="source"
+                :position="Position.Right"
+                class="size-2 min-h-2 min-w-2 rounded-full border border-card bg-muted-foreground"
+              />
+              <span
+                class="grid size-8 place-items-center rounded-[4px] border border-border bg-muted"
+              >
+                <Server class="size-4 text-muted-foreground" :stroke-width="1.5" />
+              </span>
+              <div>
+                <p class="font-mono text-[10px] text-muted-foreground uppercase">Control plane</p>
+                <p class="mt-1 text-xs font-medium">This Ignitify host</p>
+              </div>
+              <Button
+                v-if="!builders.length"
+                variant="outline"
+                size="sm"
+                class="col-span-full mt-1 w-full"
+                type="button"
+                @pointerdown.stop
+                @mousedown.stop
+                @click.stop="addBuilder"
+              >
+                <Plus class="size-3.5" :stroke-width="1.5" />
+                Add builder
+              </Button>
+            </div>
+          </template>
+
+          <template #node-remote="{ data }">
+            <button
+              class="nodrag nopan nowheel block w-[258px] rounded-[8px] border border-border bg-card p-4 text-left text-foreground shadow-none transition-[border-color,transform] duration-150 ease-out hover:border-ring focus-visible:border-ring focus-visible:outline-none motion-reduce:transition-none"
+              :class="data.builder.id === selectedBuilderId ? 'border-ring' : ''"
+              type="button"
+              :aria-pressed="data.builder.id === selectedBuilderId"
+              @pointerdown.stop
+              @mousedown.stop
+            >
+              <Handle
+                type="target"
+                :position="Position.Left"
+                class="size-2 min-h-2 min-w-2 rounded-full border border-card bg-muted-foreground"
+              />
+              <div class="flex items-start justify-between gap-3">
                 <span
-                  v-if="builder.is_default"
-                  class="inline-flex items-center gap-1 rounded-[3px] border border-metric-green/40 bg-metric-green/10 px-1.5 py-0.5 font-mono text-[10px] text-metric-green"
+                  class="grid size-8 shrink-0 place-items-center rounded-[4px] border border-border bg-muted"
+                >
+                  <Cpu class="size-4 text-muted-foreground" :stroke-width="1.5" />
+                </span>
+                <span
+                  v-if="data.builder.is_default"
+                  class="inline-flex items-center gap-1 rounded-[3px] border border-metric-green/40 bg-metric-green/10 px-1.5 py-0.5 font-mono text-[9px] text-metric-green"
                 >
                   <Check class="size-3" :stroke-width="1.8" />
                   DEFAULT
                 </span>
               </div>
-              <p class="mt-1 truncate font-mono text-[11px] text-muted-foreground">
-                {{ builder.endpoint }}
-              </p>
+              <p class="mt-3 truncate text-sm font-medium">{{ data.builder.name }}</p>
               <p class="mt-1 truncate font-mono text-[10px] text-muted-foreground">
-                Push: {{ builder.registry_repository }}
-                <template v-if="builder.tls_server_name">
-                  · TLS: {{ builder.tls_server_name }}</template
-                >
+                {{ data.builder.endpoint }}
               </p>
+              <p class="mt-3 truncate font-mono text-[9px] text-muted-foreground uppercase">
+                {{ data.builder.registry_repository }}
+              </p>
+            </button>
+          </template>
+        </VueFlow>
+
+        <aside
+          v-if="selectedBuilder"
+          class="absolute inset-x-3 top-3 z-10 max-h-[calc(100%_-_1.5rem)] overflow-y-auto rounded-[8px] border border-border bg-card sm:left-auto sm:right-4 sm:w-[320px]"
+          aria-labelledby="builder-inspector-heading"
+        >
+          <header
+            class="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-border bg-card px-4 py-3"
+          >
+            <div class="min-w-0">
+              <p class="ui-label">Inspector</p>
+              <h2 id="builder-inspector-heading" class="mt-1.5 truncate text-base font-medium">
+                {{ selectedBuilder.name }}
+              </h2>
             </div>
-            <div class="flex shrink-0 items-center gap-1">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              class="shrink-0"
+              type="button"
+              aria-label="Close inspector"
+              title="Close inspector"
+              @click="closeInspector"
+            >
+              <X class="size-4" :stroke-width="1.5" />
+            </Button>
+          </header>
+
+          <div class="divide-y divide-border">
+            <dl class="grid gap-4 px-5 py-4 text-xs">
+              <div class="grid gap-1">
+                <dt class="font-mono text-[10px] text-muted-foreground uppercase">
+                  BuildKit endpoint
+                </dt>
+                <dd class="truncate font-mono text-[11px]">{{ selectedBuilder.endpoint }}</dd>
+              </div>
+              <div class="grid gap-1">
+                <dt class="font-mono text-[10px] text-muted-foreground uppercase">
+                  Registry output
+                </dt>
+                <dd class="truncate font-mono text-[11px]">
+                  {{ selectedBuilder.registry_repository }}
+                </dd>
+              </div>
+              <div class="grid gap-1">
+                <dt class="font-mono text-[10px] text-muted-foreground uppercase">
+                  TLS server name
+                </dt>
+                <dd class="truncate font-mono text-[11px]">
+                  {{ selectedBuilder.tls_server_name ?? "Endpoint hostname" }}
+                </dd>
+              </div>
+              <div class="grid gap-1">
+                <dt class="font-mono text-[10px] text-muted-foreground uppercase">Build routing</dt>
+                <dd class="flex items-center gap-1.5 text-[11px]">
+                  <Check
+                    v-if="selectedBuilder.is_default"
+                    class="size-3.5 text-metric-green"
+                    :stroke-width="1.8"
+                  />
+                  {{ selectedBuilder.is_default ? "Default builder" : "Available builder" }}
+                </dd>
+              </div>
+            </dl>
+
+            <div class="grid gap-2 px-5 py-4">
               <Button
-                v-if="!builder.is_default"
-                variant="ghost"
-                class="h-8 px-2 text-xs text-muted-foreground hover:text-foreground"
+                v-if="!selectedBuilder.is_default"
+                variant="outline"
+                class="w-full"
+                size="sm"
                 type="button"
-                @click="setDefault(builder)"
+                @click="setDefault(selectedBuilder)"
               >
-                Use default
+                <Check class="size-4" :stroke-width="1.5" />
+                Use as default
               </Button>
               <Button
-                variant="ghost"
-                class="grid size-8 place-items-center rounded-[3px] text-muted-foreground hover:bg-muted hover:text-foreground"
+                variant="outline"
+                class="w-full"
+                size="sm"
                 type="button"
-                :aria-label="`Edit ${builder.name}`"
-                :title="`Edit ${builder.name}`"
-                @click="editBuilder(builder)"
+                @click="editBuilder(selectedBuilder)"
               >
                 <Pencil class="size-4" :stroke-width="1.5" />
+                Edit configuration
               </Button>
               <Button
                 variant="ghost"
-                class="grid size-8 place-items-center rounded-[3px] text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                class="w-full text-destructive hover:bg-destructive/10 hover:text-destructive"
+                size="sm"
                 type="button"
-                :aria-label="`Remove ${builder.name}`"
-                :title="`Remove ${builder.name}`"
-                @click="removeBuilder(builder)"
+                @click="requestDelete(selectedBuilder)"
               >
                 <Trash2 class="size-4" :stroke-width="1.5" />
+                Remove builder
               </Button>
             </div>
           </div>
-        </article>
-      </div>
-      <div v-else class="flex items-center gap-3 px-5 py-7 text-muted-foreground">
-        <Server class="size-4 shrink-0" :stroke-width="1.5" />
-        <p class="text-xs">No remote builder configured. Application builds use this host.</p>
+        </aside>
       </div>
     </section>
+
+    <Dialog :open="deleteDialogOpen" @update:open="(open) => !open && (deleteDialogOpen = false)">
+      <DialogContent class="rounded-[10px] shadow-none sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle class="text-base font-medium">Remove remote builder</DialogTitle>
+          <DialogDescription class="text-xs leading-5">
+            {{ builderPendingDeletion?.name }} and its encrypted TLS credentials will be removed
+            from this control plane.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <DialogClose as-child
+            ><Button variant="outline" type="button">Cancel</Button></DialogClose
+          >
+          <Button variant="destructive" type="button" :disabled="removing" @click="removeBuilder">
+            <Trash2 class="size-4" :stroke-width="1.5" />
+            {{ removing ? "Removing" : "Remove builder" }}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
 
     <Dialog :open="dialogOpen" @update:open="updateDialog">
       <DialogContent class="rounded-[10px] shadow-none sm:max-w-xl">
