@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import {
-  Check,
   HardDriveDownload,
   LayoutDashboard,
   Network,
@@ -9,6 +8,7 @@ import {
   Save,
 } from "@lucide/vue";
 import { computed, onMounted, reactive, shallowRef } from "vue";
+import { toast } from "vue-sonner";
 import ApplicationEnvironment from "@/components/settings/ApplicationEnvironment.vue";
 import ApplicationIngressSettings from "@/components/settings/ApplicationIngressSettings.vue";
 import BackupDestinationSettings from "@/components/settings/BackupDestinationSettings.vue";
@@ -306,6 +306,7 @@ async function addCertificate(upload: CustomCertificateUpload) {
   if (!result.success) {
     requestError.value = result.error ?? "Unable to upload certificate.";
     saveState.value = "error";
+    toast.error("Certificate upload failed", { description: requestError.value });
     return;
   }
   const certificate: CustomCertificateSummary = {
@@ -322,6 +323,7 @@ async function addCertificate(upload: CustomCertificateUpload) {
     });
   }
   saveState.value = "idle";
+  toast.success("Certificate uploaded", { description: `${certificate.name} is ready to use.` });
 }
 
 async function removeCertificate(certificateId: string) {
@@ -330,6 +332,7 @@ async function removeCertificate(certificateId: string) {
   if (!result.success) {
     requestError.value = result.error ?? "Unable to remove certificate.";
     saveState.value = "error";
+    toast.error("Could not remove certificate", { description: requestError.value });
     return;
   }
   draft.customCertificates = draft.customCertificates.filter(
@@ -356,6 +359,7 @@ async function removeCertificate(certificateId: string) {
     });
   }
   saveState.value = "idle";
+  toast.success("Certificate removed");
 }
 
 async function saveSettings() {
@@ -379,10 +383,12 @@ async function saveSettings() {
   if (!result.success) {
     requestError.value = result.error ?? "Unable to save infrastructure settings.";
     saveState.value = "error";
+    toast.error("Could not save infrastructure settings", { description: requestError.value });
     return;
   }
   applySettings(result.data);
   saveState.value = "saved";
+  toast.success("Infrastructure settings saved");
 }
 
 function resetSettings() {
@@ -392,7 +398,7 @@ function resetSettings() {
   saveState.value = "idle";
 }
 
-async function loadSettings() {
+async function loadSettings(showSuccess = false) {
   if (saveState.value === "saving") return;
   saveState.value = "loading";
   requestError.value = "";
@@ -400,10 +406,12 @@ async function loadSettings() {
   if (!result.success) {
     requestError.value = result.error ?? "Unable to load infrastructure settings.";
     saveState.value = "error";
+    toast.error("Infrastructure unavailable", { description: requestError.value });
     return;
   }
   applySettings(result.data);
   saveState.value = "idle";
+  if (showSuccess) toast.success("Infrastructure settings refreshed");
 }
 
 onMounted(loadSettings);
@@ -425,15 +433,8 @@ onMounted(loadSettings);
           role="status"
           aria-live="polite"
         >
-          <Check
-            v-if="saveState === 'saved' && !isDirty"
-            class="size-3.5 text-metric-green"
-            :stroke-width="1.7"
-          />
-          <span v-if="saveState === 'saved' && !isDirty">Saved to server</span>
-          <span v-else-if="saveState === 'loading'">Loading infrastructure</span>
+          <span v-if="saveState === 'loading'">Loading infrastructure</span>
           <span v-else-if="saveState === 'saving'">Saving infrastructure</span>
-          <span v-else-if="saveState === 'error'">Infrastructure unavailable</span>
           <span v-else-if="isDirty">Unsaved changes</span>
           <span v-else>No unsaved changes</span>
         </span>
@@ -443,7 +444,7 @@ onMounted(loadSettings);
           size="sm"
           type="button"
           :disabled="saveState === 'loading' || saveState === 'saving'"
-          @click="loadSettings"
+          @click="loadSettings(true)"
         >
           <RefreshCw class="size-4" :stroke-width="1.5" />
           Refresh
@@ -458,10 +459,6 @@ onMounted(loadSettings);
         </Button>
       </div>
     </header>
-
-    <p v-if="requestError" class="mt-4 text-[11px] text-destructive" role="alert">
-      {{ requestError }}
-    </p>
 
     <Tabs :model-value="activeSection" class="mt-6 gap-0" @update:model-value="selectSection">
       <TabsList

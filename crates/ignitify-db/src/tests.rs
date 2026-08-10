@@ -9,8 +9,8 @@ use crate::{
     ActivityActor, Database, DatabaseConfig, DomainActor, NewBackupS3Destination, NewProvider,
     NewRemoteBuilder, NewRemoteServer, NewServerCertificate, NewServiceVariable, NewUptimeMonitor,
     ProjectActor, ProjectRemoveOutcome, ProjectUpdateOutcome, ProviderAuthMode, ProviderKind,
-    ServerSettingsUpdate, ServiceActor, ServiceMutationOutcome, UptimeCheckUpdate,
-    UptimeMonitorUpdate,
+    RemoteServerAgentHeartbeat, ServerSettingsUpdate, ServiceActor, ServiceMutationOutcome,
+    UptimeCheckUpdate, UptimeMonitorUpdate,
 };
 
 async fn database() -> Database {
@@ -367,6 +367,150 @@ async fn remote_server_default_and_ssh_secrets_are_durable() {
 }
 
 #[tokio::test]
+async fn deployment_snapshots_keep_the_selected_destination() {
+    let database = database().await;
+    let owner_id = user_id(&database, "destination-owner").await;
+    let project = database
+        .projects()
+        .create(&owner_id, ProjectInput::new("Destination app").unwrap())
+        .await
+        .unwrap();
+    let destination = database
+        .remote_servers()
+        .create(NewRemoteServer {
+            name: "Production VM".to_owned(),
+            host: "production.example.com".to_owned(),
+            port: 22,
+            username: "ignitify".to_owned(),
+            deploy_path: "/srv/ignitify".to_owned(),
+            private_key_ciphertext: "encrypted-private-key".to_owned(),
+            public_key_ciphertext: "encrypted-public-key".to_owned(),
+            known_hosts_ciphertext: "encrypted-known-hosts".to_owned(),
+            is_default: true,
+        })
+        .await
+        .unwrap();
+    let mut input = ServiceInput::image(
+        "web",
+        "nginx@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        Some(80),
+        None,
+        vec![],
+    )
+    .unwrap();
+    input.configuration.deployment_destination_id = Some(destination.id.clone());
+    let service = database
+        .services()
+        .create(
+            ServiceActor {
+                id: &owner_id,
+                is_admin: false,
+            },
+            project.id.as_str(),
+            input.configuration,
+            vec![],
+        )
+        .await
+        .unwrap();
+    let ServiceMutationOutcome::Created(service) = service else {
+        panic!("service must be created");
+    };
+    assert_eq!(
+        service.deployment_destination_id.as_deref(),
+        Some(destination.id.as_str())
+    );
+
+    let deployment = database
+        .deployments()
+        .create(
+            crate::DeploymentActor {
+                id: &owner_id,
+                is_admin: false,
+            },
+            service.id.as_str(),
+            crate::NewDeployment {
+                idempotency_key: "destination-snapshot".to_owned(),
+                requested_by_user_id: owner_id.clone(),
+                spec: service.spec,
+                source_config: service.source_config,
+                deployment_destination_id: service.deployment_destination_id.clone(),
+                source_revision: None,
+                variables_ciphertext: "ciphertext".to_owned(),
+            },
+        )
+        .await
+        .unwrap();
+    let crate::CreateDeploymentOutcome::Created(deployment) = deployment else {
+        panic!("deployment must be created");
+    };
+    assert_eq!(
+        deployment.deployment_destination_id.as_deref(),
+        Some(destination.id.as_str())
+    );
+    assert!(matches!(
+        database.remote_servers().delete(&destination.id).await,
+        Err(crate::DatabaseError::RemoteServerInUse)
+    ));
+}
+
+#[tokio::test]
+async fn remote_server_agent_records_heartbeats_and_marks_stale_hosts_offline() {
+    let database = database().await;
+    let server = database
+        .remote_servers()
+        .create(NewRemoteServer {
+            name: "Monitoring VM".to_owned(),
+            host: "monitoring.example.com".to_owned(),
+            port: 22,
+            username: "ignitify".to_owned(),
+            deploy_path: "/srv/ignitify".to_owned(),
+            private_key_ciphertext: "encrypted-private-key".to_owned(),
+            public_key_ciphertext: "encrypted-public-key".to_owned(),
+            known_hosts_ciphertext: "encrypted-known-hosts".to_owned(),
+            is_default: true,
+        })
+        .await
+        .unwrap();
+    let agents = database.remote_server_agents();
+    agents
+        .install(&server.id, "hashed-agent-token")
+        .await
+        .unwrap();
+    agents
+        .record_heartbeat(
+            &server.id,
+            &RemoteServerAgentHeartbeat {
+                version: "0.1.0".to_owned(),
+                cpu_usage_percentage: Some(25.0),
+                cpu_cores: Some(2),
+                memory_used_bytes: Some(100),
+                memory_total_bytes: Some(200),
+                disk_used_bytes: Some(300),
+                disk_total_bytes: Some(400),
+                docker_containers: Some(3),
+                docker_running_containers: Some(2),
+                reported_at: Utc::now().to_rfc3339(),
+            },
+        )
+        .await
+        .unwrap();
+    let online = agents.get(&server.id).await.unwrap().unwrap();
+    assert_eq!(online.status, "online");
+    assert_eq!(online.docker_running_containers, Some(2));
+
+    agents
+        .mark_stale(&(Utc::now() + chrono::Duration::seconds(1)).to_rfc3339())
+        .await
+        .unwrap();
+    let offline = agents.get(&server.id).await.unwrap().unwrap();
+    assert_eq!(offline.status, "offline");
+    assert_eq!(
+        offline.last_error.as_deref(),
+        Some("agent heartbeat timed out")
+    );
+}
+
+#[tokio::test]
 async fn provider_repository_stores_encrypted_metadata_and_handles_conflicts() {
     let database = database().await;
     let actor_id = user_id(&database, "owner").await;
@@ -670,6 +814,7 @@ async fn deployment_repository_enforces_idempotency_active_conflict_and_immutabl
                 requested_by_user_id: actor_id.clone(),
                 spec: service.spec.clone(),
                 source_config: None,
+                deployment_destination_id: None,
                 source_revision: None,
                 variables_ciphertext: "ciphertext-1".to_owned(),
             },
@@ -689,6 +834,7 @@ async fn deployment_repository_enforces_idempotency_active_conflict_and_immutabl
                 requested_by_user_id: actor_id.clone(),
                 spec: service.spec.clone(),
                 source_config: None,
+                deployment_destination_id: None,
                 source_revision: None,
                 variables_ciphertext: "different-ciphertext".to_owned(),
             },
@@ -709,6 +855,7 @@ async fn deployment_repository_enforces_idempotency_active_conflict_and_immutabl
                 requested_by_user_id: actor_id.clone(),
                 spec: service.spec.clone(),
                 source_config: None,
+                deployment_destination_id: None,
                 source_revision: None,
                 variables_ciphertext: "ciphertext-2".to_owned(),
             },
@@ -814,6 +961,7 @@ async fn deployment_retry_backoff_and_cancellation_are_durable() {
                 requested_by_user_id: actor_id.clone(),
                 spec: service.spec,
                 source_config: None,
+                deployment_destination_id: None,
                 source_revision: None,
                 variables_ciphertext: "ciphertext".to_owned(),
             },
@@ -937,6 +1085,7 @@ async fn service_repository_persists_source_configuration_separately_from_runtim
                 requested_by_user_id: actor_id.clone(),
                 spec: service.spec.clone(),
                 source_config: service.source_config.clone(),
+                deployment_destination_id: None,
                 source_revision: None,
                 variables_ciphertext: "ciphertext".to_owned(),
             },
@@ -1061,6 +1210,7 @@ async fn deployment_log_retention_keeps_newest_ten_thousand_rows() {
                 requested_by_user_id: actor_id.clone(),
                 spec: service.spec,
                 source_config: None,
+                deployment_destination_id: None,
                 source_revision: None,
                 variables_ciphertext: "ciphertext".to_owned(),
             },

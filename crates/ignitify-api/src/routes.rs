@@ -112,6 +112,18 @@ pub(crate) fn router(state: AppState) -> Router {
             post(handlers::remote_servers::check),
         )
         .route(
+            "/api/v1/remote-servers/{server_id}/agent",
+            get(handlers::remote_agent::status),
+        )
+        .route(
+            "/api/v1/remote-servers/{server_id}/agent/install",
+            post(handlers::remote_agent::install),
+        )
+        .route(
+            "/api/v1/remote-agents/heartbeat",
+            post(handlers::remote_agent::heartbeat),
+        )
+        .route(
             "/api/v1/runtime/containers",
             get(handlers::runtime::containers),
         )

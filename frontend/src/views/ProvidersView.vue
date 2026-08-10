@@ -46,13 +46,28 @@ const githubConnectionStatus = computed(() => {
 
 async function connectProvider(input: ProviderInput) {
   const provider = await create(input);
-  if (!provider) return;
+  if (!provider) {
+    toast.error("Could not connect provider", {
+      description: error.value ?? "Try again in a moment.",
+    });
+    return;
+  }
   connectOpen.value = false;
+  toast.success("Provider connected", { description: `${provider.name} is ready to use.` });
 }
 
 async function connectGithubApp(input: GithubManifestInput) {
   const manifestStart = await startGithubAppManifest(input);
-  if (!manifestStart) return;
+  if (!manifestStart) {
+    toast.error("Could not start GitHub App connection", {
+      description: error.value ?? "Try again in a moment.",
+    });
+    return;
+  }
+
+  toast.info("Opening GitHub App setup", {
+    description: "Complete the installation in GitHub, then return here.",
+  });
 
   const form = document.createElement("form");
   form.method = "POST";
@@ -120,10 +135,33 @@ async function removeProvider(provider: ProviderSummary) {
   ) {
     return;
   }
-  await remove(provider.id);
+  const removed = await remove(provider.id);
+  if (!removed) {
+    toast.error("Could not remove provider", {
+      description: error.value ?? "Try again in a moment.",
+    });
+    return;
+  }
+  toast.success("Provider removed", { description: `${provider.name} was disconnected.` });
 }
 
-onMounted(load);
+async function loadProviders(showSuccess = false) {
+  await load();
+  if (error.value) {
+    toast.error("Providers unavailable", { description: error.value });
+    return;
+  }
+  if (showSuccess) toast.success("Providers refreshed");
+}
+
+onMounted(() => {
+  void loadProviders();
+  if (githubConnectionStatus.value === "GitHub App connected") {
+    toast.success(githubConnectionStatus.value);
+  } else if (githubConnectionStatus.value) {
+    toast.info(githubConnectionStatus.value);
+  }
+});
 </script>
 
 <template>
@@ -153,7 +191,7 @@ onMounted(load);
           aria-label="Refresh providers"
           title="Refresh providers"
           :disabled="loading"
-          @click="load"
+          @click="loadProviders(true)"
         >
           <RefreshCw class="size-4" :class="loading ? 'animate-spin' : ''" :stroke-width="1.5" />
         </Button>
@@ -186,16 +224,6 @@ onMounted(load);
         </div>
       </div>
     </section>
-
-    <p v-if="error && !loading" class="mt-4 text-xs text-destructive" role="alert">{{ error }}</p>
-    <p
-      v-if="githubConnectionStatus"
-      class="mt-4 flex items-center gap-2 rounded-[10px] border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-300"
-      role="status"
-    >
-      <CircleCheck class="size-4 shrink-0" :stroke-width="1.5" />
-      {{ githubConnectionStatus }}
-    </p>
 
     <ProviderTypeGrid v-if="auth.isAdmin" class="mt-6" @select="openProvider" />
 

@@ -33,6 +33,8 @@ pub(crate) struct ServiceRequest {
     healthcheck: Option<Vec<String>>,
     variables: Vec<ServiceVariableRequest>,
     source_config: Option<ServiceSourceConfig>,
+    #[serde(default)]
+    deployment_destination_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -67,6 +69,7 @@ pub(crate) struct ServiceResponse {
     healthcheck: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     source_config: Option<ServiceSourceConfig>,
+    deployment_destination_id: Option<String>,
     desired_generation: i64,
     desired_state: String,
     created_at: String,
@@ -117,6 +120,7 @@ impl From<ServiceReadModel> for ServiceResponse {
             internal_port,
             healthcheck,
             source_config: service.source_config,
+            deployment_destination_id: service.deployment_destination_id,
             desired_generation: service.desired_generation,
             desired_state: service.desired_state,
             created_at: service.created_at,
@@ -313,6 +317,7 @@ fn input(request: ServiceRequest) -> Result<ServiceInput, ApiError> {
         }
         input.configuration.source_config = Some(source_config);
     }
+    input.configuration.deployment_destination_id = request.deployment_destination_id;
     if !git_compose_source && let ServiceSpec::Compose { yaml, .. } = &input.configuration.spec {
         validate_submission_yaml(yaml).map_err(ApiError::ComposePolicy)?;
     }
@@ -376,6 +381,7 @@ mod tests {
             healthcheck: None,
             variables: vec![],
             source_config: None,
+            deployment_destination_id: None,
         });
 
         assert!(matches!(result, Err(ApiError::ComposePolicy(_))));
@@ -393,6 +399,7 @@ mod tests {
             healthcheck: None,
             variables: vec![],
             source_config: None,
+            deployment_destination_id: None,
         });
 
         assert!(matches!(result, Err(ApiError::ComposePolicy(_))));
@@ -413,6 +420,7 @@ mod tests {
             healthcheck: None,
             variables: vec![],
             source_config: None,
+            deployment_destination_id: None,
         });
 
         assert!(result.is_ok());
@@ -441,6 +449,7 @@ mod tests {
                 build_command: None,
                 output_directory: None,
             }),
+            deployment_destination_id: None,
         })
         .unwrap();
 
@@ -476,6 +485,7 @@ mod tests {
                 build_command: None,
                 output_directory: None,
             }),
+            deployment_destination_id: None,
         });
 
         assert!(matches!(
@@ -509,6 +519,7 @@ mod tests {
                 build_command: None,
                 output_directory: None,
             }),
+            deployment_destination_id: None,
         })
         .unwrap();
 
@@ -553,6 +564,7 @@ mod tests {
                 build_command: None,
                 output_directory: None,
             }),
+            deployment_destination_id: None,
         };
 
         assert!(matches!(

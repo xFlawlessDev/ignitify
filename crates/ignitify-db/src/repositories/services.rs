@@ -33,6 +33,7 @@ pub struct AuthorizedService {
     pub kind: ServiceKind,
     pub spec: ServiceSpec,
     pub source_config: Option<ServiceSourceConfig>,
+    pub deployment_destination_id: Option<String>,
     pub desired_generation: i64,
     pub desired_state: String,
     pub created_at: String,
@@ -76,7 +77,7 @@ impl ServicesRepository {
         };
         let rows = sqlx::query_as::<_, ServiceRow>(
             "SELECT s.id, e.project_id, s.environment_id, s.name, s.kind, s.desired_spec_json,
-                    s.source_config_json,
+                    s.source_config_json, s.deployment_destination_id,
                     s.desired_generation, s.desired_state, s.created_at, s.updated_at
              FROM services s
              JOIN environments e ON e.id = s.environment_id
@@ -102,7 +103,7 @@ impl ServicesRepository {
     ) -> Result<Option<AuthorizedService>> {
         let row = sqlx::query_as::<_, ServiceRow>(
             "SELECT s.id, e.project_id, s.environment_id, s.name, s.kind, s.desired_spec_json,
-                    s.source_config_json,
+                    s.source_config_json, s.deployment_destination_id,
                     s.desired_generation, s.desired_state, s.created_at, s.updated_at
              FROM services s
              JOIN environments e ON e.id = s.environment_id
@@ -152,9 +153,10 @@ impl ServicesRepository {
             .transpose()
             .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
         let mut tx = self.pool.begin().await?;
+        ensure_destination(&mut tx, configuration.deployment_destination_id.as_deref()).await?;
         let insert = sqlx::query(
-            "INSERT INTO services (id, environment_id, name, kind, desired_spec_json, source_config_json, desired_generation, desired_state, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, 1, 'stopped', ?, ?)",
+            "INSERT INTO services (id, environment_id, name, kind, desired_spec_json, source_config_json, deployment_destination_id, desired_generation, desired_state, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, 1, 'stopped', ?, ?)",
         )
         .bind(&service_id)
         .bind(&environment_id)
@@ -162,6 +164,7 @@ impl ServicesRepository {
         .bind(configuration.spec.kind().as_str())
         .bind(&spec_json)
         .bind(source_config_json)
+        .bind(&configuration.deployment_destination_id)
         .bind(&now)
         .bind(&now)
         .execute(&mut *tx)
@@ -207,15 +210,17 @@ impl ServicesRepository {
             .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
         let now = Utc::now().to_rfc3339();
         let mut tx = self.pool.begin().await?;
+        ensure_destination(&mut tx, configuration.deployment_destination_id.as_deref()).await?;
         let update = sqlx::query(
             "UPDATE services
-             SET name = ?, kind = ?, desired_spec_json = ?, source_config_json = ?, desired_generation = desired_generation + 1, updated_at = ?
+             SET name = ?, kind = ?, desired_spec_json = ?, source_config_json = ?, deployment_destination_id = ?, desired_generation = desired_generation + 1, updated_at = ?
              WHERE id = ?",
         )
         .bind(&configuration.name)
         .bind(configuration.spec.kind().as_str())
         .bind(&spec_json)
         .bind(source_config_json)
+        .bind(&configuration.deployment_destination_id)
         .bind(&now)
         .bind(service_id)
         .execute(&mut *tx)
@@ -394,6 +399,7 @@ impl ServicesRepository {
             kind,
             spec,
             source_config,
+            deployment_destination_id: row.deployment_destination_id,
             desired_generation: row.desired_generation,
             desired_state: row.desired_state,
             created_at: row.created_at,
@@ -442,6 +448,24 @@ async fn insert_variables(
     Ok(())
 }
 
+async fn ensure_destination(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    destination_id: Option<&str>,
+) -> Result<()> {
+    let Some(destination_id) = destination_id else {
+        return Ok(());
+    };
+    let exists: i64 =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM remote_servers WHERE id = ?)")
+            .bind(destination_id)
+            .fetch_one(&mut **tx)
+            .await?;
+    if exists == 0 {
+        return Err(DatabaseError::RemoteServerNotFound);
+    }
+    Ok(())
+}
+
 async fn insert_audit(
     tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
     actor_id: &str,
@@ -472,6 +496,7 @@ struct ServiceRow {
     kind: String,
     desired_spec_json: String,
     source_config_json: Option<String>,
+    deployment_destination_id: Option<String>,
     desired_generation: i64,
     desired_state: String,
     created_at: String,

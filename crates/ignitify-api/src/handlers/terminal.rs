@@ -2,7 +2,7 @@ use std::{sync::Arc, time::Duration};
 
 use axum::{
     extract::{
-        ConnectInfo, Extension, Path, State,
+        ConnectInfo, Extension, Path, Query, State,
         ws::{Message, WebSocket, WebSocketUpgrade},
     },
     http::HeaderMap,
@@ -12,6 +12,7 @@ use futures_util::{SinkExt, StreamExt};
 use ignitify_auth::AuthService;
 use ignitify_db::AuditOutcome;
 use ignitify_runtime_docker::{ContainerTerminalEvent, ContainerTerminalSession};
+use ignitify_runtime_remote::{RemoteTerminalEvent, RemoteTerminalSession, SshRuntime};
 use ignitify_terminal::{TerminalEvent, TerminalSession};
 use serde::{Deserialize, Serialize};
 
@@ -21,6 +22,7 @@ use crate::{
     extract::{
         require_trusted_websocket_origin, require_websocket_actor, require_websocket_step_up,
     },
+    handlers::runtime::RuntimeDestinationQuery,
     state::AppState,
 };
 
@@ -45,6 +47,7 @@ pub(crate) async fn open(
     State(state): State<AppState>,
     peer: Option<Extension<ConnectInfo<std::net::SocketAddr>>>,
     headers: HeaderMap,
+    Query(query): Query<RuntimeDestinationQuery>,
     websocket: WebSocketUpgrade,
 ) -> Result<impl IntoResponse, ApiError> {
     let websocket_actor = require_websocket_actor(&state, &headers).await?;
@@ -64,6 +67,29 @@ pub(crate) async fn open(
         .clone()
         .try_acquire_owned()
         .map_err(|_| ApiError::TooManyRequests)?;
+
+    if let Some(destination) = query.destination.as_deref() {
+        let session = remote_runtime(&state)?
+            .open_remote_host_terminal(destination)
+            .await
+            .map_err(|_| ApiError::RemoteRuntimeFailed)?;
+        audit::record(
+            &state,
+            Some(&websocket_actor.actor),
+            &headers,
+            peer.as_deref(),
+            "terminal.remote_host.open",
+            Some("remote_server"),
+            Some(destination),
+            AuditOutcome::Success,
+        )
+        .await?;
+        let auth = state.auth.clone();
+        let bearer_token = websocket_actor.bearer_token;
+        return Ok(websocket
+            .protocols([TERMINAL_PROTOCOL])
+            .on_upgrade(move |socket| serve_remote(socket, session, auth, bearer_token, permit)));
+    }
 
     let session = state.terminal.open()?;
     audit::record(
@@ -89,6 +115,7 @@ pub(crate) async fn container(
     peer: Option<Extension<ConnectInfo<std::net::SocketAddr>>>,
     headers: HeaderMap,
     Path(container_id): Path<String>,
+    Query(query): Query<RuntimeDestinationQuery>,
     websocket: WebSocketUpgrade,
 ) -> Result<impl IntoResponse, ApiError> {
     let websocket_actor = require_websocket_actor(&state, &headers).await?;
@@ -104,6 +131,29 @@ pub(crate) async fn container(
         .clone()
         .try_acquire_owned()
         .map_err(|_| ApiError::TooManyRequests)?;
+
+    if let Some(destination) = query.destination.as_deref() {
+        let session = remote_runtime(&state)?
+            .open_remote_container_terminal(destination, &container_id)
+            .await
+            .map_err(|_| ApiError::RemoteRuntimeFailed)?;
+        audit::record(
+            &state,
+            Some(&websocket_actor.actor),
+            &headers,
+            peer.as_deref(),
+            "terminal.remote_container.open",
+            Some("container"),
+            Some(&container_id),
+            AuditOutcome::Success,
+        )
+        .await?;
+        let auth = state.auth.clone();
+        let bearer_token = websocket_actor.bearer_token;
+        return Ok(websocket
+            .protocols([TERMINAL_PROTOCOL])
+            .on_upgrade(move |socket| serve_remote(socket, session, auth, bearer_token, permit)));
+    }
 
     let session = state.docker_runtime()?.open_terminal(&container_id).await?;
     audit::record(
@@ -295,6 +345,104 @@ async fn serve_container(
     }
 
     let _ = sender.send(Message::Close(None)).await;
+}
+
+async fn serve_remote(
+    socket: WebSocket,
+    mut terminal: RemoteTerminalSession,
+    auth: Arc<AuthService>,
+    bearer_token: String,
+    _permit: tokio::sync::OwnedSemaphorePermit,
+) {
+    let (mut sender, mut receiver) = socket.split();
+    let mut revalidation = tokio::time::interval_at(
+        tokio::time::Instant::now() + TERMINAL_REVALIDATION_INTERVAL,
+        TERMINAL_REVALIDATION_INTERVAL,
+    );
+    let timeout = tokio::time::sleep(TERMINAL_MAX_DURATION);
+    tokio::pin!(timeout);
+
+    loop {
+        tokio::select! {
+            _ = revalidation.tick() => {
+                if !terminal_access_is_valid(&auth, &bearer_token).await {
+                    send_server_message(
+                        &mut sender,
+                        TerminalServerMessage::Error {
+                            message: "Terminal session has expired.",
+                        },
+                    )
+                    .await;
+                    break;
+                }
+            }
+            _ = &mut timeout => {
+                send_server_message(
+                    &mut sender,
+                    TerminalServerMessage::Error {
+                        message: "Terminal session reached its time limit.",
+                    },
+                )
+                .await;
+                break;
+            }
+            event = terminal.next_event() => {
+                match event {
+                    Some(RemoteTerminalEvent::Output(output)) => {
+                        if sender.send(Message::Binary(output.into())).await.is_err() {
+                            break;
+                        }
+                    }
+                    Some(RemoteTerminalEvent::Exited) | None => {
+                        send_server_message(&mut sender, TerminalServerMessage::Exited).await;
+                        break;
+                    }
+                    Some(RemoteTerminalEvent::Unavailable) => {
+                        send_server_message(
+                            &mut sender,
+                            TerminalServerMessage::Error {
+                                message: "Remote terminal is unavailable.",
+                            },
+                        )
+                        .await;
+                        break;
+                    }
+                }
+            }
+            incoming = receiver.next() => {
+                match incoming {
+                    Some(Ok(Message::Binary(input))) => {
+                        if terminal.input(input.to_vec()).is_err() {
+                            break;
+                        }
+                    }
+                    Some(Ok(Message::Text(message))) => {
+                        if let Ok(TerminalClientMessage::Resize { cols, rows }) = serde_json::from_str(&message)
+                            && terminal.resize(cols, rows).is_err()
+                        {
+                            break;
+                        }
+                    }
+                    Some(Ok(Message::Close(_))) | None | Some(Err(_)) => break,
+                    Some(Ok(Message::Ping(_) | Message::Pong(_))) => {}
+                }
+            }
+        }
+    }
+
+    terminal.close();
+    let _ = sender.send(Message::Close(None)).await;
+}
+
+fn remote_runtime(state: &AppState) -> Result<SshRuntime, ApiError> {
+    let cipher = state
+        .provider_cipher
+        .as_ref()
+        .ok_or(ApiError::ProviderCapabilityUnavailable)?;
+    Ok(SshRuntime::new(
+        state.database.remote_servers(),
+        Arc::clone(cipher),
+    ))
 }
 
 async fn terminal_access_is_valid(auth: &AuthService, bearer_token: &str) -> bool {

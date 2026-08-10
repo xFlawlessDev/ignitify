@@ -412,6 +412,7 @@ pub struct ServiceConfiguration {
     pub name: String,
     pub spec: ServiceSpec,
     pub source_config: Option<ServiceSourceConfig>,
+    pub deployment_destination_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -520,6 +521,7 @@ impl ServiceInput {
                 name: name.to_owned(),
                 spec: ServiceSpec::image(image_reference, internal_port, healthcheck)?,
                 source_config: None,
+                deployment_destination_id: None,
             },
             variables,
         })
@@ -542,6 +544,7 @@ impl ServiceInput {
                 name: name.to_owned(),
                 spec: ServiceSpec::compose(yaml, exposed_service, internal_port)?,
                 source_config: None,
+                deployment_destination_id: None,
             },
             variables,
         })

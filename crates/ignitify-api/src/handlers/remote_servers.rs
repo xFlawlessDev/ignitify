@@ -24,6 +24,7 @@ use zeroize::Zeroizing;
 use crate::{
     error::ApiError,
     extract::{require_actor, require_same_origin_request},
+    handlers::remote_agent::RemoteServerAgentResponse,
     state::AppState,
 };
 
@@ -57,6 +58,7 @@ pub(crate) struct RemoteServerResponse {
     private_key_configured: bool,
     public_key_configured: bool,
     known_hosts_configured: bool,
+    agent: Option<RemoteServerAgentResponse>,
     is_default: bool,
     created_at: String,
     updated_at: String,
@@ -68,8 +70,8 @@ pub(crate) struct RemoteServerCheckResponse {
     latency_ms: u64,
 }
 
-impl From<RemoteServerRecord> for RemoteServerResponse {
-    fn from(value: RemoteServerRecord) -> Self {
+impl RemoteServerResponse {
+    fn from_record(value: RemoteServerRecord, agent: Option<RemoteServerAgentResponse>) -> Self {
         Self {
             id: value.id,
             name: value.name,
@@ -80,6 +82,7 @@ impl From<RemoteServerRecord> for RemoteServerResponse {
             private_key_configured: true,
             public_key_configured: value.public_key_configured,
             known_hosts_configured: true,
+            agent,
             is_default: value.is_default,
             created_at: value.created_at,
             updated_at: value.updated_at,
@@ -92,15 +95,12 @@ pub(crate) async fn list(
     headers: HeaderMap,
 ) -> Result<Json<Vec<RemoteServerResponse>>, ApiError> {
     require_admin(&state, &headers).await?;
-    let records = state
-        .database
-        .remote_servers()
-        .list()
-        .await?
-        .into_iter()
-        .map(RemoteServerResponse::from)
-        .collect();
-    Ok(Json(records))
+    let records = state.database.remote_servers().list().await?;
+    let mut responses = Vec::with_capacity(records.len());
+    for record in records {
+        responses.push(remote_server_response(&state, record).await?);
+    }
+    Ok(Json(responses))
 }
 
 pub(crate) async fn create(
@@ -116,7 +116,10 @@ pub(crate) async fn create(
         .create(encrypt_create_request(&state, request)?)
         .await?;
     wake_worker(&state);
-    Ok((StatusCode::CREATED, Json(record.into())))
+    Ok((
+        StatusCode::CREATED,
+        Json(remote_server_response(&state, record).await?),
+    ))
 }
 
 pub(crate) async fn update(
@@ -134,7 +137,7 @@ pub(crate) async fn update(
         .await?
         .ok_or(ApiError::NotFound)?;
     wake_worker(&state);
-    Ok(Json(record.into()))
+    Ok(Json(remote_server_response(&state, record).await?))
 }
 
 pub(crate) async fn remove(
@@ -165,7 +168,20 @@ pub(crate) async fn make_default(
         .await?
         .ok_or(ApiError::NotFound)?;
     wake_worker(&state);
-    Ok(Json(record.into()))
+    Ok(Json(remote_server_response(&state, record).await?))
+}
+
+async fn remote_server_response(
+    state: &AppState,
+    record: RemoteServerRecord,
+) -> Result<RemoteServerResponse, ApiError> {
+    let agent = state
+        .database
+        .remote_server_agents()
+        .get(&record.id)
+        .await?
+        .map(Into::into);
+    Ok(RemoteServerResponse::from_record(record, agent))
 }
 
 pub(crate) async fn check(
@@ -744,70 +760,4 @@ fn wake_worker(state: &AppState) {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{
-        normalize_private_key, public_key_material, ssh_failure_error, ssh_keygen_failure_error,
-        validate_private_key,
-    };
-    use crate::error::ApiError;
-
-    #[test]
-    fn rejects_private_key_without_matching_footer() {
-        let result =
-            validate_private_key("-----BEGIN OPENSSH PRIVATE KEY-----\nprivate-key".to_owned());
-
-        assert!(matches!(
-            result,
-            Err(ApiError::BadRequest("SSH private key is invalid"))
-        ));
-    }
-
-    #[test]
-    fn normalizes_private_key_line_endings_and_body_whitespace() {
-        assert_eq!(
-            normalize_private_key(
-                "-----BEGIN OPENSSH PRIVATE KEY-----\r\nabc \r\n def\r\n-----END OPENSSH PRIVATE KEY-----"
-                    .to_owned()
-            ),
-            "-----BEGIN OPENSSH PRIVATE KEY-----\nabcdef\n-----END OPENSSH PRIVATE KEY-----\n"
-        );
-    }
-
-    #[test]
-    fn maps_ssh_authentication_failure_without_exposing_stderr() {
-        let error = ssh_failure_error(b"user@host: Permission denied (publickey).");
-
-        assert!(matches!(
-            error,
-            ApiError::RemoteServerCheckFailedWithReason(
-                "SSH authentication failed. Install the matching public key in ~/.ssh/authorized_keys."
-            )
-        ));
-    }
-
-    #[test]
-    fn public_key_material_ignores_the_optional_comment() {
-        assert_eq!(
-            public_key_material("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExample deploy@host"),
-            Some(("ssh-ed25519", "AAAAC3NzaC1lZDI1NTE5AAAAIExample"))
-        );
-    }
-
-    #[test]
-    fn maps_encrypted_private_key_diagnostic_without_exposing_stderr() {
-        let error = ssh_keygen_failure_error(
-            b"incorrect passphrase supplied to decrypt private key",
-            b"-----BEGIN OPENSSH PRIVATE KEY-----\nkey\n-----END OPENSSH PRIVATE KEY-----",
-        );
-
-        match error {
-            ApiError::RemoteServerCheckFailedWithDiagnostic(message) => {
-                assert!(message.contains("SSH private key has a passphrase"));
-                assert!(message.contains("Received "));
-                assert!(message.contains("BEGIN marker: true"));
-                assert!(!message.contains("incorrect passphrase"));
-            }
-            _ => panic!("expected diagnostic error"),
-        }
-    }
-}
+mod tests;

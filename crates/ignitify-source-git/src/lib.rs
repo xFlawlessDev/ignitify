@@ -101,6 +101,11 @@ impl GitSourceBuild {
         if builder == ApplicationBuilder::Spa {
             return Err(BuildError::UnsupportedBuilder);
         }
+        if deployment.deployment_destination_id.is_some()
+            && self.database.remote_builders().active().await?.is_none()
+        {
+            return Err(BuildError::RemoteBuilderRequired);
+        }
         if builder == ApplicationBuilder::Static && deployment.spec.internal_port() != Some(80) {
             return Err(BuildError::StaticPort);
         }
@@ -694,12 +699,12 @@ impl SourceBuild for GitSourceBuild {
                 })?;
             return self.build_inner(deployment).await.map_err(|error| {
                 tracing::warn!(deployment_id = %deployment.id, error = %error, "Git source build rejected");
-                ControlError::Policy("source build failed")
+                source_build_error(error)
             });
         }
         self.build_inner(deployment).await.map_err(|error| {
             tracing::warn!(deployment_id = %deployment.id, error = %error, "Git source build rejected");
-            ControlError::Policy("source build failed")
+            source_build_error(error)
         })
     }
 }
@@ -773,6 +778,8 @@ enum BuildError {
     UnsupportedBuilder,
     #[error("a remote builder is required because local Docker builds are disabled")]
     LocalBuilderDisabled,
+    #[error("remote source deployments require a configured remote builder")]
+    RemoteBuilderRequired,
     #[error("static source builds require internal port 80")]
     StaticPort,
     #[error("Git Compose source requires a Compose service configuration")]
@@ -809,6 +816,15 @@ enum BuildError {
     Control(#[from] ControlError),
     #[error(transparent)]
     Io(#[from] std::io::Error),
+}
+
+fn source_build_error(error: BuildError) -> ControlError {
+    match error {
+        BuildError::RemoteBuilderRequired => ControlError::Policy(
+            "remote source deployments require a configured remote builder and registry",
+        ),
+        _ => ControlError::Policy("source build failed"),
+    }
 }
 
 fn env_value(name: &str) -> Option<String> {

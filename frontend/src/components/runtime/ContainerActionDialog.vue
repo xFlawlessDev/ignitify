@@ -53,6 +53,7 @@ import type { RuntimeContainer, RuntimeContainerDetails } from "@/lib/types";
 const props = defineProps<{
   action: ContainerActionKey | null;
   container: RuntimeContainer | null;
+  destinationId?: string;
 }>();
 
 const emit = defineEmits<{
@@ -128,14 +129,14 @@ const {
     const containerId = props.container?.id;
     if (!containerId)
       return Promise.reject(new Error("Select a container before opening a terminal"));
-    return createContainerTerminalSocket(containerId);
+    return createContainerTerminalSocket(containerId, props.destinationId);
   },
   idPrefix: "container-terminal",
   name: "container terminal",
 });
 
 watch(
-  () => [open.value, props.action, props.container?.id] as const,
+  () => [open.value, props.action, props.container?.id, props.destinationId] as const,
   ([isOpen, action, containerId]) => {
     requestId += 1;
     disconnectTerminal();
@@ -170,14 +171,14 @@ async function loadActionData(
   const activeRequest = requestId;
   loading.value = true;
   if (action === "logs") {
-    const result = await apiGetRuntimeContainerLogs(containerId);
+    const result = await apiGetRuntimeContainerLogs(containerId, props.destinationId);
     if (activeRequest !== requestId) return;
     if (result.success) logs.value = result.data.logs;
     else actionError.value = result.error ?? "Could not load container logs";
     loading.value = false;
     return;
   }
-  const result = await apiGetRuntimeContainerDetails(containerId);
+  const result = await apiGetRuntimeContainerDetails(containerId, props.destinationId);
   if (activeRequest !== requestId) return;
   if (result.success) details.value = result.data;
   else actionError.value = result.error ?? "Could not load container details";
@@ -201,7 +202,12 @@ async function uploadFile() {
   loading.value = true;
   actionError.value = null;
   actionMessage.value = null;
-  const result = await apiUploadRuntimeContainerFile(containerId, file, uploadPath.value);
+  const result = await apiUploadRuntimeContainerFile(
+    containerId,
+    file,
+    uploadPath.value,
+    props.destinationId,
+  );
   loading.value = false;
   if (!result.success) {
     actionError.value = result.error ?? "Could not upload the file";
@@ -245,7 +251,7 @@ async function removeContainer() {
   if (!containerId) return;
   removing.value = true;
   actionError.value = null;
-  const result = await apiRemoveRuntimeContainer(containerId);
+  const result = await apiRemoveRuntimeContainer(containerId, props.destinationId);
   removing.value = false;
   if (!result.success) {
     actionError.value = result.error ?? "Could not remove the container";

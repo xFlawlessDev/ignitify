@@ -12,6 +12,7 @@ import {
   Trash2,
 } from "@lucide/vue";
 import { computed, onMounted, onUnmounted, shallowRef } from "vue";
+import { toast } from "vue-sonner";
 import UptimeMonitorDialog from "@/components/uptime/UptimeMonitorDialog.vue";
 import { Button } from "@/components/ui/button";
 import {
@@ -179,12 +180,17 @@ function updateDialog(open: boolean) {
 }
 
 async function saveMonitor(input: UptimeMonitorInput) {
-  const result = editingMonitor.value
-    ? await updateMonitor(editingMonitor.value.id, input)
-    : await addMonitor(input);
-  if (!result) return;
+  const existing = editingMonitor.value;
+  const result = existing ? await updateMonitor(existing.id, input) : await addMonitor(input);
+  if (!result) {
+    toast.error(existing ? "Could not update monitor" : "Could not add monitor", {
+      description: error.value ?? "Try again in a moment.",
+    });
+    return;
+  }
   lastUpdated.value = new Date();
   updateDialog(false);
+  toast.success(existing ? "Monitor updated" : "Monitor added", { description: result.name });
 }
 
 function confirmRemove(monitor: UptimeMonitor) {
@@ -192,16 +198,30 @@ function confirmRemove(monitor: UptimeMonitor) {
 }
 
 async function removeSelectedMonitor() {
-  if (!monitorPendingRemoval.value) return;
-  const removed = await removeMonitor(monitorPendingRemoval.value.id);
-  if (!removed) return;
+  const monitor = monitorPendingRemoval.value;
+  if (!monitor) return;
+  const removed = await removeMonitor(monitor.id);
+  if (!removed) {
+    toast.error("Could not remove monitor", {
+      description: error.value ?? "Try again in a moment.",
+    });
+    return;
+  }
   monitorPendingRemoval.value = null;
   lastUpdated.value = new Date();
+  toast.success("Monitor removed", { description: monitor.name });
 }
 
-async function reloadConfiguration() {
-  await reloadMonitors();
+async function reloadConfiguration(showSuccess = false) {
+  const reloaded = await reloadMonitors();
+  if (!reloaded) {
+    toast.error("Uptime monitors unavailable", {
+      description: error.value ?? "Try again in a moment.",
+    });
+    return;
+  }
   lastUpdated.value = new Date();
+  if (showSuccess) toast.success("Uptime monitors reloaded");
 }
 
 onMounted(() => {
@@ -232,7 +252,7 @@ onUnmounted(() => {
           type="button"
           :disabled="loading || refreshing || saving"
           title="Reload monitor configuration"
-          @click="reloadConfiguration"
+          @click="reloadConfiguration(true)"
         >
           <RefreshCw
             class="size-4"
@@ -253,24 +273,6 @@ onUnmounted(() => {
         </Button>
       </div>
     </header>
-
-    <section
-      v-if="error"
-      class="mt-4 flex items-center gap-2.5 rounded-[10px] border border-destructive/40 bg-card px-4 py-3 text-xs text-destructive"
-      role="alert"
-    >
-      <CircleAlert class="size-4 shrink-0" :stroke-width="1.5" />
-      <p>{{ error }}</p>
-      <Button
-        class="ml-auto shrink-0"
-        size="sm"
-        variant="outline"
-        :disabled="loading"
-        @click="reloadConfiguration"
-      >
-        Retry
-      </Button>
-    </section>
 
     <section
       class="mt-6 app-surface grid divide-y divide-border sm:grid-cols-2 sm:divide-x sm:divide-y-0 lg:grid-cols-4"

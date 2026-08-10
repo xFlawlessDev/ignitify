@@ -50,6 +50,10 @@ pub enum DatabaseError {
     RemoteBuilderNameConflict,
     #[error("remote server name already exists")]
     RemoteServerNameConflict,
+    #[error("remote server not found")]
+    RemoteServerNotFound,
+    #[error("remote server is assigned to a service or deployment")]
+    RemoteServerInUse,
     #[error("uptime monitor name already exists")]
     UptimeMonitorNameConflict,
     #[error("invalid stored uptime monitor history: {0}")]

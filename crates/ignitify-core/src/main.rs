@@ -15,6 +15,7 @@ use ignitify_dns::SystemDnsVerifier;
 use ignitify_ingress_traefik::TraefikIngress;
 use ignitify_runtime_compose::ComposeRuntime;
 use ignitify_runtime_docker::DockerRuntime;
+use ignitify_runtime_remote::SshRuntime;
 use ignitify_source_git::GitSourceBuild;
 use tokio::net::TcpListener;
 use url::Url;
@@ -215,7 +216,9 @@ async fn main() -> Result<()> {
     let image_runtime = DockerRuntime::from_environment().map_err(|_| CoreError::DockerRuntime)?;
     let compose_runtime = ComposeRuntime::from_environment()?;
     let metrics_runtime = image_runtime.clone();
-    let runtime = RuntimeSelector::new(image_runtime.clone(), compose_runtime);
+    let remote_runtime = SshRuntime::new(database.remote_servers(), control.worker_cipher());
+    let runtime =
+        RuntimeSelector::new(image_runtime.clone(), compose_runtime).with_remote(remote_runtime);
     let runtime_health: Arc<dyn ignitify_control_plane::RuntimeHealth> = Arc::new(runtime.clone());
     let ingress = TraefikIngress::with_server_settings(
         image_runtime.clone(),

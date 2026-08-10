@@ -11,7 +11,6 @@ import {
   Copy,
   Pencil,
   Plus,
-  RefreshCw,
   Rocket,
   Settings2,
   Trash2,
@@ -19,6 +18,7 @@ import {
 } from "@lucide/vue";
 import { computed, onUnmounted, shallowRef, watch } from "vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
+import { toast } from "vue-sonner";
 import DeploymentLogsPanel from "@/components/project/DeploymentLogsPanel.vue";
 import ProjectActivityPanel from "@/components/project/ProjectActivityPanel.vue";
 import ProjectEnvironmentPanel from "@/components/project/ProjectEnvironmentPanel.vue";
@@ -209,25 +209,36 @@ function formatDeploymentTime(value: string) {
   }).format(new Date(value));
 }
 
-function load(projectId: string) {
+async function load(projectId: string) {
   const generation = ++projectLoadGeneration;
   deployments.clear();
   renamingProject.value = false;
   serviceDialogOpen.value = false;
-  void fetchProject(projectId).then(() => {
-    if (generation !== projectLoadGeneration) return;
-    editName.value = data.value?.name ?? "";
-    if (data.value) {
-      projectEnvironment.load(data.value.id);
-      void loadDeployments(data.value.id, generation);
-      void activity.load(data.value.id);
-    }
-  });
+  await fetchProject(projectId);
+  if (generation !== projectLoadGeneration) return;
+  if (!data.value) {
+    toast.error("Project unavailable", {
+      description: error.value ?? "Could not load project.",
+      action: { label: "Retry", onClick: () => void load(projectId) },
+    });
+    return;
+  }
+  editName.value = data.value.name;
+  void projectEnvironment.load(data.value.id);
+  void loadDeployments(data.value.id, generation);
+  void activity.load(data.value.id);
 }
 
 async function saveProjectEnvironment(variables: Parameters<typeof projectEnvironment.save>[1]) {
   if (!data.value) return;
-  await projectEnvironment.save(data.value.id, variables);
+  const saved = await projectEnvironment.save(data.value.id, variables);
+  if (saved) {
+    toast.success("Project environment saved");
+    return;
+  }
+  toast.error("Could not save project environment", {
+    description: projectEnvironment.error.value ?? "Try again in a moment.",
+  });
 }
 
 async function renameProject() {
@@ -241,7 +252,10 @@ async function renameProject() {
   if (updated) {
     editName.value = updated.name;
     renamingProject.value = false;
+    toast.success("Project renamed", { description: updated.name });
+    return;
   }
+  toast.error("Could not rename project", { description: error.value ?? "Try again in a moment." });
 }
 
 function startRenameProject() {
@@ -294,11 +308,13 @@ async function copyProjectName() {
       input.remove();
     }
   } catch {
+    toast.error("Could not copy project name");
     return;
   }
 
   deleteProjectConfirmName.value = name;
   copiedProjectName.value = true;
+  toast.success("Project name copied");
   if (copyProjectNameTimer !== undefined) window.clearTimeout(copyProjectNameTimer);
   copyProjectNameTimer = window.setTimeout(() => {
     copiedProjectName.value = false;
@@ -312,30 +328,66 @@ async function deleteProject() {
   deletingProject.value = true;
   const removed = await removeProject(deleteProjectConfirmName.value);
   deletingProject.value = false;
-  if (!removed) return;
+  if (!removed) {
+    toast.error("Could not delete project", {
+      description: error.value ?? "Try again in a moment.",
+    });
+    return;
+  }
   deleteProjectOpen.value = false;
   stream.stop();
   logStream.stop();
+  toast.success("Project deleted", { description: current.name });
   await router.push({ name: "Projects" });
 }
 
 async function loadDeployments(projectId: string, generation = projectLoadGeneration) {
   await services.load(projectId);
   if (generation !== projectLoadGeneration) return;
+  if (services.error.value) {
+    toast.error("Services unavailable", { description: services.error.value });
+  }
   await deployments.loadProject(projectId);
+  if (generation !== projectLoadGeneration) return;
+  if (deploymentError.value) {
+    toast.error("Deployments unavailable", { description: deploymentError.value });
+  }
 }
 
 async function submitDeployment(serviceId: string) {
   const deployment = await deployments.deploy(serviceId);
-  if (deployment) selectDeployment(deployment.id);
+  if (!deployment) {
+    toast.error("Could not start deployment", {
+      description: deploymentError.value ?? "Try again in a moment.",
+    });
+    return;
+  }
+  selectDeployment(deployment.id);
+  toast.success("Deployment started");
 }
 
 async function stopDeployment(serviceId: string) {
-  await deployments.stop(serviceId);
+  const deployment = await deployments.stop(serviceId);
+  if (!deployment) {
+    toast.error("Could not stop deployment", {
+      description: deploymentError.value ?? "Try again in a moment.",
+    });
+    return;
+  }
+  selectDeployment(deployment.id);
+  toast.success("Stop requested");
 }
 
 async function rollbackDeployment(deploymentId: string) {
-  await deployments.rollback(deploymentId);
+  const deployment = await deployments.rollback(deploymentId);
+  if (!deployment) {
+    toast.error("Could not roll back deployment", {
+      description: deploymentError.value ?? "Try again in a moment.",
+    });
+    return;
+  }
+  selectDeployment(deployment.id);
+  toast.success("Rollback started");
 }
 
 async function saveService(input: ServiceInput) {
@@ -345,11 +397,16 @@ async function saveService(input: ServiceInput) {
   savingService.value = false;
   if (service) {
     serviceDialogOpen.value = false;
+    toast.success("Service created", { description: service.name });
     void router.push({
       name: "ServiceDetail",
       params: { projectId: service.project_id, serviceId: service.id },
     });
+    return;
   }
+  toast.error("Could not create service", {
+    description: serviceError.value ?? "Try again in a moment.",
+  });
 }
 
 watch(() => String(route.params.projectId), load, { immediate: true });
@@ -415,22 +472,6 @@ onUnmounted(() => {
         <Skeleton v-for="index in 4" :key="index" class="h-3 w-16" />
       </div>
     </section>
-    <section
-      v-else-if="error"
-      class="mt-6 rounded-[10px] border border-destructive/40 bg-card px-5 py-8"
-      role="alert"
-    >
-      <p class="text-sm text-destructive">{{ error }}</p>
-      <Button
-        class="mt-4"
-        variant="outline"
-        size="sm"
-        @click="load(String(route.params.projectId))"
-      >
-        <RefreshCw class="size-4" :stroke-width="1.5" />
-        Retry
-      </Button>
-    </section>
     <template v-else-if="data">
       <header class="mt-6 app-page-header lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
         <div class="flex min-w-0 items-start gap-3">
@@ -489,9 +530,6 @@ onUnmounted(() => {
                 <Pencil class="size-4" :stroke-width="1.5" />
               </Button>
             </div>
-            <p v-if="renamingProject && error" class="mt-1 text-xs text-destructive" role="alert">
-              {{ error }}
-            </p>
             <p
               class="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[11px] text-muted-foreground"
             >
@@ -781,13 +819,6 @@ onUnmounted(() => {
                 :disabled="deletingProject"
               />
             </Label>
-            <p
-              v-if="error"
-              class="border border-destructive/40 px-3 py-2 text-xs text-destructive"
-              role="alert"
-            >
-              {{ error }}
-            </p>
             <div class="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
               <AlertDialogCancel as-child>
                 <Button

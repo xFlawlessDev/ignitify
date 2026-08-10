@@ -1065,6 +1065,7 @@ mod tests {
             )
             .unwrap(),
             local_image_id: None,
+            deployment_destination_id: None,
         }
     }
 
@@ -1252,6 +1253,7 @@ mod tests {
             )
             .unwrap(),
             local_image_id: None,
+            deployment_destination_id: None,
         };
         let network = super::PROXY_NETWORK;
         let created_network = !tokio::process::Command::new(&docker)

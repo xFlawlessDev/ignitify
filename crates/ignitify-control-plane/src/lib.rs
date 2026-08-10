@@ -325,6 +325,7 @@ impl ServiceControl {
             kind: service.kind.as_str().to_owned(),
             spec: service.spec,
             source_config: service.source_config,
+            deployment_destination_id: service.deployment_destination_id,
             desired_generation: service.desired_generation,
             desired_state: service.desired_state,
             created_at: service.created_at,
@@ -421,6 +422,7 @@ impl ControlHandle {
                     requested_by_user_id: actor.id.to_owned(),
                     spec,
                     source_config,
+                    deployment_destination_id: service.deployment_destination_id.clone(),
                     source_revision: None,
                     variables_ciphertext,
                 },
@@ -694,6 +696,7 @@ pub struct RuntimeDeployment {
     pub generation: i64,
     pub spec: ServiceSpec,
     pub local_image_id: Option<String>,
+    pub deployment_destination_id: Option<String>,
 }
 
 impl From<&DeploymentRecord> for RuntimeDeployment {
@@ -704,6 +707,7 @@ impl From<&DeploymentRecord> for RuntimeDeployment {
             generation: deployment.generation,
             spec: deployment.spec.clone(),
             local_image_id: deployment.local_image_id.clone(),
+            deployment_destination_id: deployment.deployment_destination_id.clone(),
         }
     }
 }
@@ -955,21 +959,35 @@ struct ReconciliationContext<'a, R, I, S, V> {
 }
 
 #[derive(Clone)]
-pub struct RuntimeSelector<I, C> {
+pub struct RuntimeSelector<I, C, R = NoRemoteRuntime> {
     image: I,
     compose: C,
+    remote: R,
 }
 
-impl<I, C> RuntimeSelector<I, C> {
+impl<I, C> RuntimeSelector<I, C, NoRemoteRuntime> {
     pub fn new(image: I, compose: C) -> Self {
-        Self { image, compose }
+        Self {
+            image,
+            compose,
+            remote: NoRemoteRuntime,
+        }
+    }
+
+    pub fn with_remote<R>(self, remote: R) -> RuntimeSelector<I, C, R> {
+        RuntimeSelector {
+            image: self.image,
+            compose: self.compose,
+            remote,
+        }
     }
 }
 
-impl<I, C> RuntimeHealth for RuntimeSelector<I, C>
+impl<I, C, R> RuntimeHealth for RuntimeSelector<I, C, R>
 where
     I: RuntimeHealth + Send + Sync,
     C: RuntimeHealth + Send + Sync,
+    R: Send + Sync,
 {
     fn ready(&self) -> Pin<Box<dyn Future<Output = bool> + Send + '_>> {
         Box::pin(async move { self.image.ready().await && self.compose.ready().await })
@@ -988,12 +1006,16 @@ where
     }
 }
 
-impl<I, C> ImageRuntime for RuntimeSelector<I, C>
+impl<I, C, R> ImageRuntime for RuntimeSelector<I, C, R>
 where
     I: ImageRuntime,
     C: ImageRuntime,
+    R: ImageRuntime,
 {
     fn runtime_ref(&self, deployment: &RuntimeDeployment) -> String {
+        if deployment.deployment_destination_id.is_some() {
+            return self.remote.runtime_ref(deployment);
+        }
         match &deployment.spec {
             ServiceSpec::Image { .. } => self.image.runtime_ref(deployment),
             ServiceSpec::Compose { .. } => self.compose.runtime_ref(deployment),
@@ -1005,6 +1027,9 @@ where
         deployment: &RuntimeDeployment,
         environment: Vec<String>,
     ) -> Result<String> {
+        if deployment.deployment_destination_id.is_some() {
+            return self.remote.start(deployment, environment).await;
+        }
         match &deployment.spec {
             ServiceSpec::Image { .. } => self.image.start(deployment, environment).await,
             ServiceSpec::Compose { .. } => self.compose.start(deployment, environment).await,
@@ -1016,6 +1041,9 @@ where
         deployment: &RuntimeDeployment,
         runtime_ref: &str,
     ) -> Result<RuntimeObservation> {
+        if deployment.deployment_destination_id.is_some() {
+            return self.remote.inspect(deployment, runtime_ref).await;
+        }
         match &deployment.spec {
             ServiceSpec::Image { .. } => self.image.inspect(deployment, runtime_ref).await,
             ServiceSpec::Compose { .. } => self.compose.inspect(deployment, runtime_ref).await,
@@ -1023,6 +1051,9 @@ where
     }
 
     async fn stop(&self, runtime_ref: &str, service_id: &str, generation: i64) -> Result<bool> {
+        if runtime_ref.starts_with("ignitify-remote-") {
+            return self.remote.stop(runtime_ref, service_id, generation).await;
+        }
         if runtime_ref.starts_with("ignitify-svc-") {
             self.image.stop(runtime_ref, service_id, generation).await
         } else {
@@ -1031,6 +1062,9 @@ where
     }
 
     async fn logs(&self, runtime_ref: &str, since: i64) -> Result<Vec<RuntimeLog>> {
+        if runtime_ref.starts_with("ignitify-remote-") {
+            return self.remote.logs(runtime_ref, since).await;
+        }
         if runtime_ref.starts_with("ignitify-svc-") {
             self.image.logs(runtime_ref, since).await
         } else {
@@ -1045,6 +1079,12 @@ where
         environment: Vec<String>,
         routes: Vec<IngressRoute>,
     ) -> Result<bool> {
+        if deployment.deployment_destination_id.is_some() {
+            return self
+                .remote
+                .reconcile_routes(deployment, runtime_ref, environment, routes)
+                .await;
+        }
         match &deployment.spec {
             ServiceSpec::Image { .. } => {
                 self.image
@@ -1057,6 +1097,39 @@ where
                     .await
             }
         }
+    }
+}
+
+#[derive(Clone, Copy, Default)]
+pub struct NoRemoteRuntime;
+
+impl ImageRuntime for NoRemoteRuntime {
+    fn runtime_ref(&self, deployment: &RuntimeDeployment) -> String {
+        format!("ignitify-remote-unavailable-{}", deployment.id)
+    }
+
+    async fn start(
+        &self,
+        _deployment: &RuntimeDeployment,
+        _environment: Vec<String>,
+    ) -> Result<String> {
+        Err(Error::Policy("remote deployment runtime is unavailable"))
+    }
+
+    async fn inspect(
+        &self,
+        _deployment: &RuntimeDeployment,
+        _runtime_ref: &str,
+    ) -> Result<RuntimeObservation> {
+        Err(Error::Runtime)
+    }
+
+    async fn stop(&self, _runtime_ref: &str, _service_id: &str, _generation: i64) -> Result<bool> {
+        Err(Error::Runtime)
+    }
+
+    async fn logs(&self, _runtime_ref: &str, _since: i64) -> Result<Vec<RuntimeLog>> {
+        Err(Error::Runtime)
     }
 }
 
@@ -1679,7 +1752,10 @@ where
     if domain_records.is_empty() {
         return Ok(());
     }
-    if !ingress.ensure_ready().await? {
+    // A remote release attaches directly to the ingress on its destination. Its
+    // runtime verifies that destination network during reconciliation, so local
+    // ingress availability must not gate a remote service.
+    if deployment.deployment_destination_id.is_none() && !ingress.ensure_ready().await? {
         set_domain_statuses(
             domains,
             &domain_records,
@@ -2078,6 +2154,7 @@ pub struct ServiceReadModel {
     pub kind: String,
     pub spec: ignitify_domain::ServiceSpec,
     pub source_config: Option<ignitify_domain::ServiceSourceConfig>,
+    pub deployment_destination_id: Option<String>,
     pub desired_generation: i64,
     pub desired_state: String,
     pub created_at: String,
@@ -2571,6 +2648,7 @@ mod tests {
                     requested_by_user_id: actor_id.clone(),
                     spec: service.spec,
                     source_config: None,
+                    deployment_destination_id: None,
                     source_revision: None,
                     variables_ciphertext,
                 },
@@ -2711,6 +2789,7 @@ mod tests {
                     requested_by_user_id: actor_id.clone(),
                     spec: service.spec,
                     source_config: None,
+                    deployment_destination_id: None,
                     source_revision: None,
                     variables_ciphertext: cipher.encrypt(b"{}").unwrap(),
                 },

@@ -1,6 +1,6 @@
 use axum::{
     Json,
-    extract::{ConnectInfo, Extension, Multipart, Path, State},
+    extract::{ConnectInfo, Extension, Multipart, Path, Query, State},
     http::{HeaderMap, StatusCode},
 };
 use ignitify_auth::AuthenticatedUser;
@@ -8,7 +8,9 @@ use ignitify_db::AuditOutcome;
 use ignitify_runtime_docker::{
     ContainerConfig, ContainerDetails, ContainerMount, ContainerNetwork,
 };
-use serde::Serialize;
+use ignitify_runtime_remote::SshRuntime;
+use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 use crate::{
     audit,
@@ -18,6 +20,11 @@ use crate::{
 };
 
 const MAX_UPLOAD_BYTES: usize = 8 * 1024 * 1024;
+
+#[derive(Debug, Default, Deserialize)]
+pub(crate) struct RuntimeDestinationQuery {
+    pub(crate) destination: Option<String>,
+}
 
 #[derive(Debug, Serialize)]
 pub(crate) struct RuntimeStatusResponse {
@@ -242,8 +249,29 @@ impl From<ContainerNetwork> for ContainerNetworkResponse {
 pub(crate) async fn status(
     State(state): State<AppState>,
     headers: HeaderMap,
+    Query(query): Query<RuntimeDestinationQuery>,
 ) -> Result<Json<RuntimeStatusResponse>, ApiError> {
     require_platform_operator(&state, &headers).await?;
+
+    if let Some(destination) = query.destination.as_deref() {
+        let metrics = remote_runtime(&state)?
+            .remote_runtime_metrics(destination)
+            .await
+            .map_err(|error| ApiError::RemoteRuntimeFailedWithReason(error.user_message()))?;
+        return Ok(Json(RuntimeStatusResponse {
+            database: "unavailable",
+            runtime: "ready",
+            worker: "unavailable",
+            ingress: "unavailable",
+            metrics: Some(RuntimeMetricsResponse {
+                containers: metrics.containers,
+                containers_running: metrics.containers_running,
+                images: metrics.images,
+                cpus: metrics.cpus,
+                memory_bytes: metrics.memory_bytes,
+            }),
+        }));
+    }
 
     let (database, runtime, worker, ingress, metrics) = tokio::join!(
         state.database.ping(),
@@ -275,8 +303,19 @@ pub(crate) async fn status(
 pub(crate) async fn containers(
     State(state): State<AppState>,
     headers: HeaderMap,
+    Query(query): Query<RuntimeDestinationQuery>,
 ) -> Result<Json<RuntimeContainersResponse>, ApiError> {
     require_platform_operator(&state, &headers).await?;
+
+    if let Some(destination) = query.destination.as_deref() {
+        let containers = remote_runtime(&state)?
+            .remote_containers(destination)
+            .await
+            .map_err(|error| ApiError::RemoteRuntimeFailedWithReason(error.user_message()))?;
+        return Ok(Json(RuntimeContainersResponse {
+            containers: Some(containers.into_iter().map(Into::into).collect()),
+        }));
+    }
 
     Ok(Json(RuntimeContainersResponse {
         containers: state
@@ -307,12 +346,20 @@ pub(crate) async fn container_details(
     peer: Option<Extension<ConnectInfo<std::net::SocketAddr>>>,
     headers: HeaderMap,
     Path(container_id): Path<String>,
+    Query(query): Query<RuntimeDestinationQuery>,
 ) -> Result<Json<ContainerDetailsResponse>, ApiError> {
     let actor = require_platform_operator(&state, &headers).await?;
-    let details = state
-        .docker_runtime()?
-        .container_details(&container_id)
-        .await?;
+    let details = if let Some(destination) = query.destination.as_deref() {
+        remote_runtime(&state)?
+            .remote_container_details(destination, &container_id)
+            .await
+            .map_err(|_| ApiError::RemoteRuntimeFailed)?
+    } else {
+        state
+            .docker_runtime()?
+            .container_details(&container_id)
+            .await?
+    };
     audit::record(
         &state,
         Some(&actor),
@@ -332,12 +379,20 @@ pub(crate) async fn container_logs(
     peer: Option<Extension<ConnectInfo<std::net::SocketAddr>>>,
     headers: HeaderMap,
     Path(container_id): Path<String>,
+    Query(query): Query<RuntimeDestinationQuery>,
 ) -> Result<Json<ContainerLogsResponse>, ApiError> {
     let actor = require_platform_operator(&state, &headers).await?;
-    let logs = state
-        .docker_runtime()?
-        .container_logs(&container_id)
-        .await?;
+    let logs = if let Some(destination) = query.destination.as_deref() {
+        remote_runtime(&state)?
+            .remote_container_logs(destination, &container_id)
+            .await
+            .map_err(|_| ApiError::RemoteRuntimeFailed)?
+    } else {
+        state
+            .docker_runtime()?
+            .container_logs(&container_id)
+            .await?
+    };
     audit::record(
         &state,
         Some(&actor),
@@ -357,6 +412,7 @@ pub(crate) async fn upload_container_file(
     peer: Option<Extension<ConnectInfo<std::net::SocketAddr>>>,
     headers: HeaderMap,
     Path(container_id): Path<String>,
+    Query(query): Query<RuntimeDestinationQuery>,
     mut multipart: Multipart,
 ) -> Result<StatusCode, ApiError> {
     let actor = require_platform_operator(&state, &headers).await?;
@@ -396,10 +452,23 @@ pub(crate) async fn upload_container_file(
     }
 
     let (file_name, data) = file.ok_or(ApiError::BadRequest("uploaded file is required"))?;
-    state
-        .docker_runtime()?
-        .upload_file(&container_id, &destination, &file_name, &data)
-        .await?;
+    if let Some(remote_destination) = query.destination.as_deref() {
+        remote_runtime(&state)?
+            .upload_remote_container_file(
+                remote_destination,
+                &container_id,
+                &destination,
+                &file_name,
+                &data,
+            )
+            .await
+            .map_err(|_| ApiError::RemoteRuntimeFailed)?;
+    } else {
+        state
+            .docker_runtime()?
+            .upload_file(&container_id, &destination, &file_name, &data)
+            .await?;
+    }
     audit::record(
         &state,
         Some(&actor),
@@ -419,13 +488,21 @@ pub(crate) async fn remove_container(
     peer: Option<Extension<ConnectInfo<std::net::SocketAddr>>>,
     headers: HeaderMap,
     Path(container_id): Path<String>,
+    Query(query): Query<RuntimeDestinationQuery>,
 ) -> Result<StatusCode, ApiError> {
     let actor = require_platform_operator(&state, &headers).await?;
     require_same_origin_request(&state, &headers)?;
-    state
-        .docker_runtime()?
-        .remove_container(&container_id)
-        .await?;
+    if let Some(destination) = query.destination.as_deref() {
+        remote_runtime(&state)?
+            .remove_remote_container(destination, &container_id)
+            .await
+            .map_err(|_| ApiError::RemoteRuntimeFailed)?;
+    } else {
+        state
+            .docker_runtime()?
+            .remove_container(&container_id)
+            .await?;
+    }
     audit::record(
         &state,
         Some(&actor),
@@ -450,4 +527,15 @@ pub(crate) async fn require_platform_operator(
     } else {
         Err(ApiError::Forbidden)
     }
+}
+
+fn remote_runtime(state: &AppState) -> Result<SshRuntime, ApiError> {
+    let cipher = state
+        .provider_cipher
+        .as_ref()
+        .ok_or(ApiError::ProviderCapabilityUnavailable)?;
+    Ok(SshRuntime::new(
+        state.database.remote_servers(),
+        Arc::clone(cipher),
+    ))
 }

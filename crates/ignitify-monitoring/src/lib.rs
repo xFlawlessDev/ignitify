@@ -11,6 +11,7 @@ use url::{Host, Url};
 
 const POLL_INTERVAL: Duration = Duration::from_secs(15);
 const CHECK_TIMEOUT: Duration = Duration::from_secs(15);
+const AGENT_HEARTBEAT_TIMEOUT: chrono::Duration = chrono::Duration::seconds(90);
 
 #[derive(Debug, Clone)]
 pub struct MonitorWorker {
@@ -51,6 +52,11 @@ impl MonitorWorker {
     }
 
     async fn check_due(&self, client: &Client) -> Result<(), ignitify_db::DatabaseError> {
+        let agent_cutoff = (Utc::now() - AGENT_HEARTBEAT_TIMEOUT).to_rfc3339();
+        self.database
+            .remote_server_agents()
+            .mark_stale(&agent_cutoff)
+            .await?;
         let monitors = self.database.uptime_monitors().list_enabled().await?;
         for monitor in monitors {
             if !is_due(&monitor, Utc::now()) {

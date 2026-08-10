@@ -1,4 +1,4 @@
-import { computed, onMounted, onUnmounted, shallowRef, watch } from "vue";
+import { computed, onMounted, onUnmounted, shallowRef, watch, type Ref } from "vue";
 import { apiGetSystemMetrics } from "@/lib/api/dashboard";
 import type { SystemMetrics } from "@/lib/types";
 
@@ -108,7 +108,8 @@ function toSample(metrics: SystemMetrics, sampledAt: Date): MonitoringSample {
   };
 }
 
-export function useSystemMonitoring() {
+export function useSystemMonitoring(options: { enabled?: Readonly<Ref<boolean>> } = {}) {
+  const enabled = options.enabled ?? shallowRef(true);
   const range = shallowRef<MonitoringRange>("6h");
   const samples = shallowRef<MonitoringSample[]>([]);
   const lastUpdated = shallowRef<Date | null>(null);
@@ -206,11 +207,13 @@ export function useSystemMonitoring() {
 
   function startAutoRefresh() {
     stopAutoRefresh();
-    if (autoRefresh.value) refreshTimer = window.setInterval(() => void refresh(), 30_000);
+    if (autoRefresh.value && enabled.value) {
+      refreshTimer = window.setInterval(() => void refresh(), 30_000);
+    }
   }
 
   async function refresh() {
-    if (isRefreshing.value) return;
+    if (!enabled.value || isRefreshing.value) return;
     isRefreshing.value = true;
     try {
       const result = await apiGetSystemMetrics();
@@ -234,9 +237,13 @@ export function useSystemMonitoring() {
   }
 
   watch(autoRefresh, startAutoRefresh);
+  watch(enabled, (isEnabled) => {
+    startAutoRefresh();
+    if (isEnabled) void refresh();
+  });
 
   onMounted(() => {
-    void refresh();
+    if (enabled.value) void refresh();
     startAutoRefresh();
   });
   onUnmounted(stopAutoRefresh);

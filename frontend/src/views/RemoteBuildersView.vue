@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Check, Cpu, Pencil, Plus, RefreshCw, Server, Trash2, Upload } from "@lucide/vue";
 import { computed, onMounted, reactive, shallowRef } from "vue";
+import { toast } from "vue-sonner";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -102,13 +103,20 @@ function updateFile(kind: "ca" | "certificate" | "key", event: Event) {
   else clientKeyFile.value = file;
 }
 
-async function loadBuilders() {
+async function loadBuilders(showSuccess = false): Promise<boolean> {
   loading.value = true;
   requestError.value = "";
   const result = await apiListRemoteBuilders();
-  if (result.success) builders.value = result.data;
-  else requestError.value = result.error ?? "Unable to load remote builders.";
+  if (result.success) {
+    builders.value = result.data;
+    if (showSuccess) toast.success("Remote builders refreshed");
+    loading.value = false;
+    return true;
+  }
+  requestError.value = result.error ?? "Unable to load remote builders.";
+  toast.error("Remote builders unavailable", { description: requestError.value });
   loading.value = false;
+  return false;
 }
 
 async function saveBuilder() {
@@ -133,16 +141,21 @@ async function saveBuilder() {
     client_key: clientKey,
     is_default: form.isDefault,
   };
+  const wasEditing = Boolean(editingId.value);
   const result = editingId.value
     ? await apiUpdateRemoteBuilder(editingId.value, input)
     : await apiCreateRemoteBuilder(input);
   saving.value = false;
   if (!result.success) {
     requestError.value = result.error ?? "Unable to save remote builder.";
+    toast.error("Could not save remote builder", { description: requestError.value });
     return;
   }
-  await loadBuilders();
+  if (!(await loadBuilders())) return;
   updateDialog(false);
+  toast.success(wasEditing ? "Remote builder updated" : "Remote builder added", {
+    description: input.name,
+  });
 }
 
 async function setDefault(builder: RemoteBuilderSummary) {
@@ -151,12 +164,14 @@ async function setDefault(builder: RemoteBuilderSummary) {
   const result = await apiSetDefaultRemoteBuilder(builder.id);
   if (!result.success) {
     requestError.value = result.error ?? "Unable to update the default builder.";
+    toast.error("Could not set default builder", { description: requestError.value });
     return;
   }
   builders.value = builders.value.map((item) => ({
     ...item,
     is_default: item.id === result.data.id,
   }));
+  toast.success("Default builder updated", { description: builder.name });
 }
 
 async function removeBuilder(builder: RemoteBuilderSummary) {
@@ -164,9 +179,11 @@ async function removeBuilder(builder: RemoteBuilderSummary) {
   const result = await apiDeleteRemoteBuilder(builder.id);
   if (!result.success) {
     requestError.value = result.error ?? "Unable to remove remote builder.";
+    toast.error("Could not remove remote builder", { description: requestError.value });
     return;
   }
   builders.value = builders.value.filter((item) => item.id !== builder.id);
+  toast.success("Remote builder removed", { description: builder.name });
 }
 
 onMounted(loadBuilders);
@@ -184,7 +201,13 @@ onMounted(loadBuilders);
         </p>
       </div>
       <div class="flex items-center gap-2">
-        <Button variant="outline" size="sm" type="button" :disabled="loading" @click="loadBuilders">
+        <Button
+          variant="outline"
+          size="sm"
+          type="button"
+          :disabled="loading"
+          @click="loadBuilders(true)"
+        >
           <RefreshCw class="size-4" :stroke-width="1.5" />
           Refresh
         </Button>
@@ -194,10 +217,6 @@ onMounted(loadBuilders);
         </Button>
       </div>
     </header>
-
-    <p v-if="requestError" class="mt-4 text-[11px] text-destructive" role="alert">
-      {{ requestError }}
-    </p>
 
     <section class="app-surface mt-6" aria-labelledby="remote-builders-heading">
       <header class="app-panel-header flex items-start gap-3 px-5 py-4">

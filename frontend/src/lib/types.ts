@@ -184,6 +184,7 @@ export interface ServiceInput {
   healthcheck: string[] | null;
   variables: ServiceVariable[];
   source_config?: ServiceSourceConfig;
+  deployment_destination_id?: string | null;
 }
 
 export type DeploymentState =
@@ -387,4 +388,5 @@ export interface ServiceSummary {
   updated_at: string;
   variables: ServiceVariableSummary[];
   source_config?: ServiceSourceConfig;
+  deployment_destination_id?: string | null;
 }

@@ -8,12 +8,12 @@ import {
   Copy,
   GitBranch,
   Globe2,
-  RefreshCw,
   Settings2,
   Trash2,
 } from "@lucide/vue";
 import { computed, onUnmounted, shallowRef, watch } from "vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
+import { toast } from "vue-sonner";
 import ServiceConfigurationPanel from "@/components/project/ServiceConfigurationPanel.vue";
 import ServiceDetailPanel from "@/components/project/ServiceDetailPanel.vue";
 import ServiceDomainsPanel from "@/components/project/ServiceDomainsPanel.vue";
@@ -186,6 +186,10 @@ async function load() {
     if (generation !== loadGeneration) return;
     if (!loaded) {
       serviceError.value = services.error.value ?? "Could not load service";
+      toast.error("Service unavailable", {
+        description: serviceError.value,
+        action: { label: "Retry", onClick: () => void load() },
+      });
       return;
     }
     service.value = loaded;
@@ -197,6 +201,10 @@ async function load() {
   } catch (cause) {
     if (generation !== loadGeneration) return;
     serviceError.value = cause instanceof Error ? cause.message : "Could not load service";
+    toast.error("Service unavailable", {
+      description: serviceError.value,
+      action: { label: "Retry", onClick: () => void load() },
+    });
   } finally {
     if (generation === loadGeneration) serviceLoading.value = false;
   }
@@ -208,31 +216,66 @@ async function saveConfiguration(input: ServiceInput) {
   saving.value = true;
   const updated = await services.update(current.id, input);
   saving.value = false;
-  if (updated) service.value = updated;
+  if (updated) {
+    service.value = updated;
+    toast.success("Service configuration saved", { description: updated.name });
+    return;
+  }
+  toast.error("Could not save service configuration", {
+    description: services.error.value ?? "Try again in a moment.",
+  });
 }
 
 async function submitDeployment() {
   const current = service.value;
   if (!current || current.source_config?.setup_required) return;
   const deployment = await deployments.deploy(current.id);
-  if (deployment) selectDeployment(deployment.id);
+  if (!deployment) {
+    toast.error("Could not start deployment", {
+      description: deploymentError.value ?? "Try again in a moment.",
+    });
+    return;
+  }
+  selectDeployment(deployment.id);
+  toast.success("Deployment started");
 }
 
 async function stopService() {
   const current = service.value;
   if (!current) return;
   const deployment = await deployments.stop(current.id);
-  if (deployment) selectDeployment(deployment.id);
+  if (!deployment) {
+    toast.error("Could not stop deployment", {
+      description: deploymentError.value ?? "Try again in a moment.",
+    });
+    return;
+  }
+  selectDeployment(deployment.id);
+  toast.success("Stop requested");
 }
 
 async function cancelDeployment(deploymentId: string) {
   const deployment = await deployments.cancel(deploymentId);
-  if (deployment) selectDeployment(deployment.id);
+  if (!deployment) {
+    toast.error("Could not cancel deployment", {
+      description: deploymentError.value ?? "Try again in a moment.",
+    });
+    return;
+  }
+  selectDeployment(deployment.id);
+  toast.success("Deployment cancelled");
 }
 
 async function rollbackDeployment(deploymentId: string) {
   const deployment = await deployments.rollback(deploymentId);
-  if (deployment) selectDeployment(deployment.id);
+  if (!deployment) {
+    toast.error("Could not roll back deployment", {
+      description: deploymentError.value ?? "Try again in a moment.",
+    });
+    return;
+  }
+  selectDeployment(deployment.id);
+  toast.success("Rollback started");
 }
 
 function requestDelete() {
@@ -266,11 +309,13 @@ async function copyServiceName() {
       input.remove();
     }
   } catch {
+    toast.error("Could not copy service name");
     return;
   }
 
   deleteConfirmName.value = name;
   copiedServiceName.value = true;
+  toast.success("Service name copied");
   if (copyServiceNameTimer !== undefined) window.clearTimeout(copyServiceNameTimer);
   copyServiceNameTimer = window.setTimeout(() => {
     copiedServiceName.value = false;
@@ -284,10 +329,16 @@ async function deleteService() {
   deleting.value = true;
   const removed = await services.remove(current.id, deleteConfirmName.value);
   deleting.value = false;
-  if (!removed) return;
+  if (!removed) {
+    toast.error("Could not delete service", {
+      description: services.error.value ?? "Try again in a moment.",
+    });
+    return;
+  }
   stream.stop();
   logStream.stop();
   copiedServiceName.value = false;
+  toast.success("Service deleted", { description: current.name });
   await router.push(projectRoute.value);
 }
 
@@ -331,19 +382,7 @@ onUnmounted(() => {
       </div>
     </section>
 
-    <section
-      v-else-if="serviceError || !service"
-      class="mt-6 rounded-[10px] border border-destructive/40 bg-card px-5 py-8"
-      role="alert"
-    >
-      <p class="text-sm text-destructive">{{ serviceError ?? "Service not found" }}</p>
-      <Button class="mt-4" variant="outline" size="sm" @click="load">
-        <RefreshCw class="size-4" :stroke-width="1.5" />
-        Retry
-      </Button>
-    </section>
-
-    <template v-else>
+    <template v-else-if="service">
       <header
         class="mt-6 grid gap-5 border-b border-border pb-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end"
       >
@@ -492,13 +531,6 @@ onUnmounted(() => {
                   :disabled="deleting"
                 />
               </Label>
-              <p
-                v-if="serviceConfigError"
-                class="border border-destructive/40 px-3 py-2 text-xs text-destructive"
-                role="alert"
-              >
-                {{ serviceConfigError }}
-              </p>
               <div class="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
                 <AlertDialogCancel as-child>
                   <Button

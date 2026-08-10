@@ -11,6 +11,7 @@ import {
   Users,
 } from "@lucide/vue";
 import { computed, onMounted, shallowRef, watch } from "vue";
+import { toast } from "vue-sonner";
 import { useRouter } from "vue-router";
 import ProjectCreateDialog from "@/components/project/ProjectCreateDialog.vue";
 import ProjectList from "@/components/project/ProjectList.vue";
@@ -64,12 +65,27 @@ function goToNextPage() {
 
 async function createProject(name: string) {
   const project = await create({ name });
-  if (!project) return;
+  if (!project) {
+    toast.error("Could not create project", {
+      description: error.value ?? "Try again in a moment.",
+    });
+    return;
+  }
   createOpen.value = false;
+  toast.success("Project created", { description: `${project.name} is ready to configure.` });
   await router.push({ name: "ProjectDetail", params: { projectId: project.id } });
 }
 
-onMounted(load);
+async function loadProjects(showSuccess = false) {
+  await load();
+  if (error.value) {
+    toast.error("Projects unavailable", { description: error.value });
+    return;
+  }
+  if (showSuccess) toast.success("Projects refreshed");
+}
+
+onMounted(() => void loadProjects());
 </script>
 
 <template>
@@ -94,7 +110,7 @@ onMounted(load);
           aria-label="Refresh projects"
           title="Refresh projects"
           :disabled="loading"
-          @click="load"
+          @click="loadProjects(true)"
         >
           <RefreshCw class="size-4" :class="loading ? 'animate-spin' : ''" :stroke-width="1.5" />
         </Button>
@@ -141,17 +157,6 @@ onMounted(load);
         </div>
         <Skeleton class="size-4 shrink-0" />
       </div>
-    </section>
-    <section
-      v-else-if="error"
-      class="mt-6 rounded-[10px] border border-destructive/40 bg-card px-5 py-8"
-      role="alert"
-    >
-      <p class="text-sm text-destructive">{{ error }}</p>
-      <Button class="mt-4" variant="outline" size="sm" @click="load">
-        <RefreshCw class="size-4" :stroke-width="1.5" />
-        Retry
-      </Button>
     </section>
     <section v-else-if="data.length === 0" class="mt-6 app-surface px-5 py-8">
       <p class="text-sm font-medium">No projects yet</p>
@@ -242,6 +247,6 @@ onMounted(load);
       </nav>
     </section>
 
-    <ProjectCreateDialog v-model:open="createOpen" :error="error" @create="createProject" />
+    <ProjectCreateDialog v-model:open="createOpen" @create="createProject" />
   </div>
 </template>

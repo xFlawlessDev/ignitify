@@ -789,6 +789,7 @@ mod tests {
             )
             .unwrap(),
             local_image_id: None,
+            deployment_destination_id: None,
         };
         let runtime_ref = runtime.start(&deployment, vec![]).await.unwrap();
         let result = async {

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ArrowUpRight, Box, CircleAlert, Layers3, RefreshCw, Rocket } from "@lucide/vue";
 import { onMounted } from "vue";
+import { toast } from "vue-sonner";
 import { RouterLink } from "vue-router";
 import DeploymentList from "@/components/dashboard/DeploymentList.vue";
 import MetricTile from "@/components/dashboard/MetricTile.vue";
@@ -12,7 +13,16 @@ import { useOperationsDashboard } from "@/composables/useOperationsDashboard";
 const { data, error, load, loading, metrics, recentDeployments, runtime } =
   useOperationsDashboard();
 
-onMounted(load);
+async function loadDashboard(showSuccess = false) {
+  await load();
+  if (error.value) {
+    toast.error("Operations unavailable", { description: error.value });
+    return;
+  }
+  if (showSuccess) toast.success("Operations refreshed");
+}
+
+onMounted(() => void loadDashboard());
 </script>
 
 <template>
@@ -25,12 +35,25 @@ onMounted(load);
           Workspace rollout state. Deployment status from persisted control-plane records.
         </p>
       </div>
-      <Button as-child class="w-full sm:w-auto" size="sm">
-        <RouterLink to="/projects">
-          <Box class="size-4" :stroke-width="1.5" />
-          Open projects
-        </RouterLink>
-      </Button>
+      <div class="flex w-full items-center gap-2 sm:w-auto">
+        <Button
+          class="shrink-0"
+          size="icon-sm"
+          variant="outline"
+          :disabled="loading"
+          aria-label="Refresh operations"
+          title="Refresh operations"
+          @click="loadDashboard(true)"
+        >
+          <RefreshCw class="size-4" :class="loading ? 'animate-spin' : ''" :stroke-width="1.5" />
+        </Button>
+        <Button as-child class="min-w-0 flex-1 sm:w-auto" size="sm">
+          <RouterLink to="/projects">
+            <Box class="size-4" :stroke-width="1.5" />
+            Open projects
+          </RouterLink>
+        </Button>
+      </div>
     </header>
 
     <section
@@ -48,27 +71,6 @@ onMounted(load);
         <MetricTile label="In progress" :value="String(metrics.active)" :icon="Rocket" />
         <MetricTile label="Needs attention" :value="String(metrics.failed)" :icon="CircleAlert" />
       </template>
-    </section>
-
-    <section
-      v-if="error"
-      class="mt-4 rounded-[10px] flex items-start justify-between gap-4 border border-destructive/40 bg-card px-5 py-4 max-[640px]:flex-col"
-      role="alert"
-    >
-      <div class="flex items-start gap-2 text-sm text-destructive">
-        <CircleAlert class="mt-0.5 size-4 shrink-0" :stroke-width="1.5" />
-        <p>{{ error }}</p>
-      </div>
-      <Button
-        class="shrink-0 max-[640px]:w-full"
-        size="sm"
-        variant="outline"
-        :disabled="loading"
-        @click="load"
-      >
-        <RefreshCw class="size-4" :class="loading ? 'animate-spin' : ''" :stroke-width="1.5" />
-        Retry
-      </Button>
     </section>
 
     <section class="mt-6 grid min-w-0 gap-6 lg:grid-cols-[minmax(0,1fr)_17rem]">

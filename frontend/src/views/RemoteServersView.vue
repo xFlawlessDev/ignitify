@@ -16,7 +16,8 @@ import {
   Upload,
   X,
 } from "@lucide/vue";
-import { computed, onMounted, reactive, shallowRef, watch } from "vue";
+import { computed, onMounted, onUnmounted, reactive, shallowRef, watch } from "vue";
+import { toast } from "vue-sonner";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -35,6 +36,7 @@ import {
   apiCheckRemoteServer,
   apiCreateRemoteServer,
   apiDeleteRemoteServer,
+  apiInstallRemoteServerAgent,
   apiListRemoteServers,
   apiSetDefaultRemoteServer,
   apiUpdateRemoteServer,
@@ -74,6 +76,7 @@ const publicKeyInputKey = shallowRef(0);
 const publicKeyMode = shallowRef<SecretInputMode>("file");
 const showValidation = shallowRef(false);
 const checkingServerId = shallowRef<string | null>(null);
+const installingAgentServerId = shallowRef<string | null>(null);
 const connectionCheck = shallowRef<ConnectionCheckState | null>(null);
 const copiedGuideCommand = shallowRef<string | null>(null);
 
@@ -256,27 +259,62 @@ async function checkConnection(server: RemoteServerSummary) {
   connectionCheck.value = null;
   try {
     const result = await apiCheckRemoteServer(server.id);
-    connectionCheck.value = result.success
-      ? {
-          serverId: server.id,
-          status: "success",
-          latencyMs: result.data.latency_ms,
-          message: "SSH connection verified",
-        }
-      : {
-          serverId: server.id,
-          status: "error",
-          message: result.error ?? "SSH connection failed",
-        };
+    if (result.success) {
+      connectionCheck.value = {
+        serverId: server.id,
+        status: "success",
+        latencyMs: result.data.latency_ms,
+        message: "SSH connection verified",
+      };
+      toast.success("SSH connection verified", {
+        description: `${server.name} responded in ${result.data.latency_ms} ms.`,
+      });
+      return;
+    }
+    connectionCheck.value = {
+      serverId: server.id,
+      status: "error",
+      message: result.error ?? "SSH connection failed",
+    };
+    toast.error("SSH connection failed", { description: connectionCheck.value.message });
   } catch {
     connectionCheck.value = {
       serverId: server.id,
       status: "error",
       message: "SSH connection check failed",
     };
+    toast.error("SSH connection check failed");
   } finally {
     checkingServerId.value = null;
   }
+}
+
+async function installAgent(server: RemoteServerSummary) {
+  installingAgentServerId.value = server.id;
+  requestError.value = "";
+  const result = await apiInstallRemoteServerAgent(server.id);
+  if (!result.success) {
+    requestError.value = result.error ?? "Unable to install the monitoring agent.";
+    toast.error("Could not install monitoring agent", { description: requestError.value });
+  } else {
+    if (await loadServers()) {
+      toast.success("Monitoring agent installation started", { description: server.name });
+    }
+  }
+  installingAgentServerId.value = null;
+}
+
+function agentStatusLabel(server: RemoteServerSummary) {
+  if (!server.agent) return "Agent not installed";
+  if (server.agent.status === "online") return "Agent online";
+  if (server.agent.status === "pending") return "Agent provisioning";
+  return "Agent offline";
+}
+
+function agentStatusClass(server: RemoteServerSummary) {
+  if (server.agent?.status === "online") return "bg-metric-green";
+  if (server.agent?.status === "pending") return "bg-metric-amber";
+  return "bg-muted-foreground";
 }
 
 function updatePrivateKey(event: Event) {
@@ -296,12 +334,14 @@ async function copyGuideCommand(command: string) {
     window.setTimeout(() => {
       if (copiedGuideCommand.value === command) copiedGuideCommand.value = null;
     }, 1600);
+    toast.success("Command copied");
   } catch {
     copiedGuideCommand.value = null;
+    toast.error("Could not copy command");
   }
 }
 
-async function loadServers() {
+async function loadServers(showSuccess = false): Promise<boolean> {
   loading.value = true;
   requestError.value = "";
   const result = await apiListRemoteServers();
@@ -310,10 +350,19 @@ async function loadServers() {
     if (!result.data.some((server) => server.id === selectedServerId.value)) {
       selectedServerId.value = null;
     }
-  } else {
-    requestError.value = result.error ?? "Unable to load remote servers.";
+    loading.value = false;
+    if (showSuccess) toast.success("Remote servers refreshed");
+    return true;
   }
+  requestError.value = result.error ?? "Unable to load remote servers.";
+  toast.error("Remote servers unavailable", { description: requestError.value });
   loading.value = false;
+  return false;
+}
+
+async function refreshAgentStatuses() {
+  const result = await apiListRemoteServers();
+  if (result.success) servers.value = result.data;
 }
 
 async function saveServer() {
@@ -322,6 +371,7 @@ async function saveServer() {
 
   saving.value = true;
   requestError.value = "";
+  const wasEditing = Boolean(editingId.value);
   try {
     const privateKey =
       privateKeyMode.value === "text"
@@ -351,12 +401,17 @@ async function saveServer() {
       : await apiCreateRemoteServer(input);
     if (!result.success) {
       requestError.value = result.error ?? "Unable to save remote server.";
+      toast.error("Could not save remote server", { description: requestError.value });
       return;
     }
-    await loadServers();
+    if (!(await loadServers())) return;
     updateDialog(false);
+    toast.success(wasEditing ? "Remote server updated" : "Remote server added", {
+      description: input.name,
+    });
   } catch {
     requestError.value = "Unable to read the SSH private key file.";
+    toast.error("Could not read SSH key", { description: requestError.value });
   } finally {
     saving.value = false;
   }
@@ -368,11 +423,13 @@ async function setDefault(server: RemoteServerSummary) {
   const result = await apiSetDefaultRemoteServer(server.id);
   if (!result.success) {
     requestError.value = result.error ?? "Unable to update the default destination.";
+    toast.error("Could not set default destination", { description: requestError.value });
     return;
   }
   servers.value = servers.value.map((item) =>
     item.id === result.data.id ? result.data : { ...item, is_default: false },
   );
+  toast.success("Default destination updated", { description: server.name });
 }
 
 function requestDelete(server: RemoteServerSummary) {
@@ -389,15 +446,26 @@ async function removeServer() {
   removing.value = false;
   if (!result.success) {
     requestError.value = result.error ?? "Unable to remove remote server.";
+    toast.error("Could not remove remote server", { description: requestError.value });
     return;
   }
   servers.value = servers.value.filter((item) => item.id !== server.id);
   closeInspector();
   serverPendingDeletion.value = null;
   deleteDialogOpen.value = false;
+  toast.success("Remote server removed", { description: server.name });
 }
 
-onMounted(loadServers);
+let statusRefreshTimer: number | undefined;
+
+onMounted(() => {
+  void loadServers();
+  statusRefreshTimer = window.setInterval(() => void refreshAgentStatuses(), 30_000);
+});
+
+onUnmounted(() => {
+  if (statusRefreshTimer !== undefined) window.clearInterval(statusRefreshTimer);
+});
 </script>
 
 <template>
@@ -411,7 +479,13 @@ onMounted(loadServers);
         </p>
       </div>
       <div class="flex items-center gap-2">
-        <Button variant="outline" size="sm" type="button" :disabled="loading" @click="loadServers">
+        <Button
+          variant="outline"
+          size="sm"
+          type="button"
+          :disabled="loading"
+          @click="loadServers(true)"
+        >
           <RefreshCw class="size-4" :stroke-width="1.5" />
           Refresh
         </Button>
@@ -421,10 +495,6 @@ onMounted(loadServers);
         </Button>
       </div>
     </header>
-
-    <p v-if="requestError" class="mt-4 text-[11px] text-destructive" role="alert">
-      {{ requestError }}
-    </p>
 
     <section class="app-surface mt-6 overflow-hidden" aria-labelledby="remote-server-map-heading">
       <header class="app-panel-header flex items-start justify-between gap-4 px-5 py-4">
@@ -536,8 +606,8 @@ onMounted(loadServers);
               <p
                 class="mt-3 flex items-center gap-1.5 font-mono text-[9px] text-muted-foreground uppercase"
               >
-                <span class="size-1.5 rounded-full bg-metric-green" />
-                SSH credentials stored
+                <span class="size-1.5 rounded-full" :class="agentStatusClass(data.server)" />
+                {{ agentStatusLabel(data.server) }}
               </p>
             </button>
           </template>
@@ -613,11 +683,46 @@ onMounted(loadServers);
                 </dd>
               </div>
               <div class="grid gap-1">
-                <dt class="font-mono text-[10px] text-muted-foreground uppercase">Runner</dt>
-                <dd class="text-[11px] text-muted-foreground">Not attached</dd>
+                <dt class="font-mono text-[10px] text-muted-foreground uppercase">
+                  Monitoring agent
+                </dt>
+                <dd class="flex items-center gap-1.5 text-[11px]">
+                  <span class="size-1.5 rounded-full" :class="agentStatusClass(selectedServer)" />
+                  {{ agentStatusLabel(selectedServer) }}
+                </dd>
+                <dd
+                  v-if="selectedServer.agent?.last_heartbeat_at"
+                  class="font-mono text-[10px] text-muted-foreground"
+                >
+                  Last heartbeat {{ selectedServer.agent.last_heartbeat_at }}
+                </dd>
+                <dd v-if="selectedServer.agent?.last_error" class="text-[10px] text-destructive">
+                  {{ selectedServer.agent.last_error }}
+                </dd>
               </div>
             </dl>
             <div class="grid gap-2 px-5 py-4">
+              <Button
+                variant="outline"
+                class="w-full"
+                size="sm"
+                type="button"
+                :disabled="installingAgentServerId === selectedServer.id"
+                @click="installAgent(selectedServer)"
+              >
+                <Upload
+                  class="size-4"
+                  :class="installingAgentServerId === selectedServer.id ? 'animate-pulse' : ''"
+                  :stroke-width="1.5"
+                />
+                {{
+                  installingAgentServerId === selectedServer.id
+                    ? "Provisioning agent"
+                    : selectedServer.agent
+                      ? "Reinstall monitoring agent"
+                      : "Install monitoring agent"
+                }}
+              </Button>
               <Button
                 variant="outline"
                 class="w-full"

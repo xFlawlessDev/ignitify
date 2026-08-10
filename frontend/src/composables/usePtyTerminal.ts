@@ -1,5 +1,4 @@
 import { onUnmounted, readonly, shallowRef } from "vue";
-import { createTerminalSocket } from "@/lib/api/terminal";
 
 export type PtyTerminalStatus = "connecting" | "running" | "exited" | "error";
 
@@ -23,7 +22,9 @@ function nextTerminalId(prefix: string) {
 }
 
 export function usePtyTerminal(options: UsePtyTerminalOptions = {}) {
-  const createSocket = options.createSocket ?? createTerminalSocket;
+  const createSocket =
+    options.createSocket ??
+    (() => Promise.reject(new Error("A terminal socket factory is required")));
   const idPrefix = options.idPrefix ?? "host-terminal";
   const name = options.name ?? "host terminal";
   const id = shallowRef(nextTerminalId(idPrefix));

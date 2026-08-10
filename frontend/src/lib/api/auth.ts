@@ -1,9 +1,4 @@
-import type {
-  AuthSession,
-  MessageResponse,
-  AuthenticatedUser,
-  StepUpSession,
-} from "../types";
+import type { AuthSession, MessageResponse, AuthenticatedUser, StepUpSession } from "../types";
 
 import { apiFetch } from "./core";
 import type { ApiResult } from "./core";

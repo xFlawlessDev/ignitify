@@ -11,9 +11,31 @@ export interface RemoteServerSummary {
   private_key_configured: boolean;
   public_key_configured: boolean;
   known_hosts_configured: boolean;
+  agent: RemoteServerAgentSummary | null;
   is_default: boolean;
   created_at: string;
   updated_at: string;
+}
+
+export interface RemoteServerAgentSummary {
+  status: "pending" | "online" | "offline";
+  version: string | null;
+  cpu_usage_percentage: number | null;
+  cpu_cores: number | null;
+  memory_used_bytes: number | null;
+  memory_total_bytes: number | null;
+  disk_used_bytes: number | null;
+  disk_total_bytes: number | null;
+  docker_containers: number | null;
+  docker_running_containers: number | null;
+  last_heartbeat_at: string | null;
+  last_error: string | null;
+  installed_at: string;
+  updated_at: string;
+}
+
+export interface RemoteServerAgentInstallResult {
+  agent: RemoteServerAgentSummary;
 }
 
 export interface RemoteServerInput {
@@ -75,8 +97,24 @@ export function apiSetDefaultRemoteServer(
 export function apiCheckRemoteServer(
   serverId: string,
 ): Promise<ApiResult<RemoteServerCheckResult>> {
-  return apiFetch<RemoteServerCheckResult>(
-    `${endpoint}/${encodeURIComponent(serverId)}/check`,
+  return apiFetch<RemoteServerCheckResult>(`${endpoint}/${encodeURIComponent(serverId)}/check`, {
+    method: "POST",
+  });
+}
+
+export function apiInstallRemoteServerAgent(
+  serverId: string,
+): Promise<ApiResult<RemoteServerAgentInstallResult>> {
+  return apiFetch<RemoteServerAgentInstallResult>(
+    `${endpoint}/${encodeURIComponent(serverId)}/agent/install`,
     { method: "POST" },
+  );
+}
+
+export function apiGetRemoteServerAgent(
+  serverId: string,
+): Promise<ApiResult<RemoteServerAgentSummary | null>> {
+  return apiFetch<RemoteServerAgentSummary | null>(
+    `${endpoint}/${encodeURIComponent(serverId)}/agent`,
   );
 }

@@ -1,8 +1,8 @@
-import { shallowRef } from "vue";
+import { shallowRef, type Ref } from "vue";
 import { apiGetRuntimeStatus } from "@/lib/api/dashboard";
 import type { RuntimeStatus } from "@/lib/types";
 
-export function useRuntimeStatus() {
+export function useRuntimeStatus(destination?: Readonly<Ref<string>>) {
   const data = shallowRef<RuntimeStatus | null>(null);
   const error = shallowRef<string | null>(null);
   const loading = shallowRef(false);
@@ -10,7 +10,7 @@ export function useRuntimeStatus() {
   async function load() {
     loading.value = true;
     error.value = null;
-    const result = await apiGetRuntimeStatus();
+    const result = await apiGetRuntimeStatus(destination?.value);
     if (result.success) data.value = result.data;
     else error.value = result.error ?? "Could not load runtime status";
     loading.value = false;

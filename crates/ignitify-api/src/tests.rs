@@ -18,9 +18,11 @@ use ignitify_control_plane::{
     StaticRuntimeHealth, StaticSystemMetrics, SystemMetricsSnapshot,
 };
 use ignitify_db::{
-    DatabaseConfig, ProjectActor, ServerSettingsUpdate, UserRole as DatabaseUserRole,
+    DatabaseConfig, NewRemoteServer, ProjectActor, ServerSettingsUpdate,
+    UserRole as DatabaseUserRole,
 };
 use ignitify_domain::ProjectMemberRole;
+use sha2::{Digest, Sha256};
 use tower::ServiceExt;
 
 use crate::{DomainPolicy, router, state::AppState};
@@ -574,6 +576,59 @@ async fn session_token(state: &AppState) -> String {
         .await
         .unwrap()
         .access_token
+}
+
+#[tokio::test]
+async fn remote_agent_heartbeat_authenticates_and_persists_metrics() {
+    let state = state().await;
+    let server = state
+        .database
+        .remote_servers()
+        .create(NewRemoteServer {
+            name: "Agent VM".to_owned(),
+            host: "agent.example.com".to_owned(),
+            port: 22,
+            username: "ignitify".to_owned(),
+            deploy_path: "/srv/ignitify".to_owned(),
+            private_key_ciphertext: "private".to_owned(),
+            public_key_ciphertext: "public".to_owned(),
+            known_hosts_ciphertext: "known-hosts".to_owned(),
+            is_default: true,
+        })
+        .await
+        .unwrap();
+    let token = "agent-test-token";
+    let hash = format!("{:x}", Sha256::digest(token.as_bytes()));
+    state
+        .database
+        .remote_server_agents()
+        .install(&server.id, &hash)
+        .await
+        .unwrap();
+    let app = crate::routes::router(state.clone());
+    let mut heartbeat = request(
+        "POST",
+        "/api/v1/remote-agents/heartbeat",
+        None,
+        &format!(
+            r#"{{"server_id":"{}","version":"0.1.0","cpu_cores":2,"memory_used_bytes":10,"memory_total_bytes":20}}"#,
+            server.id
+        ),
+    );
+    heartbeat
+        .headers_mut()
+        .insert("authorization", format!("Bearer {token}").parse().unwrap());
+    let response = app.oneshot(heartbeat).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let agent = state
+        .database
+        .remote_server_agents()
+        .get(&server.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(agent.status, "online");
+    assert_eq!(agent.memory_total_bytes, Some(20));
 }
 
 fn request(method: &str, uri: &str, token: Option<&str>, body: &str) -> Request<Body> {

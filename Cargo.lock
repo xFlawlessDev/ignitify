@@ -1471,11 +1471,14 @@ dependencies = [
  "ignitify-domain",
  "ignitify-runtime-compose",
  "ignitify-runtime-docker",
+ "ignitify-runtime-remote",
  "ignitify-terminal",
  "jsonwebtoken",
  "reqwest",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
+ "subtle",
  "thiserror 2.0.19",
  "tokio",
  "tower",
@@ -1553,6 +1556,7 @@ dependencies = [
  "ignitify-monitoring",
  "ignitify-runtime-compose",
  "ignitify-runtime-docker",
+ "ignitify-runtime-remote",
  "ignitify-source-git",
  "ignitify-terminal",
  "rand 0.8.7",
@@ -1649,6 +1653,24 @@ dependencies = [
  "thiserror 2.0.19",
  "tokio",
  "uuid",
+]
+
+[[package]]
+name = "ignitify-runtime-remote"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "ignitify-control-plane",
+ "ignitify-db",
+ "ignitify-domain",
+ "ignitify-runtime-docker",
+ "portable-pty",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tokio",
+ "uuid",
+ "yaml-rust2",
 ]
 
 [[package]]

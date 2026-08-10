@@ -72,6 +72,66 @@ async function selectOption(host: HTMLElement, triggerId: string, label: string)
 }
 
 describe("ServiceConfigurationPanel", () => {
+  it("saves the selected remote deployment destination", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => [
+          {
+            id: "destination-1",
+            name: "Production VM",
+            host: "production.example.com",
+            port: 22,
+            username: "ignitify",
+            deploy_path: "/srv/ignitify",
+            private_key_configured: true,
+            public_key_configured: true,
+            known_hosts_configured: true,
+            agent: null,
+            is_default: true,
+            created_at: "2026-08-01T00:00:00Z",
+            updated_at: "2026-08-01T00:00:00Z",
+          },
+        ],
+      }),
+    );
+    const component = (await import("./ServiceConfigurationPanel.vue")).default;
+    const onSave = vi.fn();
+    const host = document.createElement("div");
+    document.body.append(host);
+    const remoteService = {
+      ...service,
+      kind: "compose" as const,
+      compose_yaml:
+        "services:\n  web:\n    image: nginx@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n",
+      exposed_service: "web",
+      source_config: { source: "compose" },
+    };
+    const app = createApp(component, {
+      service: remoteService,
+      providers: [],
+      inheritedVariables: [],
+      saving: false,
+      error: null,
+      onSave,
+    });
+    app.mount(host);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await nextTick();
+    await selectOption(host, "service-config-destination", "Production VM");
+    (host.querySelector("form") as HTMLFormElement).dispatchEvent(
+      new Event("submit", { bubbles: true, cancelable: true }),
+    );
+    await nextTick();
+
+    expect(onSave.mock.calls[0]?.[0]).toMatchObject({
+      deployment_destination_id: "destination-1",
+    });
+    app.unmount();
+  });
+
   it("saves inline Compose YAML entered in the editor", async () => {
     const component = (await import("./ServiceConfigurationPanel.vue")).default;
     const onSave = vi.fn();

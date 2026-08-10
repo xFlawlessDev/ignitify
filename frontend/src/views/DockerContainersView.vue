@@ -3,7 +3,6 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
-  CircleAlert,
   Container,
   Copy,
   Cpu,
@@ -20,9 +19,11 @@ import {
   Upload,
 } from "@lucide/vue";
 import { computed, onMounted, onUnmounted, shallowRef, watch } from "vue";
+import { toast } from "vue-sonner";
 import { PopoverClose } from "reka-ui";
 import ContainerActionDialog from "@/components/runtime/ContainerActionDialog.vue";
 import type { ContainerActionKey } from "@/components/runtime/container-actions";
+import DestinationSelector from "@/components/runtime/DestinationSelector.vue";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -38,19 +39,27 @@ import { useRuntimeContainers } from "@/composables/useRuntimeContainers";
 import { useRuntimeStatus } from "@/composables/useRuntimeStatus";
 import type { RuntimeContainer, RuntimePort } from "@/lib/types";
 
+const selectedDestinationId = shallowRef("local");
+const isLocalDestination = computed(() => selectedDestinationId.value === "local");
 const {
   data: runtime,
   error: runtimeError,
   load: loadRuntime,
   loading: runtimeLoading,
-} = useRuntimeStatus();
+} = useRuntimeStatus(selectedDestinationId);
 const {
   data: containers,
   error: inventoryError,
   load: loadContainers,
   loading: inventoryLoading,
-} = useRuntimeContainers();
+} = useRuntimeContainers(selectedDestinationId);
 const metrics = computed(() => runtime.value?.metrics ?? null);
+const capacity = computed(() => ({
+  containers: metrics.value?.containers ?? null,
+  running: metrics.value?.containers_running ?? null,
+  images: metrics.value?.images ?? null,
+  memoryBytes: metrics.value?.memory_bytes ?? null,
+}));
 const error = computed(() => runtimeError.value ?? inventoryError.value);
 const loading = computed(() => runtimeLoading.value || inventoryLoading.value);
 const CONTAINERS_PER_PAGE = 10;
@@ -118,6 +127,7 @@ const selectedContainer = shallowRef<RuntimeContainer | null>(null);
 const activeAction = shallowRef<ContainerActionKey | null>(null);
 const actionDialogOpen = shallowRef(false);
 const removeDialogOpen = shallowRef(false);
+const lastNotifiedError = shallowRef<string | null>(null);
 
 function formatBytes(value: number | null | undefined) {
   if (!value) return "Unavailable";
@@ -174,6 +184,7 @@ async function copyContainerId(container: RuntimeContainer) {
   }
 
   copiedContainerId.value = container.id;
+  toast.success("Container ID copied", { description: container.name });
   if (copyTimer !== undefined) window.clearTimeout(copyTimer);
   copyTimer = window.setTimeout(() => {
     copiedContainerId.value = null;
@@ -215,7 +226,12 @@ function handleVisibilityChange() {
   if (refreshTimer === undefined) void refresh();
 }
 
-async function refresh() {
+async function handleDestinationChange() {
+  currentPage.value = 1;
+  await refresh();
+}
+
+async function refresh(showSuccess = false) {
   if (loading.value) return;
   if (refreshTimer !== undefined) {
     window.clearTimeout(refreshTimer);
@@ -223,6 +239,15 @@ async function refresh() {
   }
   const startedAt = Date.now();
   await Promise.all([loadRuntime(), loadContainers()]);
+  if (error.value) {
+    if (error.value !== lastNotifiedError.value) {
+      lastNotifiedError.value = error.value;
+      toast.error("Docker inventory unavailable", { description: error.value });
+    }
+  } else {
+    lastNotifiedError.value = null;
+    if (showSuccess) toast.success("Docker inventory refreshed");
+  }
   scheduleRefresh(Math.max(0, REFRESH_INTERVAL_MS - (Date.now() - startedAt)));
 }
 
@@ -230,6 +255,7 @@ async function handleContainerRemoved() {
   selectedContainer.value = null;
   activeAction.value = null;
   await refresh();
+  toast.success("Container removed");
 }
 
 onMounted(() => {
@@ -251,19 +277,26 @@ onUnmounted(() => {
         <p class="ui-label">Docker</p>
         <h1 class="mt-2 text-3xl leading-none font-normal">Containers</h1>
         <p class="mt-2 text-sm text-muted-foreground">
-          Runtime health and aggregate container capacity for this host.
+          Runtime health and aggregate container capacity for the selected destination.
         </p>
       </div>
-      <Button
-        class="w-full shrink-0 sm:w-auto"
-        size="sm"
-        variant="outline"
-        :disabled="loading"
-        @click="refresh"
-      >
-        <RefreshCw class="size-4" :class="loading ? 'animate-spin' : ''" :stroke-width="1.5" />
-        Refresh
-      </Button>
+      <div class="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
+        <DestinationSelector
+          v-model="selectedDestinationId"
+          class="min-w-52 flex-1 sm:flex-none"
+          @change="handleDestinationChange"
+        />
+        <Button
+          class="flex-1 shrink-0 sm:flex-none"
+          size="sm"
+          variant="outline"
+          :disabled="loading"
+          @click="refresh(true)"
+        >
+          <RefreshCw class="size-4" :class="loading ? 'animate-spin' : ''" :stroke-width="1.5" />
+          Refresh
+        </Button>
+      </div>
     </header>
 
     <section
@@ -283,7 +316,7 @@ onUnmounted(() => {
             <Container class="size-4 text-muted-foreground" :stroke-width="1.5" />
           </div>
           <p class="text-3xl leading-none tracking-normal">
-            {{ metrics ? metrics.containers : "—" }}
+            {{ capacity.containers ?? "—" }}
           </p>
         </section>
         <section class="grid min-h-32 content-between bg-background p-4 sm:min-h-36 sm:p-5">
@@ -292,7 +325,7 @@ onUnmounted(() => {
             <Server class="size-4 text-muted-foreground" :stroke-width="1.5" />
           </div>
           <p class="text-3xl leading-none tracking-normal">
-            {{ metrics ? metrics.containers_running : "—" }}
+            {{ capacity.running ?? "—" }}
           </p>
         </section>
         <section class="grid min-h-32 content-between bg-background p-4 sm:min-h-36 sm:p-5">
@@ -300,7 +333,7 @@ onUnmounted(() => {
             <p class="ui-label">Images</p>
             <Layers3 class="size-4 text-muted-foreground" :stroke-width="1.5" />
           </div>
-          <p class="text-3xl leading-none tracking-normal">{{ metrics ? metrics.images : "—" }}</p>
+          <p class="text-3xl leading-none tracking-normal">{{ capacity.images ?? "—" }}</p>
         </section>
         <section class="grid min-h-32 content-between bg-background p-4 sm:min-h-36 sm:p-5">
           <div class="flex items-center justify-between gap-4">
@@ -308,31 +341,10 @@ onUnmounted(() => {
             <Cpu class="size-4 text-muted-foreground" :stroke-width="1.5" />
           </div>
           <p class="text-3xl leading-none tracking-normal">
-            {{ metrics ? formatBytes(metrics.memory_bytes) : "—" }}
+            {{ capacity.memoryBytes === null ? "—" : formatBytes(capacity.memoryBytes) }}
           </p>
         </section>
       </template>
-    </section>
-
-    <section
-      v-if="error"
-      class="mt-4 rounded-[10px] flex items-start justify-between gap-4 border border-destructive/40 bg-card px-5 py-4 max-[640px]:flex-col"
-      role="alert"
-    >
-      <div class="flex items-start gap-2 text-sm text-destructive">
-        <CircleAlert class="mt-0.5 size-4 shrink-0" :stroke-width="1.5" />
-        <p>{{ error }}</p>
-      </div>
-      <Button
-        class="shrink-0 max-[640px]:w-full"
-        size="sm"
-        variant="outline"
-        :disabled="loading"
-        @click="refresh"
-      >
-        <RefreshCw class="size-4" :class="loading ? 'animate-spin' : ''" :stroke-width="1.5" />
-        Retry
-      </Button>
     </section>
 
     <section class="mt-6 min-w-0 gap-4">
@@ -550,9 +562,9 @@ onUnmounted(() => {
         </nav>
         <div v-if="containers !== null && containers.length === 0" class="px-5 py-8">
           <Container class="size-4 text-muted-foreground" :stroke-width="1.5" />
-          <p class="mt-4 text-sm font-medium">No containers found</p>
+          <p class="mt-4 text-sm font-medium">No managed containers found</p>
           <p class="mt-1 text-xs leading-5 text-muted-foreground">
-            Docker is reachable but has no active or stopped containers to monitor.
+            Docker is reachable, but Ignitify has no active or stopped containers to manage here.
           </p>
         </div>
       </section>
@@ -563,6 +575,7 @@ onUnmounted(() => {
       v-model:remove-open="removeDialogOpen"
       :action="activeAction"
       :container="selectedContainer"
+      :destination-id="isLocalDestination ? undefined : selectedDestinationId"
       @removed="handleContainerRemoved"
     />
   </div>

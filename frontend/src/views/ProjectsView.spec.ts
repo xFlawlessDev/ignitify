@@ -7,6 +7,8 @@ const mocks = vi.hoisted(() => ({
   load: vi.fn(),
   push: vi.fn(),
   state: undefined as unknown,
+  toastError: vi.fn(),
+  toastSuccess: vi.fn(),
 }));
 
 vi.mock("@/composables/useProjects", () => ({
@@ -16,6 +18,13 @@ vi.mock("@/composables/useProjects", () => ({
 vi.mock("vue-router", () => ({
   RouterLink: { template: "<a><slot /></a>" },
   useRouter: () => ({ push: mocks.push }),
+}));
+
+vi.mock("vue-sonner", () => ({
+  toast: {
+    error: mocks.toastError,
+    success: mocks.toastSuccess,
+  },
 }));
 
 function project(index = 0) {
@@ -65,19 +74,27 @@ afterEach(() => {
   mocks.create.mockReset();
   mocks.load.mockReset();
   mocks.push.mockReset();
+  mocks.toastError.mockReset();
+  mocks.toastSuccess.mockReset();
 });
 
 describe("ProjectsView", () => {
-  it("renders loading, error, and empty states", async () => {
-    const projects = state({ loading: true });
-    mocks.state = projects;
-    const mounted = await mount();
-    expect(mounted.host.querySelectorAll('[data-slot="skeleton"]').length > 0).toBe(true);
+  it("renders loading and empty states, and reports loading failures with a toast", async () => {
+    mocks.state = state({ loading: true });
+    mocks.load.mockReturnValue(new Promise(() => undefined));
+    const loadingView = await mount();
+    expect(loadingView.host.querySelectorAll('[data-slot="skeleton"]').length > 0).toBe(true);
+    loadingView.app.unmount();
 
-    projects.loading.value = false;
-    projects.error.value = "offline";
+    const projects = state({ error: "offline" });
+    mocks.state = projects;
+    mocks.load.mockResolvedValue(undefined);
+    const mounted = await mount();
+
     await nextTick();
-    expect(mounted.host.textContent).toContain("offline");
+    expect(mocks.toastError.mock.calls).toEqual([
+      ["Projects unavailable", { description: "offline" }],
+    ]);
 
     projects.error.value = null;
     await nextTick();
@@ -103,6 +120,9 @@ describe("ProjectsView", () => {
     expect(mocks.create.mock.calls).toEqual([[{ name: "Platform" }]]);
     expect(mocks.push.mock.calls).toEqual([
       [{ name: "ProjectDetail", params: { projectId: project().id } }],
+    ]);
+    expect(mocks.toastSuccess.mock.calls).toEqual([
+      ["Project created", { description: "Platform is ready to configure." }],
     ]);
     app.unmount();
   });

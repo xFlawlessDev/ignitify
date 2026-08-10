@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { shallowRef } from "vue";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useRuntimeContainers } from "./useRuntimeContainers";
 
@@ -79,5 +80,18 @@ describe("useRuntimeContainers", () => {
 
     expect(inventory.data.value).toHaveLength(1);
     expect(inventory.error.value).toBe("Docker offline");
+  });
+
+  it("loads inventory from the selected remote destination", async () => {
+    api.getRuntimeContainers.mockResolvedValueOnce({
+      data: { containers: [] },
+      success: true,
+    });
+    const destination = shallowRef("remote-vps");
+    const inventory = useRuntimeContainers(destination);
+
+    await inventory.load();
+
+    expect(api.getRuntimeContainers.mock.calls[0]?.[0]).toBe("remote-vps");
   });
 });

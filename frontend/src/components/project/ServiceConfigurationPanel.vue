@@ -12,7 +12,7 @@ import {
   Plus,
   Trash2,
 } from "@lucide/vue";
-import { computed, reactive, shallowRef, watch } from "vue";
+import { computed, onMounted, reactive, shallowRef, watch } from "vue";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -35,6 +35,7 @@ import YamlCodeEditor from "@/components/project/YamlCodeEditor.vue";
 import { useProviderRepositories } from "@/composables/useProviderRepositories";
 import { templateRuntimeDefaults, type TemplateApplication } from "@/lib/template-catalog";
 import { cn } from "@/lib/utils";
+import { apiListRemoteServers, type RemoteServerSummary } from "@/lib/api";
 import type {
   ApplicationBuilder,
   ProjectEnvironmentVariable,
@@ -76,6 +77,8 @@ const appliedTemplateName = shallowRef("");
 const validationError = shallowRef<string | null>(null);
 const activeEnvironmentKind = shallowRef<"variables" | "secrets">("variables");
 const showSecretValues = shallowRef(false);
+const deploymentDestinationId = shallowRef("local");
+const destinations = shallowRef<RemoteServerSummary[]>([]);
 
 interface ServiceVariableDraft extends ServiceVariable {
   is_set?: boolean;
@@ -291,6 +294,7 @@ function reset() {
       ? "80"
       : (props.service.internal_port?.toString() ?? "");
   healthcheck.value = props.service.healthcheck?.join("\n") ?? "";
+  deploymentDestinationId.value = props.service.deployment_destination_id ?? "local";
   validationError.value = null;
   variables.splice(
     0,
@@ -316,6 +320,15 @@ function reset() {
       if (repository.value)
         void sourceRepositories.loadBranches(providerId.value, repository.value);
     });
+  }
+}
+
+async function loadDestinations() {
+  try {
+    const result = await apiListRemoteServers();
+    if (result.success) destinations.value = result.data;
+  } catch {
+    destinations.value = [];
   }
 }
 
@@ -474,10 +487,13 @@ function submit() {
           }
         : {}),
     },
+    deployment_destination_id:
+      deploymentDestinationId.value === "local" ? null : deploymentDestinationId.value,
   });
 }
 
 watch(() => props.service.id, reset, { immediate: true });
+onMounted(() => void loadDestinations());
 </script>
 
 <template>
@@ -501,6 +517,30 @@ watch(() => props.service.id, reset, { immediate: true });
       <Label for="service-config-name">Service name</Label>
       <Input id="service-config-name" v-model="name" maxlength="64" required />
     </div>
+
+    <section class="grid gap-2 border-t border-border pt-5">
+      <div>
+        <p class="text-sm font-medium">Deployment destination</p>
+        <p class="mt-1 text-xs text-muted-foreground">
+          Local runs on this Ignitify host. Remote destinations receive releases through SSH.
+        </p>
+      </div>
+      <Select v-model="deploymentDestinationId">
+        <SelectTrigger id="service-config-destination" class="w-full">
+          <SelectValue placeholder="This Ignitify host" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="local">This Ignitify host</SelectItem>
+          <SelectItem
+            v-for="destination in destinations"
+            :key="destination.id"
+            :value="destination.id"
+          >
+            {{ destination.name }} · {{ destination.username }}@{{ destination.host }}
+          </SelectItem>
+        </SelectContent>
+      </Select>
+    </section>
 
     <section class="grid gap-3 border-t border-border pt-5">
       <div>

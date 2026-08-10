@@ -17,6 +17,7 @@ ignitify-monitoring = { path = "../ignitify-monitoring" }
 ignitify-db = { path = "../ignitify-db" }
 ignitify-dns = { path = "../ignitify-dns" }
 ignitify-runtime-docker = { path = "../ignitify-runtime-docker" }
+ignitify-runtime-remote = { path = "../ignitify-runtime-remote" }
 ignitify-source-git = { path = "../ignitify-source-git" }
 ignitify-terminal = { path = "../ignitify-terminal" }
 ignitify-runtime-compose = { path = "../ignitify-runtime-compose" }

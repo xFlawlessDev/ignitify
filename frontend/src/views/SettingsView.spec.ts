@@ -2,6 +2,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp, nextTick } from "vue";
 
+const mocks = vi.hoisted(() => ({ toastSuccess: vi.fn() }));
+
+vi.mock("vue-sonner", () => ({
+  toast: {
+    error: vi.fn(),
+    success: mocks.toastSuccess,
+  },
+}));
+
 const initialSettings = {
   application: {
     public_origin: "http://127.0.0.1:6565",
@@ -67,6 +76,7 @@ afterEach(() => {
   document.body.replaceChildren();
   vi.unstubAllGlobals();
   vi.resetModules();
+  mocks.toastSuccess.mockReset();
 });
 
 describe("SettingsView", () => {
@@ -167,7 +177,7 @@ describe("SettingsView", () => {
     save.click();
     await settle();
 
-    expect(host.textContent).toContain("Saved to server");
+    expect(mocks.toastSuccess.mock.calls).toEqual([["Infrastructure settings saved"]]);
     expect(window.localStorage.length).toBe(0);
     const calls = fetchCalls;
     expect(

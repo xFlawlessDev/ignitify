@@ -54,6 +54,14 @@ pub(crate) enum ApiError {
     RemoteServerCheckFailedWithReason(&'static str),
     #[error("remote server connection failed: {0}")]
     RemoteServerCheckFailedWithDiagnostic(String),
+    #[error("remote monitoring agent endpoint is unavailable")]
+    RemoteAgentEndpointUnavailable,
+    #[error("remote monitoring agent provisioning failed")]
+    RemoteAgentProvisionFailed,
+    #[error("remote runtime request failed")]
+    RemoteRuntimeFailed,
+    #[error("remote runtime request failed: {0}")]
+    RemoteRuntimeFailedWithReason(&'static str),
 }
 
 impl IntoResponse for ApiError {
@@ -96,6 +104,20 @@ impl IntoResponse for ApiError {
             Self::Database(DatabaseError::RemoteServerNameConflict) => (
                 StatusCode::CONFLICT,
                 "remote server name already exists".to_owned(),
+            ),
+            Self::Database(DatabaseError::RemoteServerNotFound) => (
+                StatusCode::BAD_REQUEST,
+                "deployment destination was not found".to_owned(),
+            ),
+            Self::Database(DatabaseError::RemoteServerInUse) => (
+                StatusCode::CONFLICT,
+                "remove this server from its services before deleting it".to_owned(),
+            ),
+            Self::Control(ignitify_control_plane::Error::Database(
+                DatabaseError::RemoteServerNotFound,
+            )) => (
+                StatusCode::BAD_REQUEST,
+                "deployment destination was not found".to_owned(),
             ),
             Self::Database(DatabaseError::UptimeMonitorNameConflict) => (
                 StatusCode::CONFLICT,
@@ -189,6 +211,22 @@ impl IntoResponse for ApiError {
             }
             Self::RemoteServerCheckFailedWithDiagnostic(message) => {
                 (StatusCode::BAD_GATEWAY, message)
+            }
+            Self::RemoteAgentEndpointUnavailable => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "remote agent endpoint is unavailable; configure a public trusted origin"
+                    .to_owned(),
+            ),
+            Self::RemoteAgentProvisionFailed => (
+                StatusCode::BAD_GATEWAY,
+                "remote monitoring agent provisioning failed".to_owned(),
+            ),
+            Self::RemoteRuntimeFailed => (
+                StatusCode::BAD_GATEWAY,
+                "remote runtime request failed".to_owned(),
+            ),
+            Self::RemoteRuntimeFailedWithReason(message) => {
+                (StatusCode::BAD_GATEWAY, message.to_owned())
             }
             Self::Terminal(_) => (
                 StatusCode::SERVICE_UNAVAILABLE,

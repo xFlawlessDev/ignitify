@@ -1,13 +1,23 @@
 <script setup lang="ts">
 import { RefreshCw, Server } from "@lucide/vue";
 import { onMounted } from "vue";
+import { toast } from "vue-sonner";
 import RuntimeStatusPanel from "@/components/runtime/RuntimeStatusPanel.vue";
 import { Button } from "@/components/ui/button";
 import { useRuntimeStatus } from "@/composables/useRuntimeStatus";
 
 const { data, error, load, loading } = useRuntimeStatus();
 
-onMounted(load);
+async function loadServerStatus(showSuccess = false) {
+  await load();
+  if (error.value) {
+    toast.error("Server status unavailable", { description: error.value });
+    return;
+  }
+  if (showSuccess) toast.success("Server status refreshed");
+}
+
+onMounted(() => void loadServerStatus());
 </script>
 
 <template>
@@ -25,18 +35,11 @@ onMounted(load);
         size="sm"
         variant="outline"
         :disabled="loading"
-        @click="load"
+        @click="loadServerStatus(true)"
         ><RefreshCw class="size-4" :class="loading ? 'animate-spin' : ''" :stroke-width="1.5" />
         Refresh</Button
       >
     </header>
-    <section
-      v-if="error"
-      class="mt-4 rounded-[10px] border border-destructive/40 bg-card px-5 py-4 text-sm text-destructive"
-      role="alert"
-    >
-      {{ error }}
-    </section>
     <section class="mt-6 max-w-md">
       <RuntimeStatusPanel :runtime="data" :loading="loading" />
     </section>

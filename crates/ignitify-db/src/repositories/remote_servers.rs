@@ -169,10 +169,24 @@ impl RemoteServersRepository {
     }
 
     pub async fn delete(&self, id: &str) -> Result<bool> {
+        let mut transaction = self.pool.begin().await?;
+        let referenced = sqlx::query_scalar::<_, i64>(
+            "SELECT EXISTS(SELECT 1 FROM services WHERE deployment_destination_id = ?)
+             OR EXISTS(SELECT 1 FROM deployments WHERE deployment_destination_id = ?)",
+        )
+        .bind(id)
+        .bind(id)
+        .fetch_one(&mut *transaction)
+        .await?;
+        if referenced != 0 {
+            transaction.rollback().await?;
+            return Err(DatabaseError::RemoteServerInUse);
+        }
         let result = sqlx::query("DELETE FROM remote_servers WHERE id = ?")
             .bind(id)
-            .execute(&self.pool)
+            .execute(&mut *transaction)
             .await?;
+        transaction.commit().await?;
         Ok(result.rows_affected() == 1)
     }
 

@@ -2,6 +2,7 @@
 import { LockKeyhole } from "@lucide/vue";
 import { onMounted, shallowRef } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import { toast } from "vue-sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -24,12 +25,17 @@ onMounted(async () => {
   if (result.success) {
     bootstrapRequired.value = result.data.required;
     bootstrapEnabled.value = result.data.enabled;
+    return;
   }
+  toast.error("Bootstrap status unavailable", {
+    description: result.error ?? "Unable to determine how to sign in.",
+  });
 });
 
 async function submit(): Promise<void> {
   if (bootstrapRequired.value && !bootstrapEnabled.value) {
     error.value = "Bootstrap is not configured";
+    toast.error("Bootstrap unavailable", { description: error.value });
     return;
   }
   loading.value = true;
@@ -37,11 +43,14 @@ async function submit(): Promise<void> {
     ? await auth.bootstrap(username.value.trim(), password.value, bootstrapSecret.value)
     : await auth.login(username.value.trim(), password.value);
   loading.value = false;
-  if (!error.value) {
-    await router.replace(
-      typeof route.query.redirect === "string" ? route.query.redirect : "/dashboard",
-    );
+  if (error.value) {
+    toast.error("Authentication failed", { description: error.value });
+    return;
   }
+  toast.success(bootstrapRequired.value ? "Administrator created" : "Signed in");
+  await router.replace(
+    typeof route.query.redirect === "string" ? route.query.redirect : "/dashboard",
+  );
 }
 </script>
 
@@ -91,13 +100,6 @@ async function submit(): Promise<void> {
             required
           />
         </Label>
-        <p
-          v-if="error"
-          class="border-l-2 border-destructive pl-3 text-sm text-destructive"
-          role="alert"
-        >
-          {{ error }}
-        </p>
         <Button class="w-full" :disabled="loading || (bootstrapRequired && !bootstrapEnabled)">
           {{
             loading
