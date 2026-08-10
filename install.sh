@@ -57,7 +57,7 @@ esac
 [ "$(uname -s)" = "Linux" ] || die "Ignitify release bundles support Linux only"
 case "$(uname -m)" in
   x86_64|amd64) ARCH="amd64" ;;
-  aarch64|arm64) ARCH="arm64" ;;
+  aarch64|arm64) die "Ignitify releases currently support Linux amd64 only; ARM64 delivery is not available yet" ;;
   *) die "unsupported CPU architecture: $(uname -m)" ;;
 esac
 

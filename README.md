@@ -20,6 +20,7 @@ infrastructure you administer.
 - [API documentation](#api-documentation)
 - [Development](#development)
 - [Release packaging](#release-packaging)
+- [Release guide](docs/releasing.md)
 - [Repository layout](#repository-layout)
 - [Contributing](#contributing)
 - [License](#license)
@@ -94,8 +95,8 @@ The default Linux installation is a single command:
 curl -fsSL https://raw.githubusercontent.com/xFlawlessDev/ignitify/main/install.sh | sh
 ```
 
-The bootstrapper is served from GitHub raw content. It selects the `amd64` or
-`arm64` archive, downloads the bundle and `SHA256SUMS` from the repository's
+The bootstrapper is served from GitHub raw content. It supports Linux `amd64`,
+downloads the bundle and `SHA256SUMS` from the repository's
 GitHub Release at `/releases/latest/download/`, verifies the archive, and
 requests `sudo` when administrator access is required.
 
@@ -295,19 +296,29 @@ dist/vX.Y.Z/SHA256SUMS
 dist/vX.Y.Z/release-linux-amd64.json
 ```
 
-Run the same command on an `arm64` Linux runner for the ARM archive. The
-packager refreshes `SHA256SUMS` with all archives present in the version
-directory. Use `--dry-run` to inspect the generated version and release plan,
-or `--skip-check` only when an equivalent CI quality gate already ran.
+Pushing an exact `vX.Y.Z` tag starts the GitHub Actions release workflow. It
+builds and validates the native `amd64` archive, verifies the pinned Railpack
+binary, writes `SHA256SUMS`, and publishes the GitHub Release. The separate CI
+workflow runs the frontend and Rust quality gates for pull requests and pushes
+to `main`.
 
-Create a GitHub Release tagged `vX.Y.Z`, then upload the archive,
-`SHA256SUMS`, and `release-linux-<arch>.json` as release assets. The default
-installer resolves assets through
+See the [release guide](docs/releasing.md) for the one-time GitHub setup,
+version and tag procedure, verification steps, manual fallback, and
+troubleshooting.
+
+Before enabling releases, configure the repository's GitHub Actions workflow
+permissions to allow `contents: write`. The publish job targets the
+`production` environment; configure required reviewers there when release
+approval is needed. The default installer resolves assets through
 `https://github.com/xFlawlessDev/ignitify/releases/latest/download/`; a
 versioned installation uses
 `https://github.com/xFlawlessDev/ignitify/releases/download/vX.Y.Z/`.
-Build and publish a separate archive for `arm64` when that architecture is
-supported.
+ARM64 delivery is intentionally disabled until it has been validated on native
+hardware. The installer reports this limitation explicitly on ARM64 hosts.
+
+For an emergency manual build, run `scripts/build-release.sh` on each native
+Linux architecture. Use `--dry-run` to inspect its release plan, or
+`--skip-check` only when an equivalent CI quality gate already ran.
 
 Never publish `.env` files, databases, runtime secrets, generated certificates,
 temporary build workspaces, or an archive without its matching checksum.

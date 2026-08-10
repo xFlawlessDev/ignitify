@@ -101,7 +101,7 @@ The public Linux installer is intentionally a small POSIX bootstrap. The default
 curl -fsSL https://raw.githubusercontent.com/xFlawlessDev/ignitify/main/install.sh | sh
 ```
 
-It downloads `https://github.com/xFlawlessDev/ignitify/releases/latest/download/ignitify-linux-{amd64|arm64}.tar.gz` and its `SHA256SUMS`, verifies the matching checksum, then invokes the bundle installer with `sudo` when needed. A selected tag uses `releases/download/<tag>/` instead. The bundled installer provisions the required Docker Engine/Compose/Buildx, Git, OpenSSH client, Railpack, Traefik assets, and `ignitify.service`; do not require a user to install those prerequisites manually on Ubuntu, Debian, or Fedora.
+It downloads `https://github.com/xFlawlessDev/ignitify/releases/latest/download/ignitify-linux-amd64.tar.gz` and its `SHA256SUMS`, verifies the matching checksum, then invokes the bundle installer with `sudo` when needed. A selected tag uses `releases/download/<tag>/` instead. Linux ARM64 delivery is intentionally disabled until it is validated on native hardware. The bundled installer provisions the required Docker Engine/Compose/Buildx, Git, OpenSSH client, Railpack, Traefik assets, and `ignitify.service`; do not require a user to install those prerequisites manually on Ubuntu, Debian, or Fedora.
 
 The root Cargo workspace version is the source metadata for every Rust crate. Use `scripts/version.sh --set X.Y.Z` only when deliberately preparing a new source version; it synchronizes root `Cargo.toml`, `Cargo.lock`, and `frontend/package.json`. For build identity, `scripts/version.sh` derives an exact semantic Git tag at `HEAD`, or a deterministic commit snapshot.
 
@@ -111,7 +111,7 @@ For a tagged Linux release, obtain the matching native Railpack binary and run:
 scripts/build-release.sh --require-tag --railpack /path/to/railpack
 ```
 
-Run the build on each native Linux architecture that is published. `scripts/build-release.sh` invokes the frontend/Rust quality gates, creates `release-linux-{amd64|arm64}.json`, and `scripts/package-release.sh` refreshes a combined `SHA256SUMS` for all release archives in `dist/vX.Y.Z/`. Create a GitHub Release using the matching `vX.Y.Z` tag and upload those files as assets; GitHub resolves the default installer through `releases/latest/download/`. Do not publish an archive without its matching checksum, include `.env` or runtime data in a release archive, or test the installer against a live host without explicit authorization.
+Run the release build on native Linux amd64. `scripts/build-release.sh` invokes the frontend/Rust quality gates, creates `release-linux-amd64.json`, and `scripts/package-release.sh` refreshes `SHA256SUMS` for the release archives in `dist/vX.Y.Z/`. Create a GitHub Release using the matching `vX.Y.Z` tag and upload those files as assets; GitHub resolves the default installer through `releases/latest/download/`. Do not publish an archive without its matching checksum, include `.env` or runtime data in a release archive, or test the installer against a live host without explicit authorization.
 
 ## Rust Conventions
 

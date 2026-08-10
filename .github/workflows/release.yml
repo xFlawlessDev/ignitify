@@ -1,0 +1,157 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing semantic version tag to build and publish, for example v0.2.0
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate release tag
+    runs-on: ubuntu-24.04
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - name: Check out requested tag
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0
+
+      - name: Verify tag and source version
+        id: release
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -Eeuo pipefail
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]] \
+            || { echo "release tag must be semantic version text such as v0.2.0" >&2; exit 1; }
+          git fetch --force origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+          git show-ref --verify --quiet "refs/tags/$RELEASE_TAG"
+          git checkout --detach "$RELEASE_TAG"
+          [[ "$(git rev-parse HEAD)" == "$(git rev-list -n 1 "$RELEASE_TAG")" ]]
+
+          VERSION="$(bash scripts/version.sh --exact-tag)"
+          [[ "v$VERSION" == "$RELEASE_TAG" ]]
+          grep --fixed-strings --line-regexp "version = \"$VERSION\"" Cargo.toml
+          VERSION="$VERSION" node --input-type=module -e '
+            import manifest from "./frontend/package.json" with { type: "json" };
+            if (manifest.version !== process.env.VERSION) process.exit(1);
+          '
+
+          {
+            echo "tag=$RELEASE_TAG"
+            echo "version=$VERSION"
+          } >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build amd64 release bundle
+    needs: validate
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out release tag
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.validate.outputs.tag }}
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+
+      - name: Enable pnpm 11.18.0
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.18.0 --activate
+          pnpm --version
+
+      - name: Set up stable Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustc --version
+          cargo --version
+
+      - name: Download verified native Railpack
+        run: bash scripts/download-railpack.sh --output "$RUNNER_TEMP/railpack"
+
+      - name: Build and package release
+        run: bash scripts/build-release.sh --require-tag --railpack "$RUNNER_TEMP/railpack"
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-amd64
+          path: |
+            dist/${{ needs.validate.outputs.tag }}/ignitify-linux-amd64.tar.gz
+            dist/${{ needs.validate.outputs.tag }}/release-linux-amd64.json
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish GitHub Release
+    needs:
+      - validate
+      - build
+    runs-on: ubuntu-24.04
+    environment:
+      name: production
+      url: https://github.com/${{ github.repository }}/releases/tag/${{ needs.validate.outputs.tag }}
+    permissions:
+      contents: write
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-amd64
+          path: dist/${{ needs.validate.outputs.tag }}
+
+      - name: Create and verify combined checksums
+        env:
+          RELEASE_TAG: ${{ needs.validate.outputs.tag }}
+        run: |
+          set -Eeuo pipefail
+          artifact_dir="dist/$RELEASE_TAG"
+          test -f "$artifact_dir/ignitify-linux-amd64.tar.gz"
+          test -f "$artifact_dir/release-linux-amd64.json"
+          (
+            cd "$artifact_dir"
+            sha256sum ignitify-linux-amd64.tar.gz > SHA256SUMS
+            sha256sum --check SHA256SUMS
+          )
+
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.validate.outputs.tag }}
+        run: |
+          set -Eeuo pipefail
+          artifact_dir="dist/$RELEASE_TAG"
+          assets=(
+            "$artifact_dir/ignitify-linux-amd64.tar.gz"
+            "$artifact_dir/SHA256SUMS"
+            "$artifact_dir/release-linux-amd64.json"
+          )
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" "${assets[@]}" --clobber
+          else
+            gh release create "$RELEASE_TAG" "${assets[@]}" \
+              --title "Ignitify $RELEASE_TAG" \
+              --generate-notes \
+              --verify-tag
+          fi

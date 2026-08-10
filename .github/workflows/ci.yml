@@ -1,0 +1,90 @@
+name: Continuous integration
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    name: Frontend quality
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+
+      - name: Enable pnpm 11.18.0
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.18.0 --activate
+          pnpm --version
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Check frontend
+        working-directory: frontend
+        run: pnpm run check
+
+      - name: Test frontend
+        working-directory: frontend
+        run: pnpm run test
+
+      - name: Build frontend
+        working-directory: frontend
+        run: pnpm run build
+
+      - name: Share embedded frontend bundle
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+          if-no-files-found: error
+          retention-days: 1
+
+  rust:
+    name: Rust quality
+    needs: frontend
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Restore embedded frontend bundle
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+
+      - name: Set up stable Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustc --version
+          cargo --version
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Check workspace
+        run: cargo check --locked --workspace
+
+      - name: Test workspace
+        run: cargo test --locked --workspace
+
+      - name: Lint workspace
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
