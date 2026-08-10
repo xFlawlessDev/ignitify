@@ -43,7 +43,7 @@ The product executes real Docker, Compose, SSH, DNS, HTTP-monitoring, Git, and S
 - `crates/ignitify-core/` - runtime configuration/secrets, dependency composition, backup/restore operations, listener, and process error.
 - `crates/ignitify-api/` - Axum router, handlers, HTTP DTOs/extractors, static SPA embedding/serving, audit helpers, and API error mapping.
 - `crates/ignitify-auth/` - credential, token, session, bootstrap, and step-up behavior.
-- `crates/ignitify-db/` - SQLx SQLite database, numbered migrations (`0001` through `0026` are committed), models, repositories, and persistence tests.
+- `crates/ignitify-db/` - SQLx SQLite database, numbered migrations (`0001` through `0027` are present in the current worktree), models, repositories, and persistence tests.
 - `crates/ignitify-domain/` - validation and runtime-neutral domain types.
 - `crates/ignitify-control-plane/` - deployment worker, service control, encrypted environment handling, streams, and runtime contracts.
 - `crates/ignitify-runtime-docker/`, `ignitify-runtime-compose/`, and `ignitify-runtime-remote/` - image, Compose, and SSH runtime adapters.
@@ -93,6 +93,24 @@ Use pnpm `11.18.0` and the provided Vite+ (`vp`) scripts. Do not replace them wi
 
 For local runtime work explicitly requested by the user, copy the relevant values from `.env.example`. Runtime secrets are created under `IGNITIFY_DATA_DIR` on first start when overrides are absent. Never commit `.env`, databases, runtime secrets, generated Traefik certificates, Compose stages, or build workspaces.
 
+## Release Packaging
+
+The public Linux installer is intentionally a small POSIX bootstrap. The default operator command is:
+
+```sh
+curl -fsSL https://ignitify.xflawless.dev/install.sh | sh
+```
+
+It downloads `releases/latest/ignitify-linux-{amd64|arm64}.tar.gz` and its `SHA256SUMS`, verifies the matching checksum, then invokes the bundle installer with `sudo` when needed. The bundled installer provisions the required Docker Engine/Compose/Buildx, Git, OpenSSH client, Railpack, Traefik assets, and `ignitify.service`; do not require a user to install those prerequisites manually on Ubuntu, Debian, or Fedora.
+
+Before packaging a Linux release, build the embedded frontend and the matching Linux `ignitify-core` binary, obtain the matching Railpack Linux binary, then run:
+
+```sh
+scripts/package-release.sh --version vX.Y.Z --railpack /path/to/railpack
+```
+
+Publish `dist/vX.Y.Z/ignitify-linux-{amd64|arm64}.tar.gz` and `dist/vX.Y.Z/SHA256SUMS` at `/releases/vX.Y.Z/`. Copy the selected artifacts to `/releases/latest/` for the default command. Do not publish an archive without its matching checksum, include `.env` or runtime data in a release archive, or test the installer against a live host without explicit authorization.
+
 ## Rust Conventions
 
 ### Structure And Visibility
@@ -106,7 +124,7 @@ For local runtime work explicitly requested by the user, copy the relevant value
 
 ### Persistence, Worker, And Errors
 
-- Add durable schema changes as a new, sequential SQL migration in `crates/ignitify-db/migrations/`; never edit an applied migration or reuse an existing migration number. The next committed migration must follow the current `0026` high-water mark. Add repository coverage with an isolated `sqlite::memory:` database when behavior changes.
+- Add durable schema changes as a new, sequential SQL migration in `crates/ignitify-db/migrations/`; never edit an applied migration or reuse an existing migration number. The next committed migration must follow the current `0027` high-water mark. Add repository coverage with an isolated `sqlite::memory:` database when behavior changes.
 - Keep SQL in repositories and bind every user-controlled value with SQLx `.bind(...)`. Do not concatenate input into SQL. Use transactions for state transitions that must be atomic, especially deployment, token-family, secret, and audit writes.
 - API handlers must map validation to `400`, unauthenticated to `401`, forbidden to `403`, inaccessible/nonexistent to `404`, conflicts to `409`, unavailable capability/dependency to the appropriate `5xx`, and unexpected failures to a non-sensitive `500` response. Only `ignitify-api` implements `IntoResponse`.
 - Use `Result` and `?` for recoverable failures. Never use `unwrap()` or `expect()` in production paths. Tests may use them when failure diagnostics remain clear.
@@ -136,6 +154,8 @@ For local runtime work explicitly requested by the user, copy the relevant value
 ## Important Files
 
 - `Cargo.toml` - workspace members and shared Rust dependencies.
+- `install.sh` - POSIX public bootstrap for `curl -fsSL https://ignitify.xflawless.dev/install.sh | sh`; downloads and verifies a matching Linux bundle before running its privileged installer.
+- `scripts/install-release.sh` and `scripts/package-release.sh` - release-bundle installer and packager. The installer provisions official Docker Engine/Compose/Buildx, Git, OpenSSH, Railpack, Traefik assets, and systemd on Ubuntu, Debian, or Fedora; the packager emits the versioned archive and `SHA256SUMS` served by the bootstrap endpoint.
 - `.env.example` - documented runtime configuration and security-sensitive defaults; never put real values here.
 - `crates/ignitify-core/src/main.rs` - process entrypoint and runtime composition; `operations.rs` owns backup/restore dispatch.
 - `crates/ignitify-api/src/lib.rs`, `routes.rs`, `state.rs`, and `handlers/` - public router composition, route registration, dependencies, and HTTP adapters.
