@@ -351,9 +351,10 @@ describe("SettingsView", () => {
       bucket: "ignitify-backups",
       access_key_id: "access-key-id",
       secret_access_key: "secret-access-key",
+      enabled: false,
       schedule_interval_hours: 48,
     });
-    expect(host.textContent).toContain("enabled");
+    expect(host.textContent).toContain("disabled");
     expect(host.textContent).toContain("Backup completed");
 
     const backupEnabled = host.querySelector("#backup-enabled") as HTMLButtonElement;
@@ -368,9 +369,54 @@ describe("SettingsView", () => {
     if (typeof controlsBody !== "string")
       throw new Error("Expected a JSON backup controls payload.");
     expect(JSON.parse(controlsBody)).toEqual({
-      enabled: false,
+      enabled: true,
       schedule_interval_hours: 48,
     });
+    app.unmount();
+  });
+
+  it("disables an existing destination without requiring replacement credentials", async () => {
+    backupDestination = {
+      endpoint: "https://account.r2.cloudflarestorage.com",
+      region: "us-east-1",
+      bucket: "ignitify-backups",
+      prefix: "ignitify",
+      server_side_encryption: "AES256",
+      enabled: true,
+      schedule_interval_hours: null,
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-01T00:00:00Z",
+    };
+    const { app, host } = await mountSettings();
+    await selectSection(host, "Backup");
+    const replaceCredentials = [...host.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("Replace credentials"),
+    ) as HTMLButtonElement;
+
+    replaceCredentials.click();
+    await nextTick();
+    const accessKey = host.querySelector("#s3-access-key-id") as HTMLInputElement;
+    const backupEnabled = host.querySelector("#draft-backup-enabled") as HTMLButtonElement;
+    expect(accessKey.value).toBe("");
+
+    backupEnabled.click();
+    await nextTick();
+    expect(host.textContent).not.toContain("Enter an S3 access key ID.");
+    const form = accessKey.closest("form") as HTMLFormElement;
+    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await settle();
+
+    const request = fetchCalls.find(
+      ([input, init]) =>
+        requestUrl(input).endsWith("/settings/backup-destination/s3") && init?.method === "PATCH",
+    );
+    const body = request?.[1]?.body;
+    if (typeof body !== "string") throw new Error("Expected a JSON backup controls payload.");
+    expect(JSON.parse(body)).toEqual({
+      enabled: false,
+      schedule_interval_hours: null,
+    });
+    expect(host.textContent).toContain("disabled");
     app.unmount();
   });
 });

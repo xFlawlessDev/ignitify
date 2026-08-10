@@ -62,7 +62,11 @@ const runsError = shallowRef("");
 const scheduleIntervalHours = shallowRef(24);
 const draft = reactive<S3DestinationDraft>(emptyDraft());
 
+const isDisablingExistingDestination = computed(() => !draft.enabled && destination.value !== null);
+
 const validationError = computed(() => {
+  if (isDisablingExistingDestination.value) return "";
+
   const endpoint = draft.endpoint.trim();
   try {
     const url = new URL(endpoint);
@@ -114,7 +118,7 @@ function emptyDraft(): S3DestinationDraft {
     secretAccessKey: "",
     sessionToken: "",
     serverSideEncryption: "AES256",
-    enabled: true,
+    enabled: false,
     schedulerEnabled: false,
     scheduleIntervalHours: 24,
   };
@@ -186,6 +190,15 @@ async function loadRuns() {
 
 async function save() {
   if (!canSave.value) return;
+
+  if (isDisablingExistingDestination.value && destination.value) {
+    state.value = "saving";
+    const updated = await updateControls(false, destination.value.schedule_interval_hours);
+    state.value = updated ? "idle" : "error";
+    if (updated) editing.value = false;
+    return;
+  }
+
   state.value = "saving";
   requestError.value = "";
   const result = await apiUpdateBackupS3Destination({
@@ -210,8 +223,8 @@ async function save() {
   state.value = "idle";
 }
 
-async function updateControls(enabled: boolean, interval: number | null) {
-  if (!destination.value || controlsSaving.value) return;
+async function updateControls(enabled: boolean, interval: number | null): Promise<boolean> {
+  if (!destination.value || controlsSaving.value) return false;
   controlsSaving.value = true;
   requestError.value = "";
   const result = await apiUpdateBackupS3Controls({
@@ -221,9 +234,10 @@ async function updateControls(enabled: boolean, interval: number | null) {
   controlsSaving.value = false;
   if (!result.success) {
     requestError.value = result.error ?? "Unable to update backup controls.";
-    return;
+    return false;
   }
   applyDestination(result.data);
+  return true;
 }
 
 function toggleBackup(enabled: boolean) {
