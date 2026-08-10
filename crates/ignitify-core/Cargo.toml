@@ -7,6 +7,7 @@ license.workspace = true
 [dependencies]
 age.workspace = true
 axum.workspace = true
+chrono.workspace = true
 dotenvy.workspace = true
 ignitify-api = { path = "../ignitify-api" }
 ignitify-auth = { path = "../ignitify-auth" }

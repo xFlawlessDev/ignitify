@@ -79,7 +79,12 @@ pub(crate) fn router(state: AppState) -> Router {
             "/api/v1/settings/backup-destination/s3",
             get(handlers::backup_destinations::get)
                 .put(handlers::backup_destinations::upsert)
+                .patch(handlers::backup_destinations::update_controls)
                 .delete(handlers::backup_destinations::remove),
+        )
+        .route(
+            "/api/v1/settings/backup-destination/s3/runs",
+            get(handlers::backup_destinations::list_runs),
         )
         .route(
             "/api/v1/remote-builders",

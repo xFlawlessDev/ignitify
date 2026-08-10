@@ -81,9 +81,11 @@ afterEach(() => {
 
 describe("SettingsView", () => {
   let fetchCalls: Array<[RequestInfo | URL, RequestInit | undefined]> = [];
+  let backupDestination: Record<string, unknown> | null = null;
 
   beforeEach(() => {
     fetchCalls = [];
+    backupDestination = null;
     vi.stubGlobal(
       "fetch",
       vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
@@ -109,19 +111,50 @@ describe("SettingsView", () => {
         }
         if (url.endsWith("/settings/backup-destination/s3") && method === "GET") {
           return Promise.resolve(
-            new Response("null", { status: 200, headers: { "Content-Type": "application/json" } }),
+            new Response(JSON.stringify(backupDestination), {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            }),
           );
         }
         if (url.endsWith("/settings/backup-destination/s3") && method === "PUT") {
           const body = JSON.parse(typeof init?.body === "string" ? init.body : "{}");
+          backupDestination = {
+            ...body,
+            server_side_encryption: body.server_side_encryption,
+            created_at: "2026-01-01T00:00:00Z",
+            updated_at: "2026-01-01T00:00:00Z",
+          };
+          return Promise.resolve(
+            new Response(JSON.stringify(backupDestination), {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            }),
+          );
+        }
+        if (url.endsWith("/settings/backup-destination/s3") && method === "PATCH") {
+          const body = JSON.parse(typeof init?.body === "string" ? init.body : "{}");
+          backupDestination = { ...backupDestination, ...body };
+          return Promise.resolve(
+            new Response(JSON.stringify(backupDestination), {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            }),
+          );
+        }
+        if (url.endsWith("/settings/backup-destination/s3/runs") && method === "GET") {
           return Promise.resolve(
             new Response(
-              JSON.stringify({
-                ...body,
-                server_side_encryption: body.server_side_encryption,
-                created_at: "2026-01-01T00:00:00Z",
-                updated_at: "2026-01-01T00:00:00Z",
-              }),
+              JSON.stringify([
+                {
+                  id: "backup-1",
+                  trigger: "scheduled",
+                  status: "succeeded",
+                  started_at: "2026-01-01T00:00:00Z",
+                  completed_at: "2026-01-01T00:03:00Z",
+                  message: "Backup completed",
+                },
+              ]),
               { status: 200, headers: { "Content-Type": "application/json" } },
             ),
           );
@@ -284,6 +317,7 @@ describe("SettingsView", () => {
     const bucket = host.querySelector("#s3-backup-bucket") as HTMLInputElement;
     const accessKey = host.querySelector("#s3-access-key-id") as HTMLInputElement;
     const secretKey = host.querySelector("#s3-secret-access-key") as HTMLInputElement;
+    const scheduler = host.querySelector("#draft-backup-scheduler") as HTMLButtonElement;
 
     endpoint.value = "https://account.r2.cloudflarestorage.com";
     endpoint.dispatchEvent(new Event("input", { bubbles: true }));
@@ -293,6 +327,13 @@ describe("SettingsView", () => {
     accessKey.dispatchEvent(new Event("input", { bubbles: true }));
     secretKey.value = "secret-access-key";
     secretKey.dispatchEvent(new Event("input", { bubbles: true }));
+    scheduler.click();
+    await nextTick();
+    const scheduleInterval = host.querySelector(
+      "#draft-backup-schedule-interval",
+    ) as HTMLInputElement;
+    scheduleInterval.value = "48";
+    scheduleInterval.dispatchEvent(new Event("input", { bubbles: true }));
     await nextTick();
 
     const form = endpoint.closest("form") as HTMLFormElement;
@@ -310,8 +351,26 @@ describe("SettingsView", () => {
       bucket: "ignitify-backups",
       access_key_id: "access-key-id",
       secret_access_key: "secret-access-key",
+      schedule_interval_hours: 48,
     });
-    expect(host.textContent).toContain("configured");
+    expect(host.textContent).toContain("enabled");
+    expect(host.textContent).toContain("Backup completed");
+
+    const backupEnabled = host.querySelector("#backup-enabled") as HTMLButtonElement;
+    backupEnabled.click();
+    await settle();
+
+    const controlsRequest = fetchCalls.find(
+      ([input, init]) =>
+        requestUrl(input).endsWith("/settings/backup-destination/s3") && init?.method === "PATCH",
+    );
+    const controlsBody = controlsRequest?.[1]?.body;
+    if (typeof controlsBody !== "string")
+      throw new Error("Expected a JSON backup controls payload.");
+    expect(JSON.parse(controlsBody)).toEqual({
+      enabled: false,
+      schedule_interval_hours: 48,
+    });
     app.unmount();
   });
 });

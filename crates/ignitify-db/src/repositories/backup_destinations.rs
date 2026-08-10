@@ -10,8 +10,20 @@ pub struct BackupS3DestinationRecord {
     pub bucket: String,
     pub prefix: String,
     pub server_side_encryption: String,
+    pub enabled: bool,
+    pub schedule_interval_hours: Option<u16>,
     pub created_at: String,
     pub updated_at: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct BackupS3RunRecord {
+    pub id: String,
+    pub trigger: String,
+    pub status: String,
+    pub started_at: String,
+    pub completed_at: Option<String>,
+    pub message: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -50,7 +62,8 @@ impl BackupDestinationsRepository {
 
     pub async fn s3(&self) -> Result<Option<BackupS3DestinationRecord>> {
         let row = sqlx::query_as::<_, BackupS3DestinationRow>(
-            "SELECT endpoint, region, bucket, prefix, server_side_encryption, created_at, updated_at
+            "SELECT endpoint, region, bucket, prefix, server_side_encryption, enabled,
+                    schedule_interval_hours, created_at, updated_at
              FROM backup_s3_destination WHERE id = 1",
         )
         .fetch_optional(&self.pool)
@@ -63,7 +76,7 @@ impl BackupDestinationsRepository {
             "SELECT endpoint, region, bucket, prefix,
                     access_key_id_ciphertext, secret_access_key_ciphertext,
                     session_token_ciphertext, server_side_encryption
-             FROM backup_s3_destination WHERE id = 1",
+             FROM backup_s3_destination WHERE id = 1 AND enabled = 1",
         )
         .fetch_optional(&self.pool)
         .await?;
@@ -109,6 +122,89 @@ impl BackupDestinationsRepository {
             .ok_or_else(|| sqlx::Error::RowNotFound.into())
     }
 
+    pub async fn update_s3_controls(
+        &self,
+        enabled: bool,
+        schedule_interval_hours: Option<u16>,
+    ) -> Result<Option<BackupS3DestinationRecord>> {
+        let now = Utc::now().to_rfc3339();
+        let result = sqlx::query(
+            "UPDATE backup_s3_destination
+             SET enabled = ?, schedule_interval_hours = ?, updated_at = ?
+             WHERE id = 1",
+        )
+        .bind(enabled)
+        .bind(schedule_interval_hours)
+        .bind(now)
+        .execute(&self.pool)
+        .await?;
+        if result.rows_affected() == 0 {
+            return Ok(None);
+        }
+        self.s3().await
+    }
+
+    pub async fn list_s3_runs(&self, limit: u16) -> Result<Vec<BackupS3RunRecord>> {
+        let rows = sqlx::query_as::<_, BackupS3RunRow>(
+            "SELECT id, trigger, status, started_at, completed_at, message
+             FROM backup_s3_run
+             ORDER BY started_at DESC
+             LIMIT ?",
+        )
+        .bind(i64::from(limit))
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.into_iter().map(BackupS3RunRow::into_record).collect())
+    }
+
+    pub async fn latest_scheduled_s3_run(&self) -> Result<Option<BackupS3RunRecord>> {
+        let row = sqlx::query_as::<_, BackupS3RunRow>(
+            "SELECT id, trigger, status, started_at, completed_at, message
+             FROM backup_s3_run
+             WHERE trigger = 'scheduled'
+             ORDER BY started_at DESC
+             LIMIT 1",
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(BackupS3RunRow::into_record))
+    }
+
+    pub async fn start_s3_run(&self, id: &str, trigger: &str) -> Result<()> {
+        let now = Utc::now().to_rfc3339();
+        sqlx::query(
+            "INSERT INTO backup_s3_run (id, trigger, status, started_at)
+             VALUES (?, ?, 'running', ?)",
+        )
+        .bind(id)
+        .bind(trigger)
+        .bind(now)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn finish_s3_run(&self, id: &str, succeeded: bool) -> Result<()> {
+        let now = Utc::now().to_rfc3339();
+        let (status, message) = if succeeded {
+            ("succeeded", "Backup completed")
+        } else {
+            ("failed", "Backup failed; review the server logs")
+        };
+        sqlx::query(
+            "UPDATE backup_s3_run
+             SET status = ?, completed_at = ?, message = ?
+             WHERE id = ? AND status = 'running'",
+        )
+        .bind(status)
+        .bind(now)
+        .bind(message)
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
     pub async fn delete_s3(&self) -> Result<bool> {
         let result = sqlx::query("DELETE FROM backup_s3_destination WHERE id = 1")
             .execute(&self.pool)
@@ -124,6 +220,8 @@ struct BackupS3DestinationRow {
     bucket: String,
     prefix: String,
     server_side_encryption: String,
+    enabled: bool,
+    schedule_interval_hours: Option<u16>,
     created_at: String,
     updated_at: String,
 }
@@ -136,8 +234,33 @@ impl BackupS3DestinationRow {
             bucket: self.bucket,
             prefix: self.prefix,
             server_side_encryption: self.server_side_encryption,
+            enabled: self.enabled,
+            schedule_interval_hours: self.schedule_interval_hours,
             created_at: self.created_at,
             updated_at: self.updated_at,
+        }
+    }
+}
+
+#[derive(Debug, FromRow)]
+struct BackupS3RunRow {
+    id: String,
+    trigger: String,
+    status: String,
+    started_at: String,
+    completed_at: Option<String>,
+    message: Option<String>,
+}
+
+impl BackupS3RunRow {
+    fn into_record(self) -> BackupS3RunRecord {
+        BackupS3RunRecord {
+            id: self.id,
+            trigger: self.trigger,
+            status: self.status,
+            started_at: self.started_at,
+            completed_at: self.completed_at,
+            message: self.message,
         }
     }
 }

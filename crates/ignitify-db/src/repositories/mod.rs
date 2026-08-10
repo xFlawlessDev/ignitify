@@ -18,7 +18,7 @@ mod users;
 pub use activity::{ActivityActor, ActivityRecord, ActivityRepository};
 pub use backup_destinations::{
     BackupDestinationsRepository, BackupS3DestinationConnection, BackupS3DestinationRecord,
-    NewBackupS3Destination,
+    BackupS3RunRecord, NewBackupS3Destination,
 };
 pub use dashboard::{
     DashboardActor, DashboardDeploymentRecord, DashboardProjectRecord, DashboardRecords,

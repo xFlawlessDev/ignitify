@@ -82,29 +82,103 @@ async fn backup(
     let secret_path = runtime_secrets::secret_file_path(data_dir);
     RuntimeSecrets::validate_backup_file(&secret_path)?;
 
+    run_backup(
+        output,
+        &secret_path,
+        database_config,
+        secrets_age_identity,
+        "manual",
+    )
+    .await
+}
+
+pub(super) async fn scheduled_backup(
+    output: &Path,
+    data_dir: &Path,
+    database_config: &ignitify_db::DatabaseConfig,
+    secrets_age_identity: &str,
+) -> Result<(), Error> {
+    if output.exists() {
+        return Err(Error::OutputExists(output.to_path_buf()));
+    }
+    let database_path = database_config.file_path().ok_or(Error::MemoryDatabase)?;
+    if !database_path.is_file() {
+        return Err(Error::MissingFile(database_path));
+    }
+    let secret_path = runtime_secrets::secret_file_path(data_dir);
+    RuntimeSecrets::validate_backup_file(&secret_path)?;
+
+    run_backup(
+        output,
+        &secret_path,
+        database_config,
+        secrets_age_identity,
+        "scheduled",
+    )
+    .await
+}
+
+async fn run_backup(
+    output: &Path,
+    secret_path: &Path,
+    database_config: &ignitify_db::DatabaseConfig,
+    secrets_age_identity: &str,
+    trigger: &str,
+) -> Result<(), Error> {
     fs::create_dir_all(output)?;
     let snapshot_path = output.join(DATABASE_FILE_NAME);
     let database = ignitify_db::Database::connect(database_config).await?;
+    let run_id = format!("backup-{}", unique_suffix()?);
+    database
+        .backup_destinations()
+        .start_s3_run(&run_id, trigger)
+        .await?;
     let s3_destination = database.backup_destinations().s3_connection().await?;
-    let snapshot = database.backup_to(&snapshot_path).await;
+    let result = write_backup(
+        &database,
+        output,
+        secret_path,
+        &snapshot_path,
+        s3_destination.as_ref(),
+        secrets_age_identity,
+    )
+    .await;
+    let finish = database
+        .backup_destinations()
+        .finish_s3_run(&run_id, result.is_ok())
+        .await;
     database.close().await;
+
+    result?;
+    finish?;
+    Ok(())
+}
+
+async fn write_backup(
+    database: &ignitify_db::Database,
+    output: &Path,
+    secret_path: &Path,
+    snapshot_path: &Path,
+    s3_destination: Option<&ignitify_db::BackupS3DestinationConnection>,
+    secrets_age_identity: &str,
+) -> Result<(), Error> {
+    let snapshot = database.backup_to(snapshot_path).await;
     if let Err(error) = snapshot {
         let _ = fs::remove_dir_all(output);
         return Err(error.into());
     }
-    if let Err(error) = remove_s3_destination_from_snapshot(&snapshot_path).await {
+    if let Err(error) = remove_s3_destination_from_snapshot(snapshot_path).await {
         let _ = fs::remove_dir_all(output);
         return Err(error);
     }
-    if let Err(error) = copy_sensitive_file(&secret_path, &output.join(runtime_secrets::FILE_NAME))
-    {
+    if let Err(error) = copy_sensitive_file(secret_path, &output.join(runtime_secrets::FILE_NAME)) {
         let _ = fs::remove_dir_all(output);
         return Err(error);
     }
 
     println!("Ignitify backup created locally at {}", output.display());
     if let Some(connection) = s3_destination {
-        let destination = decrypt_s3_destination(&connection, secrets_age_identity)?;
+        let destination = decrypt_s3_destination(connection, secrets_age_identity)?;
         let upload = upload_backup(&destination, output).await?;
         println!(
             "Ignitify backup uploaded to s3://{}/{}",

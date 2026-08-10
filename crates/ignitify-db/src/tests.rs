@@ -49,6 +49,61 @@ async fn migrations_create_auth_storage() {
 }
 
 #[tokio::test]
+async fn backup_s3_controls_and_run_history_are_durable() {
+    let database = database().await;
+    database
+        .backup_destinations()
+        .upsert_s3(NewBackupS3Destination {
+            endpoint: "https://s3.example.test".to_owned(),
+            region: "us-east-1".to_owned(),
+            bucket: "ignitify-backups".to_owned(),
+            prefix: "production".to_owned(),
+            access_key_id_ciphertext: "access".to_owned(),
+            secret_access_key_ciphertext: "secret".to_owned(),
+            session_token_ciphertext: None,
+            server_side_encryption: "AES256".to_owned(),
+        })
+        .await
+        .unwrap();
+
+    let destination = database
+        .backup_destinations()
+        .update_s3_controls(false, Some(48))
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(!destination.enabled);
+    assert_eq!(destination.schedule_interval_hours, Some(48));
+    assert!(
+        database
+            .backup_destinations()
+            .s3_connection()
+            .await
+            .unwrap()
+            .is_none()
+    );
+
+    database
+        .backup_destinations()
+        .start_s3_run("run-1", "manual")
+        .await
+        .unwrap();
+    database
+        .backup_destinations()
+        .finish_s3_run("run-1", true)
+        .await
+        .unwrap();
+    let runs = database
+        .backup_destinations()
+        .list_s3_runs(10)
+        .await
+        .unwrap();
+    assert_eq!(runs.len(), 1);
+    assert_eq!(runs[0].status, "succeeded");
+    assert_eq!(runs[0].message.as_deref(), Some("Backup completed"));
+}
+
+#[tokio::test]
 async fn uptime_monitors_are_scoped_and_record_check_history() {
     let database = database().await;
     let owner_id = user_id(&database, "uptime-owner").await;

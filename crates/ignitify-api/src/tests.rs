@@ -549,6 +549,7 @@ async fn backup_s3_destination_routes_encrypt_credentials_and_require_admin() {
     assert_ne!(stored.secret_access_key_ciphertext, "secret-access-key");
 
     let fetched = app
+        .clone()
         .oneshot(request(
             "GET",
             "/api/v1/settings/backup-destination/s3",
@@ -563,6 +564,47 @@ async fn backup_s3_destination_routes_encrypt_credentials_and_require_admin() {
     assert!(fetched_text.contains("ignitify-backups"));
     assert!(!fetched_text.contains("access_key_id"));
     assert!(!fetched_text.contains("secret_access_key"));
+
+    let controls = app
+        .clone()
+        .oneshot(request(
+            "PATCH",
+            "/api/v1/settings/backup-destination/s3",
+            Some(&token),
+            r#"{"enabled":false,"schedule_interval_hours":48}"#,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(controls.status(), StatusCode::OK);
+    let controls_body = controls.into_body().collect().await.unwrap().to_bytes();
+    let controls: serde_json::Value = serde_json::from_slice(&controls_body).unwrap();
+    assert_eq!(controls["enabled"], false);
+    assert_eq!(controls["schedule_interval_hours"], 48);
+    assert!(
+        state
+            .database
+            .backup_destinations()
+            .s3_connection()
+            .await
+            .unwrap()
+            .is_none()
+    );
+
+    let runs = app
+        .oneshot(request(
+            "GET",
+            "/api/v1/settings/backup-destination/s3/runs",
+            Some(&token),
+            "",
+        ))
+        .await
+        .unwrap();
+    assert_eq!(runs.status(), StatusCode::OK);
+    let runs_body = runs.into_body().collect().await.unwrap().to_bytes();
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&runs_body).unwrap(),
+        serde_json::json!([])
+    );
 }
 
 async fn session_token(state: &AppState) -> String {

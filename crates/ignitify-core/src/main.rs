@@ -1,3 +1,4 @@
+mod backup_scheduler;
 mod error;
 mod operations;
 mod runtime_secrets;
@@ -196,6 +197,12 @@ async fn main() -> Result<()> {
     let database = Database::connect(&database_config).await?;
     database.ping().await?;
     let _uptime_monitor_worker = ignitify_monitoring::MonitorWorker::new(database.clone()).spawn();
+    let _backup_scheduler = backup_scheduler::spawn(
+        database.clone(),
+        data_dir.clone(),
+        database_config.clone(),
+        runtime_secrets.secrets_age_identity.clone(),
+    );
 
     let auth = AuthService::new(
         database.clone(),

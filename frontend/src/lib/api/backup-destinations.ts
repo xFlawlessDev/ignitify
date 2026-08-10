@@ -9,6 +9,8 @@ export interface BackupS3Destination {
   bucket: string;
   prefix: string;
   server_side_encryption: S3ServerSideEncryption;
+  enabled: boolean;
+  schedule_interval_hours: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -22,6 +24,17 @@ export interface BackupS3DestinationInput {
   secret_access_key: string;
   session_token?: string;
   server_side_encryption: S3ServerSideEncryption;
+  enabled: boolean;
+  schedule_interval_hours: number | null;
+}
+
+export interface BackupS3Run {
+  id: string;
+  trigger: "manual" | "scheduled";
+  status: "running" | "succeeded" | "failed";
+  started_at: string;
+  completed_at: string | null;
+  message: string | null;
 }
 
 const endpoint = "/settings/backup-destination/s3";
@@ -41,4 +54,18 @@ export function apiUpdateBackupS3Destination(
 
 export function apiDeleteBackupS3Destination(): Promise<ApiResult<void>> {
   return apiFetch<void>(endpoint, { method: "DELETE" });
+}
+
+export function apiUpdateBackupS3Controls(input: {
+  enabled: boolean;
+  schedule_interval_hours: number | null;
+}): Promise<ApiResult<BackupS3Destination>> {
+  return apiFetch<BackupS3Destination>(endpoint, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
+export function apiListBackupS3Runs(): Promise<ApiResult<BackupS3Run[]>> {
+  return apiFetch<BackupS3Run[]>(`${endpoint}/runs`);
 }

@@ -6,7 +6,7 @@ use axum::{
     http::{HeaderMap, StatusCode},
 };
 use ignitify_control_plane::AgeCipher;
-use ignitify_db::{BackupS3DestinationRecord, NewBackupS3Destination};
+use ignitify_db::{BackupS3DestinationRecord, BackupS3RunRecord, NewBackupS3Destination};
 use serde::{Deserialize, Serialize};
 use url::Url;
 
@@ -32,10 +32,18 @@ pub(crate) struct BackupS3DestinationRequest {
     session_token: Option<String>,
     #[serde(default = "default_server_side_encryption")]
     server_side_encryption: String,
+    #[serde(default = "default_enabled")]
+    enabled: bool,
+    #[serde(default)]
+    schedule_interval_hours: Option<u16>,
 }
 
 fn default_server_side_encryption() -> String {
     "AES256".to_owned()
+}
+
+fn default_enabled() -> bool {
+    true
 }
 
 #[derive(Debug, Serialize)]
@@ -45,6 +53,8 @@ pub(crate) struct BackupS3DestinationResponse {
     bucket: String,
     prefix: String,
     server_side_encryption: String,
+    enabled: bool,
+    schedule_interval_hours: Option<u16>,
     created_at: String,
     updated_at: String,
 }
@@ -57,8 +67,41 @@ impl From<BackupS3DestinationRecord> for BackupS3DestinationResponse {
             bucket: value.bucket,
             prefix: value.prefix,
             server_side_encryption: value.server_side_encryption,
+            enabled: value.enabled,
+            schedule_interval_hours: value.schedule_interval_hours,
             created_at: value.created_at,
             updated_at: value.updated_at,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct BackupS3ControlsRequest {
+    enabled: bool,
+    #[serde(default)]
+    schedule_interval_hours: Option<u16>,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct BackupS3RunResponse {
+    id: String,
+    trigger: String,
+    status: String,
+    started_at: String,
+    completed_at: Option<String>,
+    message: Option<String>,
+}
+
+impl From<BackupS3RunRecord> for BackupS3RunResponse {
+    fn from(value: BackupS3RunRecord) -> Self {
+        Self {
+            id: value.id,
+            trigger: value.trigger,
+            status: value.status,
+            started_at: value.started_at,
+            completed_at: value.completed_at,
+            message: value.message,
         }
     }
 }
@@ -84,11 +127,19 @@ pub(crate) async fn upsert(
 ) -> Result<Json<BackupS3DestinationResponse>, ApiError> {
     require_admin(&state, &headers).await?;
     require_same_origin_request(&state, &headers)?;
+    let enabled = request.enabled;
+    let schedule_interval_hours = validated_schedule_interval(request.schedule_interval_hours)?;
     let record = state
         .database
         .backup_destinations()
         .upsert_s3(encrypt_request(&state, request)?)
         .await?;
+    let record = state
+        .database
+        .backup_destinations()
+        .update_s3_controls(enabled, schedule_interval_hours)
+        .await?
+        .unwrap_or(record);
     Ok(Json(record.into()))
 }
 
@@ -100,6 +151,39 @@ pub(crate) async fn remove(
     require_same_origin_request(&state, &headers)?;
     state.database.backup_destinations().delete_s3().await?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+pub(crate) async fn update_controls(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(request): Json<BackupS3ControlsRequest>,
+) -> Result<Json<BackupS3DestinationResponse>, ApiError> {
+    require_admin(&state, &headers).await?;
+    require_same_origin_request(&state, &headers)?;
+    let schedule_interval_hours = validated_schedule_interval(request.schedule_interval_hours)?;
+    let destination = state
+        .database
+        .backup_destinations()
+        .update_s3_controls(request.enabled, schedule_interval_hours)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+    Ok(Json(destination.into()))
+}
+
+pub(crate) async fn list_runs(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<BackupS3RunResponse>>, ApiError> {
+    require_admin(&state, &headers).await?;
+    let runs = state
+        .database
+        .backup_destinations()
+        .list_s3_runs(50)
+        .await?
+        .into_iter()
+        .map(BackupS3RunResponse::from)
+        .collect();
+    Ok(Json(runs))
 }
 
 fn encrypt_request(
@@ -203,6 +287,15 @@ fn normalized_server_side_encryption(value: String) -> Result<String, ApiError> 
         "provider-default" => Ok("provider-default".to_owned()),
         "aes256" => Ok("AES256".to_owned()),
         _ => Err(ApiError::BadRequest("S3 server-side encryption is invalid")),
+    }
+}
+
+fn validated_schedule_interval(value: Option<u16>) -> Result<Option<u16>, ApiError> {
+    match value {
+        Some(value) if !(1..=720).contains(&value) => Err(ApiError::BadRequest(
+            "backup schedule interval must be between 1 and 720 hours",
+        )),
+        value => Ok(value),
     }
 }
 
