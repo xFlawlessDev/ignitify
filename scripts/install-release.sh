@@ -411,4 +411,11 @@ fi
 
 info "Ignitify installed at $PREFIX"
 info "retrieve the one-time bootstrap secret with: sudo awk -F= '/^IGNITIFY_BOOTSTRAP_SECRET=/{print \$2}' $CONFIG_FILE"
+if [[ "$START_SERVICE" -eq 1 ]]; then
+  info "open http://127.0.0.1:5656 and use the bootstrap secret to create the first platform operator"
+else
+  info "start Ignitify with: sudo systemctl start $SERVICE_NAME"
+fi
+info "for remote browser access, configure an HTTPS reverse proxy plus IGNITIFY_REMOTE_MODE, IGNITIFY_TRUST_PROXY_HEADERS, and IGNITIFY_TRUSTED_ORIGINS in $CONFIG_FILE"
+info "configure the ACME contact email and domain policy in Infrastructure before enabling public service domains"
 info "Docker group access is privileged; protect the host and restrict repository access accordingly."
