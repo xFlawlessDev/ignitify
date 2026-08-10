@@ -7,10 +7,12 @@ use axum::{
     routing::{get, post},
 };
 
-use crate::{frontend, handlers, state::AppState};
+use crate::{frontend, handlers, openapi, state::AppState};
+use utoipa_swagger_ui::SwaggerUi;
 
 pub(crate) fn router(state: AppState) -> Router {
     Router::new()
+        .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", openapi::document()))
         .route("/health", get(handlers::health::health))
         .route(
             "/api/v1/auth/bootstrap",

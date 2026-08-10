@@ -49,5 +49,7 @@ tokio = { version = "1", features = [
 tokio-util = { version = "0.7", features = ["io"] }
 tracing = "0.1"
 uuid = { version = "1", features = ["v4", "serde"] }
+utoipa = { version = "5.5", features = ["axum_extras", "chrono", "uuid"] }
+utoipa-swagger-ui = { version = "9", features = ["axum", "debug-embed", "vendored"] }
 yaml-rust2 = "0.10"
 zeroize = { version = "1", features = ["serde"] }

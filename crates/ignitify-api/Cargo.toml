@@ -25,6 +25,8 @@ subtle.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 uuid.workspace = true
+utoipa.workspace = true
+utoipa-swagger-ui.workspace = true
 url.workspace = true
 zeroize.workspace = true
 

@@ -18,7 +18,7 @@ The product executes real Docker, Compose, SSH, DNS, HTTP-monitoring, Git, and S
 
 - The Rust workspace uses Rust 2024 and shared dependencies from root `Cargo.toml`.
 - `ignitify-core` is the binary composition root. It loads runtime secrets/configuration, dispatches `backup` and `restore` CLI operations, builds adapters and workers, binds the loopback listener, and calls `axum::serve`. It owns no HTTP routes, handlers, request/response DTOs, or `IntoResponse` mapping.
-- `ignitify-api` owns Axum route registration, handlers, HTTP DTOs, request extractors, cookies/origin checks, WebSocket/SSE adapters, static frontend serving, audit context, and safe API-error mapping. A handler authenticates, authorizes, validates, calls a service/repository, records audit context where required, then maps the result.
+- `ignitify-api` owns Axum route registration, handlers, HTTP DTOs, request extractors, cookies/origin checks, WebSocket/SSE adapters, static frontend serving, OpenAPI/Swagger documentation, audit context, and safe API-error mapping. A handler authenticates, authorizes, validates, calls a service/repository, records audit context where required, then maps the result.
 - `ignitify-auth` owns Argon2 credentials, bootstrap and step-up flow, JWT access tokens, rotating hashed refresh-token families, session DTOs, and `AuthError`. It receives `Database` through `AuthService::new(database, config)`.
 - `ignitify-db` owns SQLite connection setup, embedded migrations, persistence records, and repositories. It is the authoritative state store for users, projects, services, deployments, domains, settings, providers, remote infrastructure, monitoring, audit activity, and backup destinations.
 - `ignitify-domain` owns transport-agnostic validation and domain types. It must not import SQLx, Axum, authentication, Docker, or runtime types.
@@ -41,7 +41,7 @@ The product executes real Docker, Compose, SSH, DNS, HTTP-monitoring, Git, and S
 ## Key Directories
 
 - `crates/ignitify-core/` - runtime configuration/secrets, dependency composition, backup/restore operations, listener, and process error.
-- `crates/ignitify-api/` - Axum router, handlers, HTTP DTOs/extractors, static SPA embedding/serving, audit helpers, and API error mapping.
+- `crates/ignitify-api/` - Axum router, handlers, HTTP DTOs/extractors, static SPA embedding/serving, OpenAPI/Swagger documentation, audit helpers, and API error mapping.
 - `crates/ignitify-auth/` - credential, token, session, bootstrap, and step-up behavior.
 - `crates/ignitify-db/` - SQLx SQLite database, numbered migrations (`0001` through `0027` are present in the current worktree), models, repositories, and persistence tests.
 - `crates/ignitify-domain/` - validation and runtime-neutral domain types.
@@ -139,6 +139,7 @@ Run the build on each native Linux architecture that is published. `scripts/buil
 - Every state-changing cookie route must retain `X-Ignitify-Request` protection and trusted-origin validation. Preserve secure-cookie and HTTPS-origin requirements in remote mode; trust forwarded headers only when the explicit setting enables it.
 - Keep bootstrap secret checks, login rate limiting, step-up requirements, authorization checks, audit records, request IDs, terminal concurrency limits, upload limits, and CSP/security headers intact when changing nearby code.
 - Client-side route guards are only UX. Every server-side read or mutation must enforce role/membership independently. Admin/operator-only runtime, provider, terminal, backup, remote-builder, remote-server, and infrastructure actions require explicit backend authorization.
+- Keep central `crates/ignitify-api/src/openapi.rs` operation definitions and any handler-level `#[utoipa::path]` documentation aligned with registered routes. Swagger UI is served at `/swagger-ui/` and the JSON document at `/api-docs/openapi.json`; document `X-Ignitify-Request` for browser state-changing endpoints, distinguish machine credentials such as remote-agent bearer tokens, and never include real secrets in schemas or examples.
 - Do not log secrets, access tokens, refresh tokens, private keys, certificate material, OAuth codes, signed URLs, raw deployment environment values, or unredacted command output.
 
 ## Vue And TypeScript Conventions
@@ -160,7 +161,7 @@ Run the build on each native Linux architecture that is published. `scripts/buil
 - `scripts/version.sh`, `scripts/build-release.sh`, `scripts/install-release.sh`, and `scripts/package-release.sh` - version derivation/synchronization, native release build, release-bundle installer, and packager. The installer provisions official Docker Engine/Compose/Buildx, Git, OpenSSH, Railpack, Traefik assets, and systemd on Ubuntu, Debian, or Fedora; the packager emits versioned archives and combined `SHA256SUMS` for GitHub Release assets.
 - `.env.example` - documented runtime configuration and security-sensitive defaults; never put real values here.
 - `crates/ignitify-core/src/main.rs` - process entrypoint and runtime composition; `operations.rs` owns backup/restore dispatch.
-- `crates/ignitify-api/src/lib.rs`, `routes.rs`, `state.rs`, and `handlers/` - public router composition, route registration, dependencies, and HTTP adapters.
+- `crates/ignitify-api/src/lib.rs`, `routes.rs`, `openapi.rs`, `state.rs`, and `handlers/` - public router composition, route registration, OpenAPI/Swagger, dependencies, and HTTP adapters.
 - `crates/ignitify-api/build.rs` and `src/frontend.rs` - embed and serve the frontend bundle. Do not hand-edit generated frontend asset code.
 - `crates/ignitify-control-plane/src/lib.rs` - worker/control contracts and encrypted service configuration; split new responsibilities from this large facade instead of extending it indiscriminately.
 - `crates/ignitify-db/src/database.rs`, `repositories/`, and `migrations/` - SQLite lifecycle, persistence API, and durable schema history.

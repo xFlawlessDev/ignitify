@@ -6,6 +6,7 @@ mod error;
 mod extract;
 mod frontend;
 mod handlers;
+mod openapi;
 mod routes;
 mod state;
 

@@ -17,6 +17,7 @@ infrastructure you administer.
 - [Production installation](#production-installation)
 - [First operator setup](#first-operator-setup)
 - [Security and operations](#security-and-operations)
+- [API documentation](#api-documentation)
 - [Development](#development)
 - [Release packaging](#release-packaging)
 - [Repository layout](#repository-layout)
@@ -183,6 +184,27 @@ provided by the operator.
   [Git build guide](infra/git-build/README.md), and
   [remote builder guide](infra/remote-builder/README.md) before operating
   those features in production.
+
+## API Documentation
+
+The running backend serves an OpenAPI 3.1 document and Swagger UI without a
+separate documentation service:
+
+- Swagger UI: `https://<ignitify-host>/swagger-ui/`
+- OpenAPI JSON: `https://<ignitify-host>/api-docs/openapi.json`
+
+The published document covers every registered API route, grouped by domain.
+Health and S3 backup operations include typed request and response schemas;
+the remaining routes expose their HTTP method, path parameters, authentication,
+and mutation requirements while their DTO schemas are annotated incrementally.
+The UI is publicly readable, but every protected operation still enforces its
+normal backend authentication and authorization checks. Use **Authorize** in
+Swagger UI and enter an operator JWT access token without the `Bearer ` prefix.
+For every browser-initiated state-changing endpoint, set the documented
+`X-Ignitify-Request` header parameter to `1`; trusted-origin validation still
+applies. The remote-agent heartbeat instead uses its provisioned agent bearer
+token. Never enter bootstrap secrets, refresh tokens, or long-lived provider
+credentials into browser tooling.
 
 ## Development
 

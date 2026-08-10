@@ -9,6 +9,7 @@ use ignitify_control_plane::AgeCipher;
 use ignitify_db::{BackupS3DestinationRecord, BackupS3RunRecord, NewBackupS3Destination};
 use serde::{Deserialize, Serialize};
 use url::Url;
+use utoipa::ToSchema;
 
 use crate::{
     error::ApiError,
@@ -18,7 +19,7 @@ use crate::{
 
 const MAX_SESSION_TOKEN_BYTES: usize = 4 * 1024;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct BackupS3DestinationRequest {
     endpoint: String,
@@ -46,7 +47,7 @@ fn default_enabled() -> bool {
     true
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub(crate) struct BackupS3DestinationResponse {
     endpoint: String,
     region: String,
@@ -75,7 +76,7 @@ impl From<BackupS3DestinationRecord> for BackupS3DestinationResponse {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct BackupS3ControlsRequest {
     enabled: bool,
@@ -83,7 +84,7 @@ pub(crate) struct BackupS3ControlsRequest {
     schedule_interval_hours: Option<u16>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub(crate) struct BackupS3RunResponse {
     id: String,
     trigger: String,
@@ -106,6 +107,17 @@ impl From<BackupS3RunRecord> for BackupS3RunResponse {
     }
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/settings/backup-destination/s3",
+    tag = "Backup",
+    security(("bearerAuth" = [])),
+    responses(
+        (status = 200, description = "Configured S3 destination or null when no destination exists", body = Option<BackupS3DestinationResponse>),
+        (status = 401, description = "Authentication is required"),
+        (status = 403, description = "Platform operator access is required")
+    )
+)]
 pub(crate) async fn get(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -120,6 +132,22 @@ pub(crate) async fn get(
     Ok(Json(destination))
 }
 
+#[utoipa::path(
+    put,
+    path = "/api/v1/settings/backup-destination/s3",
+    tag = "Backup",
+    security(("bearerAuth" = [])),
+    params(
+        ("X-Ignitify-Request" = String, Header, description = "Required same-origin request marker; use `1`")
+    ),
+    request_body = BackupS3DestinationRequest,
+    responses(
+        (status = 200, description = "Saved S3 destination", body = BackupS3DestinationResponse),
+        (status = 400, description = "Invalid S3 configuration"),
+        (status = 401, description = "Authentication is required"),
+        (status = 403, description = "Platform operator access or trusted origin is required")
+    )
+)]
 pub(crate) async fn upsert(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -143,6 +171,20 @@ pub(crate) async fn upsert(
     Ok(Json(record.into()))
 }
 
+#[utoipa::path(
+    delete,
+    path = "/api/v1/settings/backup-destination/s3",
+    tag = "Backup",
+    security(("bearerAuth" = [])),
+    params(
+        ("X-Ignitify-Request" = String, Header, description = "Required same-origin request marker; use `1`")
+    ),
+    responses(
+        (status = 204, description = "S3 destination removed"),
+        (status = 401, description = "Authentication is required"),
+        (status = 403, description = "Platform operator access or trusted origin is required")
+    )
+)]
 pub(crate) async fn remove(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -153,6 +195,23 @@ pub(crate) async fn remove(
     Ok(StatusCode::NO_CONTENT)
 }
 
+#[utoipa::path(
+    patch,
+    path = "/api/v1/settings/backup-destination/s3",
+    tag = "Backup",
+    security(("bearerAuth" = [])),
+    params(
+        ("X-Ignitify-Request" = String, Header, description = "Required same-origin request marker; use `1`")
+    ),
+    request_body = BackupS3ControlsRequest,
+    responses(
+        (status = 200, description = "Updated S3 backup controls", body = BackupS3DestinationResponse),
+        (status = 400, description = "Invalid backup schedule"),
+        (status = 401, description = "Authentication is required"),
+        (status = 403, description = "Platform operator access or trusted origin is required"),
+        (status = 404, description = "No S3 destination is configured")
+    )
+)]
 pub(crate) async fn update_controls(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -170,6 +229,17 @@ pub(crate) async fn update_controls(
     Ok(Json(destination.into()))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/settings/backup-destination/s3/runs",
+    tag = "Backup",
+    security(("bearerAuth" = [])),
+    responses(
+        (status = 200, description = "Most recent S3 backup runs", body = [BackupS3RunResponse]),
+        (status = 401, description = "Authentication is required"),
+        (status = 403, description = "Platform operator access is required")
+    )
+)]
 pub(crate) async fn list_runs(
     State(state): State<AppState>,
     headers: HeaderMap,

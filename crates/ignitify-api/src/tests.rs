@@ -607,6 +607,77 @@ async fn backup_s3_destination_routes_encrypt_credentials_and_require_admin() {
     );
 }
 
+#[tokio::test]
+async fn openapi_document_and_swagger_ui_are_served() {
+    let state = state().await;
+    let app = crate::router(
+        state.auth.clone(),
+        state.database.clone(),
+        state.services.clone(),
+        state.control.clone(),
+        state.runtime_health.clone(),
+        state.worker_health.clone(),
+        state.secure_cookies,
+        state.trusted_origins.clone(),
+    );
+
+    let document = app
+        .clone()
+        .oneshot(request("GET", "/api-docs/openapi.json", None, ""))
+        .await
+        .unwrap();
+    assert_eq!(document.status(), StatusCode::OK);
+    let body = document.into_body().collect().await.unwrap().to_bytes();
+    let document: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(document["info"]["title"], "Ignitify API");
+    assert_eq!(
+        document["components"]["securitySchemes"]["bearerAuth"]["scheme"],
+        "bearer"
+    );
+    assert_eq!(
+        document["components"]["securitySchemes"]["agentBearerAuth"]["scheme"],
+        "bearer"
+    );
+    let paths = document["paths"].as_object().unwrap();
+    assert!(
+        paths.len() >= 61,
+        "OpenAPI document should cover every registered API path"
+    );
+    for path in [
+        "/api/v1/auth/login",
+        "/api/v1/providers/{provider_id}/repositories",
+        "/api/v1/runtime/containers/{container_id}/details",
+        "/api/v1/settings/infrastructure",
+        "/api/v1/remote-servers/{server_id}/agent/install",
+        "/api/v1/projects/{project_id}/services",
+        "/api/v1/services/{service_id}/deployments",
+        "/api/v1/deployments/{deployment_id}/rollback",
+    ] {
+        assert!(paths.contains_key(path), "missing OpenAPI path: {path}");
+    }
+    assert!(document["paths"]["/api/v1/settings/backup-destination/s3"]["put"].is_object());
+    let parameters =
+        document["paths"]["/api/v1/settings/backup-destination/s3"]["put"]["parameters"]
+            .as_array()
+            .unwrap();
+    assert!(parameters.iter().any(|parameter| {
+        parameter["name"] == "X-Ignitify-Request" && parameter["in"] == "header"
+    }));
+    let heartbeat = &document["paths"]["/api/v1/remote-agents/heartbeat"]["post"];
+    assert!(heartbeat["security"][0]["agentBearerAuth"].is_array());
+    assert!(heartbeat["parameters"].as_array().is_none_or(|parameters| {
+        parameters.iter().all(|parameter| {
+            parameter["name"] != "X-Ignitify-Request" || parameter["in"] != "header"
+        })
+    }));
+
+    let swagger_ui = app
+        .oneshot(request("GET", "/swagger-ui/", None, ""))
+        .await
+        .unwrap();
+    assert_eq!(swagger_ui.status(), StatusCode::OK);
+}
+
 async fn session_token(state: &AppState) -> String {
     state
         .auth
