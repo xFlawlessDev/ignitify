@@ -3,17 +3,20 @@ import {
   Box,
   Boxes,
   CircleAlert,
+  Container,
   Copy,
   Eye,
   EyeOff,
   FileCode2,
   GitBranch,
+  Globe2,
   Info,
   LockKeyhole,
   Plus,
+  Rocket,
   Trash2,
 } from "@lucide/vue";
-import { computed, onMounted, reactive, shallowRef, watch } from "vue";
+import { computed, onMounted, reactive, shallowRef, watch, type Component } from "vue";
 import { useI18n } from "vue-i18n";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
@@ -104,10 +107,20 @@ interface ServiceVariableDraft extends ServiceVariable {
 const variables = reactive<ServiceVariableDraft[]>([]);
 const sourceRepositories = useProviderRepositories();
 
-const builderOptions: Array<{ value: ApplicationBuilder; label: string; description: string }> = [
-  { value: "static", label: "Static", description: "Build and serve static assets" },
-  { value: "dockerfile", label: "Dockerfile", description: "Use the repository Dockerfile" },
-  { value: "railpack", label: "Railpack", description: "Detect and build the app" },
+const builderOptions: Array<{
+  value: ApplicationBuilder;
+  label: string;
+  description: string;
+  icon: Component;
+}> = [
+  { value: "static", label: "Static", description: "Build and serve static assets", icon: Globe2 },
+  {
+    value: "dockerfile",
+    label: "Dockerfile",
+    description: "Use the repository Dockerfile",
+    icon: Container,
+  },
+  { value: "railpack", label: "Railpack", description: "Detect and build the app", icon: Rocket },
 ];
 const sourceOptions = [
   {
@@ -732,7 +745,16 @@ onMounted(() => void loadDestinations());
             :aria-pressed="builder === option.value"
             @click="selectBuilder(option.value)"
           >
-            <span class="text-xs font-medium">{{ option.label }}</span>
+            <span class="flex items-center gap-2 text-xs font-medium">
+              <component
+                :is="option.icon"
+                :data-builder-logo="option.value"
+                class="size-4 shrink-0 text-muted-foreground"
+                :stroke-width="1.5"
+                aria-hidden="true"
+              />
+              <span>{{ option.label }}</span>
+            </span>
             <span class="text-[11px] leading-4 text-muted-foreground">{{
               option.description
             }}</span>

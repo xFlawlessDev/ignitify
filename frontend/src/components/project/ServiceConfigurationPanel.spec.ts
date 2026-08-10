@@ -100,6 +100,10 @@ describe("ServiceConfigurationPanel", () => {
     app.mount(host);
     await nextTick();
 
+    expect(host.querySelector('[data-builder-logo="static"]')).not.toBeNull();
+    expect(host.querySelector('[data-builder-logo="dockerfile"]')).not.toBeNull();
+    expect(host.querySelector('[data-builder-logo="railpack"]')).not.toBeNull();
+
     (host.querySelector("form") as HTMLFormElement).dispatchEvent(
       new Event("submit", { bubbles: true, cancelable: true }),
     );
