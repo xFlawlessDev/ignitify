@@ -15,6 +15,13 @@ safe failure behavior, and regression coverage over convenience.
 - Keep feature work focused. Separate unrelated refactors from behavioral
   changes so that review and rollback remain practical.
 
+Compose blueprint contributions belong in the separate
+[Ignitify Templates repository](https://github.com/xFlawlessDev/ignitify-templates),
+not in this application repository. Add or update one
+`blueprints/<template-id>/` directory there, keep its `meta.json`,
+`docker-compose.yml`, and `template.toml` consistent, and run the catalog
+validator before opening the pull request.
+
 ## Development Setup
 
 Install the Rust toolchain, Node.js, and pnpm `11.18.0`. The backend embeds the

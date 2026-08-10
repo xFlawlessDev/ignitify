@@ -12,6 +12,7 @@ infrastructure you administer.
 ## Contents
 
 - [Capabilities](#capabilities)
+- [Compose template catalog](#compose-template-catalog)
 - [Architecture](#architecture)
 - [Production installation](#production-installation)
 - [First operator setup](#first-operator-setup)
@@ -39,6 +40,22 @@ infrastructure you administer.
   terminals; host metrics; uptime monitoring; and remote-agent heartbeats.
 - Offline SQLite and runtime-secret backup/restore with optional
   S3-compatible upload, scheduled backup runs, and run history.
+
+## Compose Template Catalog
+
+Deploy-ready Compose blueprints are maintained separately in the
+[Ignitify Templates repository](https://github.com/xFlawlessDev/ignitify-templates).
+Each `blueprints/<template-id>/` directory contains a reviewed
+`docker-compose.yml`, `meta.json`, and `template.toml`, with optional logos and
+operator instructions. The catalog also preserves upstream links, attribution,
+and license obligations for imported projects.
+
+The Ignitify template picker reads a catalog API and fetches the matching
+blueprint files from that catalog. Configure `VITE_TEMPLATES_URL` for the
+catalog API used by a frontend build; the API should be backed by the
+`xFlawlessDev/ignitify-templates` repository. Template updates are released
+and validated in that repository independently of the Ignitify application
+binary.
 
 ## Architecture
 

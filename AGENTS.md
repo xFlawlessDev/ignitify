@@ -50,7 +50,7 @@ The product executes real Docker, Compose, SSH, DNS, HTTP-monitoring, Git, and S
 - `crates/ignitify-source-git/` - source checkout/build execution and provider credential use.
 - `crates/ignitify-ingress-traefik/` and `ignitify-dns/` - ingress lifecycle/route generation and DNS verification.
 - `crates/ignitify-monitoring/`, `ignitify-terminal/`, and `ignitify-backup-s3/` - monitoring, PTY, and backup-upload boundaries.
-- `frontend/src/lib/api/` - typed API functions, authentication transport, and request behavior.
+- `frontend/src/lib/api/` - typed API functions, authentication transport, request behavior, and the external template catalog client.
 - `frontend/src/composables/` - reusable domain orchestration; `frontend/src/stores/` - Pinia state, including the setup-style `auth.ts` store.
 - `frontend/src/views/` - routed application surfaces; `frontend/src/components/` - feature components and reusable UI primitives under `components/ui/`.
 - `frontend/src/assets/styles/global.css` and `frontend/design.md` - runtime design tokens and the visual contract.
@@ -165,6 +165,7 @@ Run the build on each native Linux architecture that is published. `scripts/buil
 - `crates/ignitify-control-plane/src/lib.rs` - worker/control contracts and encrypted service configuration; split new responsibilities from this large facade instead of extending it indiscriminately.
 - `crates/ignitify-db/src/database.rs`, `repositories/`, and `migrations/` - SQLite lifecycle, persistence API, and durable schema history.
 - `frontend/vite.config.ts` - Vite+, Tailwind, aliases, ports, proxy, lint, and test configuration.
+- `frontend/src/lib/api/templates.ts` and `frontend/src/lib/template-catalog.ts` - catalog API transport and Compose blueprint file/default resolution. The catalog source is the separate `https://github.com/xFlawlessDev/ignitify-templates` repository; keep its API URL configurable through `VITE_TEMPLATES_URL`.
 - `frontend/src/router/index.ts` - lazy routes and auth/operator guards.
 - `frontend/src/lib/api/core.ts` and `session.ts` - request IDs, Bearer transport, refresh, and same-origin state-change protection.
 - `frontend/src/assets/styles/global.css` and `frontend/design.md` - visual tokens and UI contract.
