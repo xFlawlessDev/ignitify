@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp, nextTick } from "vue";
+import i18n from "@/i18n";
 import type { ServiceInput } from "@/lib/types";
 
 const providerApi = vi.hoisted(() => ({
@@ -95,6 +96,7 @@ describe("ServiceConfigurationPanel", () => {
       error: null,
       onSave,
     });
+    app.use(i18n);
     app.mount(host);
     await nextTick();
 
@@ -154,6 +156,7 @@ describe("ServiceConfigurationPanel", () => {
       error: null,
       onSave,
     });
+    app.use(i18n);
     app.mount(host);
     await new Promise((resolve) => setTimeout(resolve, 0));
     await nextTick();
@@ -182,6 +185,7 @@ describe("ServiceConfigurationPanel", () => {
       error: null,
       onSave,
     });
+    app.use(i18n);
     app.mount(host);
     await nextTick();
 
@@ -190,6 +194,8 @@ describe("ServiceConfigurationPanel", () => {
     ) as HTMLButtonElement;
     composeButton.click();
     await nextTick();
+    expect(host.textContent).toContain("Compose requirements");
+    expect(host.textContent).toContain("Application");
     const yaml = host.querySelector("#service-config-compose-yaml") as HTMLTextAreaElement;
     yaml.value = "services:\n  web:\n    image: nginx:1.27\n";
     yaml.dispatchEvent(new Event("input", { bubbles: true }));
@@ -208,6 +214,37 @@ describe("ServiceConfigurationPanel", () => {
       exposed_service: "web",
       source_config: { source: "compose" },
     });
+    app.unmount();
+  });
+
+  it("explains Git Compose ingress selection", async () => {
+    const component = (await import("./ServiceConfigurationPanel.vue")).default;
+    const host = document.createElement("div");
+    document.body.append(host);
+    const app = createApp(component, {
+      service: {
+        ...service,
+        kind: "compose" as const,
+        compose_yaml:
+          "services:\n  web:\n    image: nginx@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n",
+        exposed_service: "web",
+        source_config: {
+          source: "compose",
+          provider_id: "provider-1",
+          repository: "acme/stack",
+          branch: "main",
+        },
+      },
+      providers: [{ id: "provider-1", name: "GitHub", kind: "github", token_configured: true }],
+      inheritedVariables: [],
+      saving: false,
+      error: null,
+    });
+    app.use(i18n);
+    app.mount(host);
+    await nextTick();
+
+    expect(host.textContent).toContain("first service in the repository Compose file");
     app.unmount();
   });
 
@@ -232,6 +269,7 @@ describe("ServiceConfigurationPanel", () => {
       error: null,
       onSave,
     });
+    app.use(i18n);
     app.mount(host);
     await nextTick();
 
@@ -325,6 +363,7 @@ port = 80
       error: null,
       onSave,
     });
+    app.use(i18n);
     app.mount(host);
     await new Promise((resolve) => setTimeout(resolve, 0));
     await nextTick();
@@ -425,6 +464,7 @@ port = 80
       error: null,
       onSave,
     });
+    app.use(i18n);
     app.mount(host);
     await nextTick();
 

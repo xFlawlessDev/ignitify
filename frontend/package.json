@@ -32,6 +32,7 @@
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
     "embla-carousel-vue": "^8.6.0",
+    "motion-v": "^2.3.0",
     "nanoid": "^5.1.7",
     "pinia": "^3.0.4",
     "qrcode": "^1.5.4",

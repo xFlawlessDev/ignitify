@@ -8,15 +8,19 @@ import {
   Copy,
   GitBranch,
   Globe2,
+  RefreshCw,
+  ScrollText,
   Settings2,
   Trash2,
 } from "@lucide/vue";
 import { computed, onUnmounted, shallowRef, watch } from "vue";
+import { useI18n } from "vue-i18n";
 import { RouterLink, useRoute, useRouter } from "vue-router";
 import { toast } from "vue-sonner";
 import ServiceConfigurationPanel from "@/components/project/ServiceConfigurationPanel.vue";
 import ServiceDetailPanel from "@/components/project/ServiceDetailPanel.vue";
 import ServiceDomainsPanel from "@/components/project/ServiceDomainsPanel.vue";
+import { Terminal } from "@/components/terminal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -38,6 +42,8 @@ import { useDomains } from "@/composables/useDomains";
 import { useProjectEnvironment } from "@/composables/useProjectEnvironment";
 import { useProviders } from "@/composables/useProviders";
 import { useService } from "@/composables/useService";
+import { useServiceRuntimeLogs } from "@/composables/useServiceRuntimeLogs";
+import { useAuthStore } from "@/stores/auth";
 import type {
   DeploymentEvent,
   DeploymentLog,
@@ -49,20 +55,28 @@ import type {
 
 const route = useRoute();
 const router = useRouter();
+const { t } = useI18n();
+const auth = useAuthStore();
 const services = useService();
 const deployments = useDeployment();
 const domains = useDomains();
 const projectEnvironment = useProjectEnvironment();
 const providers = useProviders();
+const serviceRuntimeLogs = useServiceRuntimeLogs();
 const service = shallowRef<ServiceSummary | null>(null);
 const serviceLoading = shallowRef(true);
 const serviceError = shallowRef<string | null>(null);
-const activeView = shallowRef<"configuration" | "domains" | "operations">("configuration");
-const viewTabs = [
+type ServiceView = "configuration" | "domains" | "operations" | "logs";
+
+const activeView = shallowRef<ServiceView>("configuration");
+const viewTabs = computed(() => [
   { value: "configuration" as const, label: "Configuration", icon: Settings2 },
   { value: "domains" as const, label: "Domains", icon: Globe2 },
   { value: "operations" as const, label: "Deployments & logs", icon: Activity },
-];
+  ...(auth.isPlatformOperator
+    ? [{ value: "logs" as const, label: t("serviceLogs.tab"), icon: ScrollText }]
+    : []),
+]);
 const selectedDeploymentId = shallowRef<string | null>(null);
 const streamLogs = shallowRef<DeploymentLog[]>([]);
 const saving = shallowRef(false);
@@ -85,6 +99,25 @@ const latestDeployment = computed(
   () =>
     deploymentData.value.find((deployment) => deployment.service_id === service.value?.id) ?? null,
 );
+const runtimeLogDeployment = computed(
+  () =>
+    deploymentData.value.find(
+      (deployment) =>
+        deployment.service_id === service.value?.id && deployment.status === "healthy",
+    ) ??
+    deploymentData.value.find(
+      (deployment) =>
+        deployment.service_id === service.value?.id && deployment.status === "running",
+    ) ??
+    null,
+);
+const serviceLogEmptyMessage = computed(() => {
+  if (serviceRuntimeLogs.emptyState.value === "no_container") {
+    return t("serviceLogs.noContainer");
+  }
+  if (serviceRuntimeLogs.emptyState.value === "no_output") return t("serviceLogs.noOutput");
+  return t("serviceLogs.noDeployment");
+});
 const serviceStatus = computed(() => {
   if (service.value?.source_config?.setup_required) return "setup";
   if (latestDeployment.value?.status === "healthy") return "healthy";
@@ -163,6 +196,12 @@ function selectDeployment(deploymentId: string) {
   void logStream.connect(deploymentId);
 }
 
+function loadServiceLogs() {
+  const current = service.value;
+  if (!current || !auth.isPlatformOperator) return;
+  void serviceRuntimeLogs.load(current, runtimeLogDeployment.value);
+}
+
 async function load() {
   const generation = ++loadGeneration;
   serviceLoading.value = true;
@@ -175,6 +214,7 @@ async function load() {
   deleting.value = false;
   selectedDeploymentId.value = null;
   streamLogs.value = [];
+  serviceRuntimeLogs.clear();
   deployments.clear();
   stream.stop();
   logStream.stop();
@@ -337,6 +377,7 @@ async function deleteService() {
   }
   stream.stop();
   logStream.stop();
+  serviceRuntimeLogs.clear();
   copiedServiceName.value = false;
   toast.success("Service deleted", { description: current.name });
   await router.push(projectRoute.value);
@@ -348,9 +389,17 @@ watch(
   { immediate: true },
 );
 
+watch(
+  () => [activeView.value, service.value?.id, runtimeLogDeployment.value?.id] as const,
+  ([view]) => {
+    if (view === "logs") loadServiceLogs();
+  },
+);
+
 onUnmounted(() => {
   stream.stop();
   logStream.stop();
+  serviceRuntimeLogs.clear();
   if (copyServiceNameTimer !== undefined) window.clearTimeout(copyServiceNameTimer);
 });
 </script>
@@ -415,9 +464,7 @@ onUnmounted(() => {
           <Tabs
             :model-value="activeView"
             class="min-w-0 max-[480px]:w-full"
-            @update:model-value="
-              (value) => (activeView = value as 'configuration' | 'domains' | 'operations')
-            "
+            @update:model-value="(value) => (activeView = value as ServiceView)"
           >
             <TabsList class="h-9 max-w-full rounded-[4px] max-[480px]:w-full">
               <TabsTrigger
@@ -479,6 +526,59 @@ onUnmounted(() => {
           @select-deployment="selectDeployment"
           @stop="stopService"
         />
+        <section v-else-if="activeView === 'logs'" class="grid gap-4">
+          <header
+            class="flex flex-wrap items-start justify-between gap-4 border-b border-border pb-4"
+          >
+            <div class="min-w-0">
+              <p class="ui-label">{{ t("serviceLogs.output") }}</p>
+              <h2 class="mt-2 text-xl leading-none font-normal">{{ t("serviceLogs.title") }}</h2>
+              <p class="mt-2 text-xs text-muted-foreground">{{ t("serviceLogs.latest") }}</p>
+              <p
+                v-if="serviceRuntimeLogs.container.value"
+                class="mt-2 truncate font-mono text-[11px] text-muted-foreground"
+              >
+                {{ serviceRuntimeLogs.container.value.name }}
+              </p>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              :disabled="serviceRuntimeLogs.loading.value"
+              @click="loadServiceLogs"
+            >
+              <RefreshCw
+                data-icon="inline-start"
+                :class="serviceRuntimeLogs.loading.value ? 'animate-spin' : ''"
+                :stroke-width="1.5"
+              />
+              {{ t("serviceLogs.refresh") }}
+            </Button>
+          </header>
+          <p
+            v-if="serviceRuntimeLogs.error.value"
+            class="border border-destructive/40 px-3 py-2 text-xs text-destructive"
+            role="alert"
+          >
+            {{ serviceRuntimeLogs.error.value }}
+          </p>
+          <p
+            v-else-if="serviceRuntimeLogs.loading.value"
+            class="py-8 text-center text-xs text-muted-foreground"
+            role="status"
+          >
+            {{ t("serviceLogs.loading") }}
+          </p>
+          <Terminal
+            v-else-if="serviceRuntimeLogs.output.value"
+            :copy-label="t('serviceLogs.copy')"
+            :output="serviceRuntimeLogs.output.value"
+            :title="t('serviceLogs.title')"
+          />
+          <p v-else class="py-8 text-sm text-muted-foreground" role="status">
+            {{ serviceLogEmptyMessage }}
+          </p>
+        </section>
         <AlertDialogRoot v-model:open="deleteConfirmation">
           <AlertDialogPortal>
             <AlertDialogOverlay class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm" />

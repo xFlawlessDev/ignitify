@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp, nextTick } from "vue";
+import i18n from "@/i18n";
 import type { ServiceSummary } from "@/lib/types";
 
 async function mount(
@@ -22,6 +23,7 @@ async function mount(
     "onUpdate:open": () => {},
     onSave,
   });
+  app.use(i18n);
   app.mount(host);
   await nextTick();
   return { app, host };
@@ -163,6 +165,19 @@ describe("ServiceDialog", () => {
       repository: "acme/site",
       builder: "static",
     });
+    app.unmount();
+  });
+
+  it("shows Compose policy guidance before a Compose service is saved", async () => {
+    const { app } = await mount(() => {}, [], [], editableService);
+    const composeButton = [...document.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("Compose"),
+    ) as HTMLButtonElement;
+    composeButton.click();
+    await nextTick();
+
+    expect(document.body.textContent).toContain("Compose requirements");
+    expect(document.body.textContent).toContain("Application");
     app.unmount();
   });
 

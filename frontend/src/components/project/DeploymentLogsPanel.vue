@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import Ansi from "ansi-to-vue3";
-import { computed, nextTick, shallowRef, watch } from "vue";
+import { computed, shallowRef } from "vue";
+import { useI18n } from "vue-i18n";
+import { Terminal } from "@/components/terminal";
 import {
   Select,
   SelectContent,
@@ -18,21 +19,13 @@ const props = defineProps<{
   embedded?: boolean;
 }>();
 
+const { t } = useI18n();
 const filter = shallowRef<"all" | DeploymentLog["stream"]>("all");
 const follow = shallowRef(true);
-const output = shallowRef<HTMLElement | null>(null);
 const visibleLogs = computed(() =>
   filter.value === "all" ? props.logs : props.logs.filter((log) => log.stream === filter.value),
 );
-
-watch(
-  () => visibleLogs.value.length,
-  async () => {
-    if (!follow.value) return;
-    await nextTick();
-    if (output.value) output.value.scrollTop = output.value.scrollHeight;
-  },
-);
+const terminalOutput = computed(() => visibleLogs.value.map((log) => log.line).join("\n"));
 </script>
 
 <template>
@@ -88,27 +81,15 @@ watch(
     >
       {{ streamError }}
     </p>
-    <div
+    <Terminal
       v-if="visibleLogs.length"
-      class="overflow-hidden rounded-[6px] border border-border bg-obsidian-canvas"
-      :class="props.embedded ? '' : 'mx-5 mb-5'"
-    >
-      <pre
-        ref="output"
-        class="m-0 max-h-[420px] overflow-auto p-4 font-mono text-xs leading-5 whitespace-pre-wrap"
-      ><Ansi
-        v-for="log in visibleLogs"
-        :key="log.sequence"
-        class="block"
-        :class="
-          log.stream === 'stderr'
-            ? 'text-destructive'
-            : log.stream === 'system'
-              ? 'text-pale-stone'
-              : 'text-chalk'
-        "
-      >{{ log.line }}</Ansi></pre>
-    </div>
+      :auto-scroll="follow"
+      :class="props.embedded ? 'rounded-[6px]' : 'mx-5 mb-5 rounded-[6px]'"
+      :copy-label="t('deploymentLogs.copy')"
+      :is-streaming="connected"
+      :output="terminalOutput"
+      :title="t('deploymentLogs.title')"
+    />
     <div v-else class="py-8" :class="props.embedded ? 'px-0' : 'px-5'">
       <p class="text-sm font-medium">
         {{ connected ? "Waiting for deployment output" : "No retained logs" }}

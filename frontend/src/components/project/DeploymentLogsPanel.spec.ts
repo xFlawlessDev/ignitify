@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it } from "vitest";
 import { createApp, nextTick } from "vue";
+import i18n from "@/i18n";
 
 afterEach(() => {
   document.body.replaceChildren();
@@ -24,12 +25,13 @@ describe("DeploymentLogsPanel", () => {
       ],
       streamError: null,
     });
-    app.mount(host);
+    app.use(i18n).mount(host);
     await nextTick();
 
     expect(host.textContent).toContain("Build failed");
     expect(host.innerHTML).not.toContain("\u001b[31m");
     expect(host.querySelector("span[style*='color']")).not.toBeNull();
+    expect(host.querySelector('button[aria-label="Copy deployment logs"]')).not.toBeNull();
     app.unmount();
   });
 });

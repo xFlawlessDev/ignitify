@@ -117,17 +117,15 @@ async fn open_stream(
                 .event_cursor(deployment_actor, &deployment_id)
                 .await?
                 .ok_or(ApiError::NotFound)?;
-            if cursor.oldest.is_none_or(|oldest| after >= oldest - 1) {
-                replay_events(
-                    &control,
-                    deployment_actor,
-                    &deployment_id,
-                    after,
-                    through,
-                    &mut pending,
-                )
-                .await?;
-            }
+            replay_events(
+                &control,
+                deployment_actor,
+                &deployment_id,
+                replay_after(after, cursor.oldest),
+                through,
+                &mut pending,
+            )
+            .await?;
             cursor.oldest
         }
         StreamKind::Logs => {
@@ -135,17 +133,15 @@ async fn open_stream(
                 .log_cursor(deployment_actor, &deployment_id)
                 .await?
                 .ok_or(ApiError::NotFound)?;
-            if cursor.oldest.is_none_or(|oldest| after >= oldest - 1) {
-                replay_logs(
-                    &control,
-                    deployment_actor,
-                    &deployment_id,
-                    after,
-                    through,
-                    &mut pending,
-                )
-                .await?;
-            }
+            replay_logs(
+                &control,
+                deployment_actor,
+                &deployment_id,
+                replay_after(after, cursor.oldest),
+                through,
+                &mut pending,
+            )
+            .await?;
             cursor.oldest
         }
     };
@@ -345,6 +341,10 @@ fn cursor(headers: &HeaderMap, query_after: Option<i64>) -> Result<i64, ApiError
     Ok(cursor)
 }
 
+fn replay_after(after: i64, oldest: Option<i64>) -> i64 {
+    oldest.map_or(after, |oldest| after.max(oldest.saturating_sub(1)))
+}
+
 #[cfg(test)]
 mod tests {
     use axum::http::{HeaderMap, HeaderValue};
@@ -355,6 +355,12 @@ mod tests {
         headers.insert("last-event-id", HeaderValue::from_static("invalid"));
 
         assert_eq!(super::cursor(&headers, Some(7)).unwrap(), 7);
+    }
+
+    #[test]
+    fn stale_cursor_replays_all_retained_records() {
+        assert_eq!(super::replay_after(0, Some(101)), 100);
+        assert_eq!(super::replay_after(105, Some(101)), 105);
     }
 
     #[test]

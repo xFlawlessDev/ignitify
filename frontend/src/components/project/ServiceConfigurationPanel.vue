@@ -31,6 +31,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import TemplateCatalogPicker from "@/components/templates/TemplateCatalogPicker.vue";
+import ComposePolicyGuide from "@/components/project/ComposePolicyGuide.vue";
 import YamlCodeEditor from "@/components/project/YamlCodeEditor.vue";
 import { useProviderRepositories } from "@/composables/useProviderRepositories";
 import { templateRuntimeDefaults, type TemplateApplication } from "@/lib/template-catalog";
@@ -745,6 +746,7 @@ onMounted(() => void loadDestinations());
         </div>
       </template>
       <template v-else>
+        <ComposePolicyGuide :git-source="isGitComposeSource" />
         <div v-if="source !== 'template'" class="grid gap-2">
           <Label>Compose source</Label>
           <div class="grid gap-2 sm:grid-cols-2">
@@ -888,10 +890,6 @@ onMounted(() => void loadDestinations());
               required
             />
           </div>
-          <p class="text-xs text-muted-foreground">
-            Every image must use an explicit tag or SHA-256 digest. No builds, host ports, binds,
-            privileged mode, devices, or raw Traefik labels.
-          </p>
         </div>
         <div v-if="!isGitComposeSource" class="grid gap-2">
           <Label for="service-config-exposed">Exposed Compose service</Label>

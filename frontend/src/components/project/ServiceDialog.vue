@@ -2,6 +2,7 @@
 import { Box, Boxes, FileCode2, GitBranch, Info, Plus, Trash2 } from "@lucide/vue";
 import { computed, reactive, shallowRef, watch } from "vue";
 import { Button } from "@/components/ui/button";
+import ComposePolicyGuide from "@/components/project/ComposePolicyGuide.vue";
 import {
   Dialog,
   DialogContent,
@@ -499,6 +500,9 @@ watch(open, (isOpen) => {
             />
           </div>
           <template v-else>
+            <ComposePolicyGuide
+              :git-source="source === 'compose' && composeMode === 'repository'"
+            />
             <div class="grid gap-2">
               <Label>Compose source</Label>
               <div class="grid gap-2 sm:grid-cols-2">

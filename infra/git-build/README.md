@@ -14,7 +14,13 @@ IGNITIFY_RAILPACK_FRONTEND_IMAGE=ghcr.io/railwayapp/railpack-frontend:latest@sha
 
 Application sources support `dockerfile`, `static`, and `railpack`. `dockerfile` uses the selected repository Dockerfile. `static` runs the configured build command inside the configured pinned builder image and serves the configured output directory on port 80 through Caddy. `railpack` follows Railpack's production flow: `railpack prepare` creates a build plan and Docker Buildx loads the result using the configured Railpack frontend image.
 
-Compose sources load a Compose file from the selected repository; the file path defaults to `docker-compose.yml` and can be changed in the service configuration. The selected exposed service and internal port remain Ignitify-managed, while the checked-out Compose YAML becomes the runtime input. The same Compose policy applies to Git sources: services must use digest-pinned images, and host ports, bind mounts, `build`, privileged settings, host networking, and other host-escape fields are rejected. Git Compose therefore deploys reviewed prebuilt images; application repositories that need an image build should use the application source modes above.
+Compose sources load a Compose file from the selected repository; the file path defaults to `docker-compose.yml` and can be changed in the service configuration. The checked-out Compose YAML becomes the runtime input. For a new Git Compose source, Ignitify uses the first declared Compose service for managed ingress; the internal port remains an Ignitify setting.
+
+## Compose Source Policy
+
+Git Compose deploys reviewed prebuilt images. Every service image must use an exact SHA-256 digest, such as `registry.example/app@sha256:...`. Ignitify owns ingress and host isolation, so Compose sources must not declare `build`, host `ports`, bind mounts, privileged services, device access, host networking, raw Traefik labels, external networks or volumes, `env_file`, or other host-escape settings.
+
+Use service or project environment variables for runtime values. Repositories that build a Docker image must use the Application source with the Dockerfile builder instead of Compose. Repositories that already publish a digest-pinned image can use a Compose source without a `build` section or host port mapping.
 
 Once a build resolves its commit, that revision is stored with the deployment. A rollback reuses the stored revision instead of the current branch tip.
 
