@@ -73,12 +73,13 @@ from HTTP handlers.
 The default Linux installation is a single command:
 
 ```sh
-curl -fsSL https://ignitify.xflawless.dev/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/xFlawlessDev/ignitify/main/install.sh | sh
 ```
 
-The bootstrapper selects the `amd64` or `arm64` archive, downloads the release
-and `SHA256SUMS` from `/releases/latest/`, verifies the archive, and requests
-`sudo` when administrator access is required.
+The bootstrapper is served from GitHub raw content. It selects the `amd64` or
+`arm64` archive, downloads the bundle and `SHA256SUMS` from the repository's
+GitHub Release at `/releases/latest/download/`, verifies the archive, and
+requests `sudo` when administrator access is required.
 
 On Ubuntu, Debian, and Fedora, the release installer provisions the runtime
 dependencies required by the supported local features:
@@ -98,7 +99,7 @@ rerunning the installer.
 Select a published version instead of `latest` with:
 
 ```sh
-curl -fsSL https://ignitify.xflawless.dev/install.sh | sh -s -- --release vX.Y.Z
+curl -fsSL https://raw.githubusercontent.com/xFlawlessDev/ignitify/main/install.sh | sh -s -- --release vX.Y.Z
 ```
 
 Useful service commands:
@@ -227,16 +228,24 @@ coverage until that exists.
 
 ## Release Packaging
 
-Build the embedded frontend and the Linux backend binary on the target
-architecture, then package it with the matching Railpack binary:
+The workspace version in root `Cargo.toml` is the source metadata for all Rust
+crates. `scripts/version.sh` derives an effective version from an exact
+`vX.Y.Z` Git tag, or creates a deterministic development snapshot from the
+current commit. Synchronize a deliberately chosen next source version before
+committing and tagging it:
 
 ```sh
-cd frontend
-pnpm install --frozen-lockfile
-pnpm run build
-cd ..
-cargo build --locked --release -p ignitify-core
-bash scripts/package-release.sh --version vX.Y.Z --railpack /path/to/railpack
+bash scripts/version.sh --set 0.2.0
+git add Cargo.toml Cargo.lock frontend/package.json crates/*/Cargo.toml
+git commit -m "chore: prepare v0.2.0"
+git tag v0.2.0
+```
+
+Build the embedded frontend, validate the workspace, and package a native
+Linux release with the matching Railpack binary:
+
+```sh
+bash scripts/build-release.sh --require-tag --railpack /path/to/railpack
 ```
 
 This creates:
@@ -244,12 +253,22 @@ This creates:
 ```text
 dist/vX.Y.Z/ignitify-linux-amd64.tar.gz
 dist/vX.Y.Z/SHA256SUMS
+dist/vX.Y.Z/release-linux-amd64.json
 ```
 
-Publish the archive and checksum at
-`https://ignitify.xflawless.dev/releases/vX.Y.Z/`. Copy the selected artifacts
-to `/releases/latest/` for the default installer command. Build and publish a
-separate archive for `arm64` when that architecture is supported.
+Run the same command on an `arm64` Linux runner for the ARM archive. The
+packager refreshes `SHA256SUMS` with all archives present in the version
+directory. Use `--dry-run` to inspect the generated version and release plan,
+or `--skip-check` only when an equivalent CI quality gate already ran.
+
+Create a GitHub Release tagged `vX.Y.Z`, then upload the archive,
+`SHA256SUMS`, and `release-linux-<arch>.json` as release assets. The default
+installer resolves assets through
+`https://github.com/xFlawlessDev/ignitify/releases/latest/download/`; a
+versioned installation uses
+`https://github.com/xFlawlessDev/ignitify/releases/download/vX.Y.Z/`.
+Build and publish a separate archive for `arm64` when that architecture is
+supported.
 
 Never publish `.env` files, databases, runtime secrets, generated certificates,
 temporary build workspaces, or an archive without its matching checksum.

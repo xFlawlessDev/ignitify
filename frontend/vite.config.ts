@@ -9,10 +9,11 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const packageManifest = JSON.parse(
   readFileSync(new URL("./package.json", import.meta.url), "utf8"),
 ) as { version: string };
+const appVersion = process.env.IGNITIFY_APP_VERSION?.trim() || packageManifest.version;
 
 export default defineConfig({
   define: {
-    __IGNITIFY_APP_VERSION__: JSON.stringify(packageManifest.version),
+    __IGNITIFY_APP_VERSION__: JSON.stringify(appVersion),
   },
   plugins: [vue(), tailwindcss()],
   resolve: {

@@ -98,18 +98,20 @@ For local runtime work explicitly requested by the user, copy the relevant value
 The public Linux installer is intentionally a small POSIX bootstrap. The default operator command is:
 
 ```sh
-curl -fsSL https://ignitify.xflawless.dev/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/xFlawlessDev/ignitify/main/install.sh | sh
 ```
 
-It downloads `releases/latest/ignitify-linux-{amd64|arm64}.tar.gz` and its `SHA256SUMS`, verifies the matching checksum, then invokes the bundle installer with `sudo` when needed. The bundled installer provisions the required Docker Engine/Compose/Buildx, Git, OpenSSH client, Railpack, Traefik assets, and `ignitify.service`; do not require a user to install those prerequisites manually on Ubuntu, Debian, or Fedora.
+It downloads `https://github.com/xFlawlessDev/ignitify/releases/latest/download/ignitify-linux-{amd64|arm64}.tar.gz` and its `SHA256SUMS`, verifies the matching checksum, then invokes the bundle installer with `sudo` when needed. A selected tag uses `releases/download/<tag>/` instead. The bundled installer provisions the required Docker Engine/Compose/Buildx, Git, OpenSSH client, Railpack, Traefik assets, and `ignitify.service`; do not require a user to install those prerequisites manually on Ubuntu, Debian, or Fedora.
 
-Before packaging a Linux release, build the embedded frontend and the matching Linux `ignitify-core` binary, obtain the matching Railpack Linux binary, then run:
+The root Cargo workspace version is the source metadata for every Rust crate. Use `scripts/version.sh --set X.Y.Z` only when deliberately preparing a new source version; it synchronizes root `Cargo.toml`, `Cargo.lock`, and `frontend/package.json`. For build identity, `scripts/version.sh` derives an exact semantic Git tag at `HEAD`, or a deterministic commit snapshot.
+
+For a tagged Linux release, obtain the matching native Railpack binary and run:
 
 ```sh
-scripts/package-release.sh --version vX.Y.Z --railpack /path/to/railpack
+scripts/build-release.sh --require-tag --railpack /path/to/railpack
 ```
 
-Publish `dist/vX.Y.Z/ignitify-linux-{amd64|arm64}.tar.gz` and `dist/vX.Y.Z/SHA256SUMS` at `/releases/vX.Y.Z/`. Copy the selected artifacts to `/releases/latest/` for the default command. Do not publish an archive without its matching checksum, include `.env` or runtime data in a release archive, or test the installer against a live host without explicit authorization.
+Run the build on each native Linux architecture that is published. `scripts/build-release.sh` invokes the frontend/Rust quality gates, creates `release-linux-{amd64|arm64}.json`, and `scripts/package-release.sh` refreshes a combined `SHA256SUMS` for all release archives in `dist/vX.Y.Z/`. Create a GitHub Release using the matching `vX.Y.Z` tag and upload those files as assets; GitHub resolves the default installer through `releases/latest/download/`. Do not publish an archive without its matching checksum, include `.env` or runtime data in a release archive, or test the installer against a live host without explicit authorization.
 
 ## Rust Conventions
 
@@ -154,8 +156,8 @@ Publish `dist/vX.Y.Z/ignitify-linux-{amd64|arm64}.tar.gz` and `dist/vX.Y.Z/SHA25
 ## Important Files
 
 - `Cargo.toml` - workspace members and shared Rust dependencies.
-- `install.sh` - POSIX public bootstrap for `curl -fsSL https://ignitify.xflawless.dev/install.sh | sh`; downloads and verifies a matching Linux bundle before running its privileged installer.
-- `scripts/install-release.sh` and `scripts/package-release.sh` - release-bundle installer and packager. The installer provisions official Docker Engine/Compose/Buildx, Git, OpenSSH, Railpack, Traefik assets, and systemd on Ubuntu, Debian, or Fedora; the packager emits the versioned archive and `SHA256SUMS` served by the bootstrap endpoint.
+- `install.sh` - POSIX public bootstrap for `curl -fsSL https://raw.githubusercontent.com/xFlawlessDev/ignitify/main/install.sh | sh`; downloads and verifies a matching GitHub Release bundle before running its privileged installer.
+- `scripts/version.sh`, `scripts/build-release.sh`, `scripts/install-release.sh`, and `scripts/package-release.sh` - version derivation/synchronization, native release build, release-bundle installer, and packager. The installer provisions official Docker Engine/Compose/Buildx, Git, OpenSSH, Railpack, Traefik assets, and systemd on Ubuntu, Debian, or Fedora; the packager emits versioned archives and combined `SHA256SUMS` for GitHub Release assets.
 - `.env.example` - documented runtime configuration and security-sensitive defaults; never put real values here.
 - `crates/ignitify-core/src/main.rs` - process entrypoint and runtime composition; `operations.rs` owns backup/restore dispatch.
 - `crates/ignitify-api/src/lib.rs`, `routes.rs`, `state.rs`, and `handlers/` - public router composition, route registration, dependencies, and HTTP adapters.

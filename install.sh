@@ -1,16 +1,17 @@
 #!/bin/sh
-# Bootstrap installer. Safe to invoke with: curl -fsSL https://ignitify.xflawless.dev/install.sh | sh
+# Bootstrap installer. Safe to invoke with:
+# curl -fsSL https://raw.githubusercontent.com/xFlawlessDev/ignitify/main/install.sh | sh
 set -eu
 
-BASE_URL="${IGNITIFY_INSTALL_BASE_URL:-https://ignitify.xflawless.dev}"
+RELEASES_URL="${IGNITIFY_RELEASES_URL:-https://github.com/xFlawlessDev/ignitify/releases}"
 RELEASE="${IGNITIFY_VERSION:-latest}"
 
 usage() {
   cat <<'EOF'
-Usage: curl -fsSL https://ignitify.xflawless.dev/install.sh | sh
+Usage: curl -fsSL https://raw.githubusercontent.com/xFlawlessDev/ignitify/main/install.sh | sh
 
 To select a version:
-  curl -fsSL https://ignitify.xflawless.dev/install.sh | sh -s -- --release v0.1.0
+  curl -fsSL https://raw.githubusercontent.com/xFlawlessDev/ignitify/main/install.sh | sh -s -- --release v0.1.0
 
 Downloads the matching Linux Ignitify release bundle, verifies its SHA-256
 checksum, and runs its privileged installer. The installer configures Docker
@@ -18,8 +19,8 @@ Engine, Docker Compose, Docker Buildx, Git, OpenSSH, Traefik assets, and the
 Ignitify systemd service on supported Linux hosts.
 
 Environment:
-  IGNITIFY_VERSION             Release path to install (default: latest)
-  IGNITIFY_INSTALL_BASE_URL    Alternate artifact host for testing or mirrors
+  IGNITIFY_VERSION          Release tag to install (default: latest)
+  IGNITIFY_RELEASES_URL     Alternate GitHub Releases-compatible URL for testing or mirrors
 EOF
 }
 
@@ -76,9 +77,13 @@ command -v tar >/dev/null 2>&1 || die "tar is required to unpack the Ignitify re
 command -v awk >/dev/null 2>&1 || die "awk is required to verify the release checksum"
 command -v bash >/dev/null 2>&1 || die "bash is required by the Ignitify release installer"
 
-BASE_URL="${BASE_URL%/}"
+RELEASES_URL="${RELEASES_URL%/}"
 ARCHIVE_NAME="ignitify-linux-${ARCH}.tar.gz"
-RELEASE_URL="$BASE_URL/releases/$RELEASE"
+if [ "$RELEASE" = "latest" ]; then
+  RELEASE_URL="$RELEASES_URL/latest/download"
+else
+  RELEASE_URL="$RELEASES_URL/download/$RELEASE"
+fi
 TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/ignitify-install.XXXXXX")" || die "could not create a temporary directory"
 trap 'rm -rf "$TEMP_DIR"' EXIT HUP INT TERM
 

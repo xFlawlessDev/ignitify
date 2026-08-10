@@ -17,11 +17,14 @@ Creates:
   dist/VERSION/ignitify-linux-ARCH.tar.gz
   dist/VERSION/SHA256SUMS
 
-Upload both files to:
-  https://ignitify.xflawless.dev/releases/VERSION/
+Upload the archive, SHA256SUMS, and release metadata to the GitHub Release
+tagged VERSION:
+  https://github.com/xFlawlessDev/ignitify/releases/tag/VERSION
 
-Then publish the selected release directory under `releases/latest/` to make
-the default public bootstrap command install it.
+The bootstrapper downloads a default release from `releases/latest/download/`
+and a selected release from `releases/download/VERSION/`. Re-running this
+script for a second architecture refreshes SHA256SUMS with every archive in
+that directory.
 
 Options:
   --version VERSION       Required release identifier, for example v0.1.0.
@@ -101,7 +104,7 @@ OUTPUT_ROOT="${OUTPUT_ROOT:-$REPOSITORY_ROOT/dist}"
 [[ -f "$BINARY" ]] || die "Ignitify binary is missing: $BINARY"
 [[ -n "$RAILPACK" && -f "$RAILPACK" ]] || die "a matching Railpack binary is required; pass --railpack PATH"
 
-for command in install mktemp sha256sum tar; do
+for command in install mktemp mv sha256sum tar; do
   command -v "$command" >/dev/null 2>&1 || die "required command is unavailable: $command"
 done
 
@@ -146,7 +149,11 @@ install -d -m 0755 "$ARTIFACT_DIR"
 tar -C "$TEMP_DIR" -czf "$ARTIFACT_DIR/$ARCHIVE_NAME" "$BUNDLE_NAME"
 (
   cd "$ARTIFACT_DIR"
-  sha256sum "$ARCHIVE_NAME" > SHA256SUMS
+  shopt -s nullglob
+  archives=(ignitify-linux-*.tar.gz)
+  ((${#archives[@]} > 0)) || die "no release archives found for checksum generation"
+  sha256sum "${archives[@]}" > SHA256SUMS.tmp
+  mv SHA256SUMS.tmp SHA256SUMS
 )
 printf '%s\n' "[ignitify-release] created $ARTIFACT_DIR/$ARCHIVE_NAME"
 printf '%s\n' "[ignitify-release] created $ARTIFACT_DIR/SHA256SUMS"
