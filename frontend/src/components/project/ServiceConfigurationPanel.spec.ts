@@ -72,6 +72,43 @@ async function selectOption(host: HTMLElement, triggerId: string, label: string)
 }
 
 describe("ServiceConfigurationPanel", () => {
+  it("preserves a stored secret when saving unrelated configuration changes", async () => {
+    const component = (await import("./ServiceConfigurationPanel.vue")).default;
+    const onSave = vi.fn();
+    const host = document.createElement("div");
+    document.body.append(host);
+    const app = createApp(component, {
+      service: {
+        ...service,
+        source_config: {
+          source: "application",
+          provider_id: "provider-1",
+          repository: "acme/site",
+          branch: "main",
+          builder: "railpack",
+        },
+        variables: [{ key: "API_TOKEN", is_secret: true, is_set: true }],
+      },
+      providers: [{ id: "provider-1", name: "GitHub", kind: "github", token_configured: true }],
+      inheritedVariables: [],
+      saving: false,
+      error: null,
+      onSave,
+    });
+    app.mount(host);
+    await nextTick();
+
+    (host.querySelector("form") as HTMLFormElement).dispatchEvent(
+      new Event("submit", { bubbles: true, cancelable: true }),
+    );
+    await nextTick();
+
+    expect(onSave.mock.calls[0]?.[0]).toMatchObject({
+      variables: [{ key: "API_TOKEN", value: "", is_secret: true, preserve: true }],
+    });
+    app.unmount();
+  });
+
   it("saves the selected remote deployment destination", async () => {
     vi.stubGlobal(
       "fetch",

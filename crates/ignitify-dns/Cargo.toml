@@ -9,4 +9,5 @@ hickory-resolver.workspace = true
 ignitify-control-plane = { path = "../ignitify-control-plane" }
 ignitify-db = { path = "../ignitify-db" }
 ignitify-domain = { path = "../ignitify-domain" }
-
+reqwest.workspace = true
+serde.workspace = true

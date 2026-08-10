@@ -173,7 +173,8 @@ function formatCheckedAt(value: string | null) {
             v-else-if="domain.dns_status === 'unavailable'"
             class="text-[11px] leading-4 text-muted-foreground"
           >
-            Ignitify could not reach its resolver. The record may still be correct; retry shortly.
+            Ignitify could not reach its resolver. This does not test application reachability, so
+            the app may still be live; retry after the resolver recovers.
           </p>
           <p
             v-if="formatCheckedAt(domain.dns_checked_at)"

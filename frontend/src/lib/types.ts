@@ -149,6 +149,7 @@ export interface ServiceVariable {
   key: string;
   value: string;
   is_secret: boolean;
+  preserve?: boolean;
 }
 
 export type ServiceSource = "template" | "compose" | "application";

@@ -1,5 +1,8 @@
 //! Isolated Git checkout and image build adapter for application sources.
 
+mod command_failure;
+mod github_app;
+
 use std::{
     env,
     path::{Path, PathBuf},
@@ -12,7 +15,9 @@ use std::{
 };
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
-use ignitify_control_plane::{AgeCipher, Error as ControlError, SourceBuild, SourceBuildOutput};
+use ignitify_control_plane::{
+    AgeCipher, DeploymentLogSink, Error as ControlError, SourceBuild, SourceBuildOutput,
+};
 use ignitify_db::{
     Database, ProviderAuthMode, ProviderKind, ProviderRecord, RemoteBuilderConnection,
 };
@@ -23,7 +28,11 @@ use serde::Deserialize;
 use thiserror::Error;
 #[cfg(unix)]
 use tokio::io::AsyncWriteExt;
-use tokio::{fs, process::Command};
+use tokio::{
+    fs,
+    io::{AsyncBufReadExt, BufReader},
+    process::Command,
+};
 use url::Url;
 
 const DEFAULT_BUILD_ROOT: &str = "data/builds";
@@ -79,14 +88,15 @@ impl GitSourceBuild {
     async fn build_inner(
         &self,
         deployment: &ignitify_db::DeploymentRecord,
+        logs: &DeploymentLogSink,
     ) -> Result<Option<SourceBuildOutput>, BuildError> {
         let Some(source) = deployment.source_config.as_ref() else {
             return Ok(None);
         };
         match source.source.as_str() {
-            "application" => self.build_application(deployment, source).await,
+            "application" => self.build_application(deployment, source, logs).await,
             "compose" if source.provider_id.is_some() => {
-                self.build_compose(deployment, source).await
+                self.build_compose(deployment, source, logs).await
             }
             _ => Ok(None),
         }
@@ -96,6 +106,7 @@ impl GitSourceBuild {
         &self,
         deployment: &ignitify_db::DeploymentRecord,
         source: &ServiceSourceConfig,
+        logs: &DeploymentLogSink,
     ) -> Result<Option<SourceBuildOutput>, BuildError> {
         let builder = source.builder.ok_or(BuildError::InvalidSource)?;
         if builder == ApplicationBuilder::Spa {
@@ -109,9 +120,18 @@ impl GitSourceBuild {
         if builder == ApplicationBuilder::Static && deployment.spec.internal_port() != Some(80) {
             return Err(BuildError::StaticPort);
         }
+        logs.system("Checking out Git source").await?;
         let checkout = self.checkout_source(deployment, source).await?;
+        logs.system(format!("Checked out revision {}", checkout.revision))
+            .await?;
         let result = self
-            .build_image(deployment.id.as_str(), builder, source, &checkout.path)
+            .build_image(
+                deployment.id.as_str(),
+                builder,
+                source,
+                &checkout.path,
+                logs,
+            )
             .await;
         cleanup_checkout(&checkout).await;
         let local_image_id = result?;
@@ -126,7 +146,9 @@ impl GitSourceBuild {
         &self,
         deployment: &ignitify_db::DeploymentRecord,
         source: &ServiceSourceConfig,
+        logs: &DeploymentLogSink,
     ) -> Result<Option<SourceBuildOutput>, BuildError> {
+        logs.system("Checking out Git Compose source").await?;
         let checkout = self.checkout_source(deployment, source).await?;
         let result = self.compose_spec(deployment, source, &checkout.path).await;
         cleanup_checkout(&checkout).await;
@@ -157,7 +179,7 @@ impl GitSourceBuild {
             .get(provider_id)
             .await?
             .ok_or(BuildError::ProviderMissing)?;
-        let credentials = self.credentials(&provider)?;
+        let credentials = self.credentials(&provider, repository).await?;
         self.checkout(
             deployment.id.as_str(),
             &provider,
@@ -185,9 +207,29 @@ impl GitSourceBuild {
         compose_runtime_spec(&deployment.spec, yaml)
     }
 
-    fn credentials(&self, provider: &ProviderRecord) -> Result<GitCredentials, BuildError> {
+    async fn credentials(
+        &self,
+        provider: &ProviderRecord,
+        repository: &str,
+    ) -> Result<GitCredentials, BuildError> {
         if provider.auth_mode == ProviderAuthMode::GithubApp {
-            return Err(BuildError::GithubAppUnsupported);
+            let plaintext = self
+                .cipher
+                .decrypt(&provider.credentials_ciphertext)
+                .map_err(|_| BuildError::CredentialsUnavailable)?;
+            let credentials = serde_json::from_slice::<StoredCredentials>(plaintext.as_slice())
+                .map_err(|_| BuildError::CredentialsUnavailable)?;
+            let private_key = credentials
+                .private_key
+                .as_deref()
+                .filter(|value| !value.trim().is_empty())
+                .ok_or(BuildError::CredentialsUnavailable)?;
+            let token =
+                github_app::installation_access_token(provider, private_key, repository).await?;
+            return Ok(GitCredentials {
+                username: "x-access-token".to_owned(),
+                token,
+            });
         }
         let plaintext = self
             .cipher
@@ -220,16 +262,16 @@ impl GitSourceBuild {
         source_revision: Option<&str>,
     ) -> Result<Checkout, BuildError> {
         fs::create_dir_all(&self.root).await?;
-        let path = self.root.join(deployment_id);
-        let credentials_path = self.root.join(format!("{deployment_id}.gitconfig"));
+        let root = fs::canonicalize(&self.root).await?;
+        let path = root.join(deployment_id);
+        let credentials_path = root.join(format!("{deployment_id}.gitconfig"));
         remove_dir_if_exists(&path).await?;
         remove_file_if_exists(&credentials_path).await?;
         let remote = repository_url(provider, repository)?;
         write_credentials_config(&credentials_path, &git_config(credentials)).await?;
-        let credentials_include = format!("include.path={}", credentials_path.display());
         let clone_result = self
             .run(
-                self.git_command(&credentials_include)
+                self.git_command(&credentials_path)
                     .args([
                         "clone",
                         "--depth",
@@ -252,7 +294,7 @@ impl GitSourceBuild {
         if let Some(revision) = source_revision {
             if let Err(error) = self
                 .run(
-                    self.git_command(&credentials_include).args([
+                    self.git_command(&credentials_path).args([
                         "-C",
                         path.to_string_lossy().as_ref(),
                         "fetch",
@@ -270,7 +312,7 @@ impl GitSourceBuild {
             }
             if let Err(error) = self
                 .run(
-                    self.git_command(&credentials_include).args([
+                    self.git_command(&credentials_path).args([
                         "-C",
                         path.to_string_lossy().as_ref(),
                         "checkout",
@@ -287,7 +329,7 @@ impl GitSourceBuild {
         }
         let revision = self
             .output(
-                self.git_command(&credentials_include).args([
+                self.git_command(&credentials_path).args([
                     "-C",
                     path.to_string_lossy().as_ref(),
                     "rev-parse",
@@ -310,10 +352,11 @@ impl GitSourceBuild {
         builder: ApplicationBuilder,
         source: &ServiceSourceConfig,
         checkout: &Path,
+        logs: &DeploymentLogSink,
     ) -> Result<String, BuildError> {
         if let Some(remote) = self.database.remote_builders().active().await? {
             return self
-                .build_remote_image(deployment_id, builder, source, checkout, &remote)
+                .build_remote_image(deployment_id, builder, source, checkout, &remote, logs)
                 .await;
         }
         if !self.allow_local_builds {
@@ -324,7 +367,7 @@ impl GitSourceBuild {
             ApplicationBuilder::Dockerfile => {
                 let dockerfile =
                     relative_path(source.dockerfile_path.as_deref().unwrap_or("Dockerfile"))?;
-                self.docker_build(&tag, checkout, checkout.join(dockerfile))
+                self.docker_build(&tag, checkout, checkout.join(dockerfile), logs)
                     .await?;
             }
             ApplicationBuilder::Railpack => {
@@ -342,7 +385,8 @@ impl GitSourceBuild {
                 if let Some(command) = source.build_command.as_deref() {
                     prepare.arg("--build-cmd").arg(command);
                 }
-                self.run(&mut prepare, "railpack prepare").await?;
+                self.run_logged(&mut prepare, "railpack prepare", logs)
+                    .await?;
                 let mut build = Command::new(&self.docker_bin);
                 build
                     .args([
@@ -358,7 +402,8 @@ impl GitSourceBuild {
                     .arg("--file")
                     .arg(plan)
                     .arg(checkout);
-                self.run(&mut build, "railpack image build").await?;
+                self.run_logged(&mut build, "railpack image build", logs)
+                    .await?;
             }
             ApplicationBuilder::Static => {
                 let build_image = configured_digest_image(
@@ -379,7 +424,7 @@ impl GitSourceBuild {
                     static_dockerfile(&build_image, &self.static_runtime_image, command, &output),
                 )
                 .await?;
-                self.docker_build(&tag, checkout, dockerfile).await?;
+                self.docker_build(&tag, checkout, dockerfile, logs).await?;
             }
             ApplicationBuilder::Spa => return Err(BuildError::UnsupportedBuilder),
         }
@@ -391,6 +436,7 @@ impl GitSourceBuild {
         tag: &str,
         checkout: &Path,
         dockerfile: PathBuf,
+        logs: &DeploymentLogSink,
     ) -> Result<(), BuildError> {
         let mut command = Command::new(&self.docker_bin);
         command
@@ -405,7 +451,8 @@ impl GitSourceBuild {
             ])
             .arg(dockerfile)
             .arg(checkout);
-        self.run(&mut command, "docker image build").await
+        self.run_logged(&mut command, "docker image build", logs)
+            .await
     }
 
     async fn build_remote_image(
@@ -415,12 +462,26 @@ impl GitSourceBuild {
         source: &ServiceSourceConfig,
         checkout: &Path,
         remote: &RemoteBuilderConnection,
+        logs: &DeploymentLogSink,
     ) -> Result<String, BuildError> {
-        let session = self.open_remote_builder(deployment_id, remote).await?;
+        logs.system("Connecting to remote builder").await?;
+        let session = self
+            .open_remote_builder(deployment_id, remote, logs)
+            .await?;
         let image = format!("{}:ignitify-{}", remote.registry_repository, deployment_id);
         let metadata = checkout.join(".ignitify-build-metadata.json");
         let result = self
-            .build_remote_image_with_session(&session, &image, &metadata, builder, source, checkout)
+            .build_remote_image_with_session(
+                RemoteBuildContext {
+                    session: &session,
+                    image: &image,
+                    metadata: &metadata,
+                    checkout,
+                    logs,
+                },
+                builder,
+                source,
+            )
             .await;
         self.close_remote_builder(session).await;
         result
@@ -428,23 +489,21 @@ impl GitSourceBuild {
 
     async fn build_remote_image_with_session(
         &self,
-        session: &RemoteBuildSession,
-        image: &str,
-        metadata: &Path,
+        context: RemoteBuildContext<'_>,
         builder: ApplicationBuilder,
         source: &ServiceSourceConfig,
-        checkout: &Path,
     ) -> Result<String, BuildError> {
         match builder {
             ApplicationBuilder::Dockerfile => {
                 let dockerfile =
                     relative_path(source.dockerfile_path.as_deref().unwrap_or("Dockerfile"))?;
                 self.remote_docker_build(
-                    session,
-                    image,
-                    metadata,
-                    checkout,
-                    checkout.join(dockerfile),
+                    context.session,
+                    context.image,
+                    context.metadata,
+                    context.checkout,
+                    context.checkout.join(dockerfile),
+                    context.logs,
                 )
                 .await?;
             }
@@ -453,37 +512,39 @@ impl GitSourceBuild {
                     "IGNITIFY_RAILPACK_FRONTEND_IMAGE",
                     &self.railpack_frontend_image,
                 )?;
-                let plan = checkout.join(".ignitify-railpack-plan.json");
+                let plan = context.checkout.join(".ignitify-railpack-plan.json");
                 let mut prepare = Command::new(&self.railpack_bin);
                 prepare
                     .arg("prepare")
-                    .arg(checkout)
+                    .arg(context.checkout)
                     .arg("--plan-out")
                     .arg(&plan);
                 if let Some(command) = source.build_command.as_deref() {
                     prepare.arg("--build-cmd").arg(command);
                 }
-                self.run(&mut prepare, "railpack prepare").await?;
+                self.run_logged(&mut prepare, "railpack prepare", context.logs)
+                    .await?;
                 let mut build = Command::new(&self.docker_bin);
                 build
                     .args([
                         "buildx",
                         "build",
                         "--builder",
-                        &session.name,
+                        &context.session.name,
                         "--push",
                         "--progress=plain",
                         "--tag",
-                        image,
+                        context.image,
                         "--metadata-file",
                     ])
-                    .arg(metadata)
+                    .arg(context.metadata)
                     .arg("--build-arg")
                     .arg(format!("BUILDKIT_SYNTAX={frontend}"))
                     .arg("--file")
                     .arg(plan)
-                    .arg(checkout);
-                self.run(&mut build, "remote railpack image build").await?;
+                    .arg(context.checkout);
+                self.run_logged(&mut build, "remote railpack image build", context.logs)
+                    .await?;
             }
             ApplicationBuilder::Static => {
                 let build_image = configured_digest_image(
@@ -498,18 +559,25 @@ impl GitSourceBuild {
                     .build_command
                     .as_deref()
                     .unwrap_or("npm ci && npm run build");
-                let dockerfile = checkout.join(".ignitify-static.Dockerfile");
+                let dockerfile = context.checkout.join(".ignitify-static.Dockerfile");
                 fs::write(
                     &dockerfile,
                     static_dockerfile(&build_image, &self.static_runtime_image, command, &output),
                 )
                 .await?;
-                self.remote_docker_build(session, image, metadata, checkout, dockerfile)
-                    .await?;
+                self.remote_docker_build(
+                    context.session,
+                    context.image,
+                    context.metadata,
+                    context.checkout,
+                    dockerfile,
+                    context.logs,
+                )
+                .await?;
             }
             ApplicationBuilder::Spa => return Err(BuildError::UnsupportedBuilder),
         }
-        remote_image_reference(image, metadata).await
+        remote_image_reference(context.image, context.metadata).await
     }
 
     async fn remote_docker_build(
@@ -519,6 +587,7 @@ impl GitSourceBuild {
         metadata: &Path,
         checkout: &Path,
         dockerfile: PathBuf,
+        logs: &DeploymentLogSink,
     ) -> Result<(), BuildError> {
         let mut command = Command::new(&self.docker_bin);
         command
@@ -537,13 +606,15 @@ impl GitSourceBuild {
             .arg("--file")
             .arg(dockerfile)
             .arg(checkout);
-        self.run(&mut command, "remote Docker image build").await
+        self.run_logged(&mut command, "remote Docker image build", logs)
+            .await
     }
 
     async fn open_remote_builder(
         &self,
         deployment_id: &str,
         remote: &RemoteBuilderConnection,
+        logs: &DeploymentLogSink,
     ) -> Result<RemoteBuildSession, BuildError> {
         let certificate_dir = self.root.join(format!("{deployment_id}.remote-builder"));
         remove_dir_if_exists(&certificate_dir).await?;
@@ -584,7 +655,8 @@ impl GitSourceBuild {
                 .arg("--driver-opt")
                 .arg(options)
                 .arg(&remote.endpoint);
-            self.run(&mut create, "remote builder connection").await?;
+            self.run_logged(&mut create, "remote builder connection", logs)
+                .await?;
             Ok(RemoteBuildSession {
                 name,
                 certificate_dir: certificate_dir.clone(),
@@ -619,6 +691,25 @@ impl GitSourceBuild {
     }
 
     async fn run(&self, command: &mut Command, action: &'static str) -> Result<(), BuildError> {
+        if command_failure::is_git_action(action) {
+            let output = self
+                .wait_for_command(
+                    command
+                        .kill_on_drop(true)
+                        .stdout(Stdio::null())
+                        .stderr(Stdio::piped())
+                        .output(),
+                    action,
+                )
+                .await?;
+            return if output.status.success() {
+                Ok(())
+            } else {
+                Err(BuildError::GitCheckout(
+                    command_failure::classify_git_failure(action, &output.stderr),
+                ))
+            };
+        }
         let status = self
             .wait_for_command(
                 command
@@ -632,6 +723,48 @@ impl GitSourceBuild {
         if status.success() {
             Ok(())
         } else {
+            Err(BuildError::CommandFailed(action))
+        }
+    }
+
+    async fn run_logged(
+        &self,
+        command: &mut Command,
+        action: &'static str,
+        logs: &DeploymentLogSink,
+    ) -> Result<(), BuildError> {
+        logs.system(format!("Starting {action}")).await?;
+        let mut child = command
+            .kill_on_drop(true)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|error| command_io_error(action, error))?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| BuildError::CommandFailed(action))?;
+        let stderr = child
+            .stderr
+            .take()
+            .ok_or_else(|| BuildError::CommandFailed(action))?;
+        let (_, _, status) = tokio::time::timeout(self.command_timeout, async {
+            tokio::try_join!(
+                stream_command_output(stdout, "stdout", logs),
+                stream_command_output(stderr, "stderr", logs),
+                async { child.wait().await.map_err(BuildError::Io) },
+            )
+        })
+        .await
+        .map_err(|_| BuildError::CommandTimedOut(action))??;
+        if status.success() {
+            logs.system(format!("Completed {action}")).await?;
+            Ok(())
+        } else {
+            let code = status
+                .code()
+                .map_or_else(|| "signal".to_owned(), |code| format!("exit code {code}"));
+            logs.system(format!("{action} failed ({code})")).await?;
             Err(BuildError::CommandFailed(action))
         }
     }
@@ -655,15 +788,16 @@ impl GitSourceBuild {
             .map_err(|_| BuildError::CommandFailed(action))
     }
 
-    fn git_command(&self, credentials_include: &str) -> Command {
+    fn git_command(&self, credentials_path: &Path) -> Command {
         let mut command = Command::new(&self.git_bin);
         let hooks_path = if cfg!(windows) { "NUL" } else { "/dev/null" };
         command
+            .env("GIT_CONFIG_GLOBAL", credentials_path)
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_TERMINAL_PROMPT", "0")
             .args(["-c", "protocol.file.allow=never"])
             .arg("-c")
-            .arg(format!("core.hooksPath={hooks_path}"))
-            .arg("-c")
-            .arg(credentials_include);
+            .arg(format!("core.hooksPath={hooks_path}"));
         command
     }
 
@@ -675,7 +809,30 @@ impl GitSourceBuild {
         tokio::time::timeout(self.command_timeout, future)
             .await
             .map_err(|_| BuildError::CommandTimedOut(action))?
-            .map_err(BuildError::Io)
+            .map_err(|error| command_io_error(action, error))
+    }
+}
+
+async fn stream_command_output<R>(
+    output: R,
+    stream: &str,
+    logs: &DeploymentLogSink,
+) -> Result<(), BuildError>
+where
+    R: tokio::io::AsyncRead + Unpin,
+{
+    let mut lines = BufReader::new(output).lines();
+    while let Some(line) = lines.next_line().await? {
+        logs.append(stream, line).await?;
+    }
+    Ok(())
+}
+
+fn command_io_error(action: &'static str, error: std::io::Error) -> BuildError {
+    if error.kind() == std::io::ErrorKind::NotFound {
+        BuildError::CommandUnavailable(action)
+    } else {
+        BuildError::Io(error)
     }
 }
 
@@ -683,12 +840,14 @@ impl SourceBuild for GitSourceBuild {
     async fn build(
         &self,
         deployment: &ignitify_db::DeploymentRecord,
+        logs: &DeploymentLogSink,
     ) -> Result<Option<SourceBuildOutput>, ControlError> {
         let is_application_build = deployment
             .source_config
             .as_ref()
             .is_some_and(|source| source.source == "application");
         if is_application_build {
+            logs.system("Waiting for source build capacity").await?;
             let _permit = self
                 .build_limiter
                 .acquire(&self.database)
@@ -697,12 +856,12 @@ impl SourceBuild for GitSourceBuild {
                     tracing::warn!(deployment_id = %deployment.id, error = %error, "could not acquire source build capacity");
                     ControlError::Policy("source build capacity is unavailable")
                 })?;
-            return self.build_inner(deployment).await.map_err(|error| {
+            return self.build_inner(deployment, logs).await.map_err(|error| {
                 tracing::warn!(deployment_id = %deployment.id, error = %error, "Git source build rejected");
                 source_build_error(error)
             });
         }
-        self.build_inner(deployment).await.map_err(|error| {
+        self.build_inner(deployment, logs).await.map_err(|error| {
             tracing::warn!(deployment_id = %deployment.id, error = %error, "Git source build rejected");
             source_build_error(error)
         })
@@ -712,6 +871,7 @@ impl SourceBuild for GitSourceBuild {
 #[derive(Debug, Deserialize)]
 struct StoredCredentials {
     token: Option<String>,
+    private_key: Option<String>,
 }
 
 struct GitCredentials {
@@ -727,6 +887,14 @@ struct Checkout {
 struct RemoteBuildSession {
     name: String,
     certificate_dir: PathBuf,
+}
+
+struct RemoteBuildContext<'a> {
+    session: &'a RemoteBuildSession,
+    image: &'a str,
+    metadata: &'a Path,
+    checkout: &'a Path,
+    logs: &'a DeploymentLogSink,
 }
 
 #[derive(Default)]
@@ -788,8 +956,6 @@ enum BuildError {
     ProviderMissing,
     #[error("provider credentials are unavailable")]
     CredentialsUnavailable,
-    #[error("GitHub App credentials are not supported by the Git executor")]
-    GithubAppUnsupported,
     #[error("source repository URL is invalid")]
     InvalidRepositoryUrl,
     #[error("source path must stay inside the repository")]
@@ -808,8 +974,14 @@ enum BuildError {
     InvalidImageSetting(&'static str),
     #[error("{0} failed")]
     CommandFailed(&'static str),
+    #[error("Git source checkout failed: {0}")]
+    GitCheckout(command_failure::GitCheckoutFailure),
+    #[error("{0} executable is unavailable")]
+    CommandUnavailable(&'static str),
     #[error("{0} exceeded the configured build timeout")]
     CommandTimedOut(&'static str),
+    #[error(transparent)]
+    GithubApp(#[from] github_app::Error),
     #[error(transparent)]
     Database(#[from] ignitify_db::DatabaseError),
     #[error(transparent)]
@@ -823,7 +995,35 @@ fn source_build_error(error: BuildError) -> ControlError {
         BuildError::RemoteBuilderRequired => ControlError::Policy(
             "remote source deployments require a configured remote builder and registry",
         ),
-        _ => ControlError::Policy("source build failed"),
+        error => ControlError::SourceBuild(source_build_reason(&error)),
+    }
+}
+
+fn source_build_reason(error: &BuildError) -> String {
+    match error {
+        BuildError::CommandUnavailable(action) if action.contains("railpack") => {
+            "Railpack CLI is not installed on the control-plane host. Install it or set IGNITIFY_RAILPACK_BIN to its absolute path.".to_owned()
+        }
+        BuildError::CommandUnavailable(action) if action.contains("docker") => {
+            "Docker CLI is not installed on the control-plane host or is not available in PATH."
+                .to_owned()
+        }
+        BuildError::CommandUnavailable(action) if action.contains("git") => {
+            "Git CLI is not installed on the control-plane host or is not available in PATH."
+                .to_owned()
+        }
+        BuildError::CommandUnavailable(action) => {
+            format!("{action} could not start because its executable is unavailable.")
+        }
+        BuildError::CommandFailed(action) => {
+            format!("{action} failed. Check the source configuration and build tool prerequisites.")
+        }
+        BuildError::GitCheckout(error) => format!("Git source checkout failed: {error}"),
+        BuildError::CommandTimedOut(action) => {
+            format!("{action} exceeded the configured build timeout.")
+        }
+        BuildError::GithubApp(error) => format!("GitHub App authentication failed: {error}"),
+        error => error.to_string(),
     }
 }
 
@@ -1012,8 +1212,8 @@ async fn cleanup_checkout(checkout: &Checkout) {
 #[cfg(test)]
 mod tests {
     use super::{
-        BuildLimiter, compose_runtime_spec, is_git_revision, is_local_image_id, relative_path,
-        shell_quote, static_dockerfile,
+        BuildError, BuildLimiter, compose_runtime_spec, is_git_revision, is_local_image_id,
+        relative_path, shell_quote, source_build_error, static_dockerfile,
     };
     use ignitify_db::{Database, DatabaseConfig};
     use ignitify_domain::ServiceSpec;
@@ -1106,5 +1306,13 @@ mod tests {
     #[test]
     fn shell_quoting_keeps_user_command_inside_one_argument() {
         assert_eq!(shell_quote("echo 'ok'"), "'echo '\"'\"'ok'\"'\"''");
+    }
+
+    #[test]
+    fn missing_railpack_explains_the_control_plane_prerequisite() {
+        assert_eq!(
+            source_build_error(BuildError::CommandUnavailable("railpack prepare")).to_string(),
+            "source build failed: Railpack CLI is not installed on the control-plane host. Install it or set IGNITIFY_RAILPACK_BIN to its absolute path."
+        );
     }
 }

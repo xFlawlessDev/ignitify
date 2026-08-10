@@ -1591,6 +1591,8 @@ dependencies = [
  "ignitify-control-plane",
  "ignitify-db",
  "ignitify-domain",
+ "reqwest",
+ "serde",
 ]
 
 [[package]]
@@ -1678,9 +1680,12 @@ name = "ignitify-source-git"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
+ "chrono",
  "ignitify-control-plane",
  "ignitify-db",
  "ignitify-domain",
+ "jsonwebtoken",
+ "reqwest",
  "serde",
  "serde_json",
  "thiserror 2.0.19",

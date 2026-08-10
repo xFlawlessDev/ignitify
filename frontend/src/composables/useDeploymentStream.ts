@@ -22,6 +22,7 @@ export function useDeploymentStream(
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
   let lastSequence = 0;
   let attempts = 0;
+  let connectionGeneration = 0;
 
   async function connect(nextDeploymentId = currentDeploymentId) {
     if (nextDeploymentId !== currentDeploymentId) {
@@ -32,20 +33,24 @@ export function useDeploymentStream(
     currentDeploymentId = nextDeploymentId;
     if (!currentDeploymentId) return;
     stop();
-    controller = new AbortController();
+    const generation = ++connectionGeneration;
+    const connectionController = new AbortController();
+    controller = connectionController;
     try {
       const response = await apiOpenEventStream(
         `/deployments/${encodeURIComponent(currentDeploymentId)}/${options.channel ?? "events"}`,
-        controller.signal,
+        connectionController.signal,
         lastSequence || undefined,
       );
+      if (generation !== connectionGeneration || connectionController.signal.aborted) return;
       if (!response.ok || !response.body) throw new Error(`Stream failed: ${response.status}`);
       connected.value = true;
+      error.value = null;
       attempts = 0;
-      await read(response.body, controller.signal);
-      if (!controller.signal.aborted) reconnect();
+      await read(response.body, connectionController.signal);
+      if (generation === connectionGeneration && !connectionController.signal.aborted) reconnect();
     } catch (cause) {
-      if (controller?.signal.aborted) return;
+      if (generation !== connectionGeneration || connectionController.signal.aborted) return;
       connected.value = false;
       error.value = cause instanceof Error ? cause.message : "Deployment stream failed";
       reconnect();
@@ -62,6 +67,7 @@ export function useDeploymentStream(
   }
 
   function stop() {
+    connectionGeneration += 1;
     controller?.abort();
     controller = null;
     if (retryTimer) clearTimeout(retryTimer);

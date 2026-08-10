@@ -410,9 +410,8 @@ function submit() {
     validationError.value = "Choose a provider, repository, and branch for the Compose file.";
     return;
   }
-  if (variables.some((variable) => variable.is_secret && !variable.value)) {
-    validationError.value =
-      "Enter every service secret before saving; stored secret values must be re-entered.";
+  if (variables.some((variable) => variable.is_secret && !variable.is_set && !variable.value)) {
+    validationError.value = "Enter a value for every new service secret before saving.";
     return;
   }
   if (
@@ -451,10 +450,11 @@ function submit() {
           healthcheck: null,
         }),
     internal_port: parsedPort,
-    variables: variables.map(({ key, value, is_secret }) => ({
+    variables: variables.map(({ key, value, is_secret, is_set }) => ({
       key: key.trim(),
       value,
       is_secret,
+      ...(is_secret && is_set && !value ? { preserve: true } : {}),
     })),
     source_config: {
       source: source.value,
@@ -1024,11 +1024,11 @@ onMounted(() => void loadDestinations());
               :type="variable.is_secret && !showSecretValues ? 'password' : 'text'"
               :placeholder="
                 variable.is_secret && variable.is_set
-                  ? 'Stored securely; enter replacement'
+                  ? 'Stored securely; leave blank to keep'
                   : 'Enter value'
               "
               autocomplete="off"
-              required
+              :required="!variable.is_secret || !variable.is_set"
             />
           </Label>
           <div class="grid gap-1.5 text-[11px] text-muted-foreground">
@@ -1071,7 +1071,7 @@ onMounted(() => void loadDestinations());
         <p class="max-w-[56ch] text-xs leading-5 text-muted-foreground">
           {{
             activeEnvironmentKind === "secrets"
-              ? "Service secrets override project secrets. Stored values stay masked and must be re-entered whenever this configuration is saved."
+              ? "Service secrets override project secrets. Stored values stay masked; leave one blank to keep its current value."
               : "Add a service-specific value when it needs to override a project variable."
           }}
         </p>

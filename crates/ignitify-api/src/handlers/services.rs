@@ -12,6 +12,7 @@ use ignitify_domain::{
 };
 use ignitify_runtime_compose::validate_submission_yaml;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use zeroize::Zeroizing;
 
 use crate::{
@@ -48,6 +49,13 @@ pub(crate) struct ServiceVariableRequest {
     key: String,
     value: String,
     is_secret: bool,
+    #[serde(default)]
+    preserve: bool,
+}
+
+struct ParsedServiceInput {
+    input: ServiceInput,
+    preserved_secret_keys: HashSet<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -170,11 +178,16 @@ pub(crate) async fn create(
 ) -> Result<(StatusCode, Json<ServiceResponse>), ApiError> {
     let actor = require_actor(&state, &headers).await?;
     require_same_origin_request(&state, &headers)?;
-    let input = input(request)?;
-    ensure_source_provider(&state, input.configuration.source_config.as_ref()).await?;
+    let parsed = parse_input(request)?;
+    if !parsed.preserved_secret_keys.is_empty() {
+        return Err(ApiError::BadRequest(
+            "new services cannot preserve a stored secret",
+        ));
+    }
+    ensure_source_provider(&state, parsed.input.configuration.source_config.as_ref()).await?;
     match state
         .services()?
-        .create(service_actor(&actor), &project_id, input)
+        .create(service_actor(&actor), &project_id, parsed.input)
         .await?
     {
         ServiceMutationOutcomeModel::Created(service) => {
@@ -209,11 +222,16 @@ pub(crate) async fn update(
 ) -> Result<Json<ServiceResponse>, ApiError> {
     let actor = require_actor(&state, &headers).await?;
     require_same_origin_request(&state, &headers)?;
-    let input = input(request)?;
-    ensure_source_provider(&state, input.configuration.source_config.as_ref()).await?;
+    let parsed = parse_input(request)?;
+    ensure_source_provider(&state, parsed.input.configuration.source_config.as_ref()).await?;
     match state
         .services()?
-        .update(service_actor(&actor), &service_id, input)
+        .update_preserving_secrets(
+            service_actor(&actor),
+            &service_id,
+            parsed.input,
+            parsed.preserved_secret_keys,
+        )
         .await?
     {
         ServiceMutationOutcomeModel::Updated(service) => Ok(Json(service.into())),
@@ -248,7 +266,12 @@ pub(crate) async fn remove(
     }
 }
 
+#[cfg(test)]
 fn input(request: ServiceRequest) -> Result<ServiceInput, ApiError> {
+    Ok(parse_input(request)?.input)
+}
+
+fn parse_input(request: ServiceRequest) -> Result<ParsedServiceInput, ApiError> {
     let source_config = request.source_config;
     let application_source = source_config
         .as_ref()
@@ -270,6 +293,21 @@ fn input(request: ServiceRequest) -> Result<ServiceInput, ApiError> {
                 String::new()
             }
         });
+    let preserved_secret_keys = request
+        .variables
+        .iter()
+        .filter(|variable| variable.preserve)
+        .map(|variable| variable.key.clone())
+        .collect::<HashSet<_>>();
+    if request
+        .variables
+        .iter()
+        .any(|variable| variable.preserve && (!variable.is_secret || !variable.value.is_empty()))
+    {
+        return Err(ApiError::BadRequest(
+            "a stored secret can only be preserved without a replacement value",
+        ));
+    }
     let variables = request
         .variables
         .into_iter()
@@ -321,7 +359,10 @@ fn input(request: ServiceRequest) -> Result<ServiceInput, ApiError> {
     if !git_compose_source && let ServiceSpec::Compose { yaml, .. } = &input.configuration.spec {
         validate_submission_yaml(yaml).map_err(ApiError::ComposePolicy)?;
     }
-    Ok(input)
+    Ok(ParsedServiceInput {
+        input,
+        preserved_secret_keys,
+    })
 }
 
 fn service_actor(actor: &ignitify_auth::AuthenticatedUser) -> ServiceActor<'_> {
@@ -348,7 +389,7 @@ async fn ensure_source_provider(
 mod tests {
     use super::{
         APPLICATION_RUNTIME_PLACEHOLDER, ServiceRequest, ServiceVariableReadModel,
-        ServiceVariableResponse, input,
+        ServiceVariableRequest, ServiceVariableResponse, input, parse_input,
     };
     use crate::error::ApiError;
     use ignitify_domain::{ApplicationBuilder, ServiceSourceConfig, ServiceSpec};
@@ -364,6 +405,34 @@ mod tests {
         let value = serde_json::to_value(variable).unwrap();
 
         assert!(value.get("value").is_none());
+    }
+
+    #[test]
+    fn stored_secret_marker_is_retained_for_service_updates() {
+        let parsed = parse_input(ServiceRequest {
+            name: "web".to_owned(),
+            kind: Some("image".to_owned()),
+            image_reference: Some(
+                "nginx@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                    .to_owned(),
+            ),
+            compose_yaml: None,
+            exposed_service: None,
+            internal_port: Some(80),
+            healthcheck: None,
+            variables: vec![ServiceVariableRequest {
+                key: "API_TOKEN".to_owned(),
+                value: String::new(),
+                is_secret: true,
+                preserve: true,
+            }],
+            source_config: None,
+            deployment_destination_id: None,
+        })
+        .unwrap();
+
+        assert!(parsed.preserved_secret_keys.contains("API_TOKEN"));
+        assert_eq!(parsed.input.variables[0].value, "");
     }
 
     #[test]

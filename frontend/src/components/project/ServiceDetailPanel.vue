@@ -124,31 +124,34 @@ watch(
   },
 );
 
-function statusVariant(
-  status: DeploymentState,
-): "default" | "secondary" | "destructive" | "outline" {
-  if (status === "healthy") return "default";
-  if (status === "failed") return "destructive";
-  if (status === "running" || status === "preparing" || status === "queued") return "secondary";
-  return "outline";
+function statusBadgeClass(status: DeploymentState) {
+  if (status === "healthy") {
+    return "border-[var(--status-healthy)]/40 bg-[var(--status-healthy)]/10 text-[var(--status-healthy)]";
+  }
+  if (status === "failed") return "border-destructive/40 bg-destructive/10 text-destructive";
+  if (
+    status === "running" ||
+    status === "preparing" ||
+    status === "queued" ||
+    status === "stopping"
+  ) {
+    return "border-[var(--status-live)]/40 bg-[var(--status-live)]/10 text-[var(--status-live)]";
+  }
+  return "border-border bg-muted/50 text-muted-foreground";
 }
 
-function statusClass(status: DeploymentState) {
-  if (status === "healthy") return "text-[var(--status-healthy)]";
-  if (status === "failed") return "text-destructive";
-  if (status === "running" || status === "preparing" || status === "queued") {
-    return "text-[var(--status-live)]";
+function statusDotState(status: DeploymentState) {
+  if (status === "healthy") return "healthy";
+  if (status === "failed") return "failed";
+  if (
+    status === "running" ||
+    status === "preparing" ||
+    status === "queued" ||
+    status === "stopping"
+  ) {
+    return "live";
   }
-  return "text-muted-foreground";
-}
-
-function statusDotClass(status: DeploymentState) {
-  if (status === "healthy") return "bg-[var(--status-healthy)]";
-  if (status === "failed") return "bg-destructive";
-  if (status === "running" || status === "preparing" || status === "queued") {
-    return "bg-[var(--status-live)]";
-  }
-  return "bg-muted-foreground";
+  return "inactive";
 }
 
 function formatTimestamp(value: string) {
@@ -184,7 +187,7 @@ function selectDeployment(deployment: DeploymentSummary) {
     aria-labelledby="service-detail-title"
   >
     <header
-      class="flex items-start justify-between gap-4 border-b border-border bg-muted/20 px-5 py-4 max-[560px]:flex-col"
+      class="app-panel-header flex items-start justify-between gap-4 px-5 py-4 max-[560px]:flex-col"
     >
       <div v-if="!hideHeader" class="flex min-w-0 items-start gap-3">
         <span
@@ -212,10 +215,11 @@ function selectDeployment(deployment: DeploymentSummary) {
           Track revisions and inspect live output.
         </p>
       </div>
-      <div class="flex flex-wrap gap-2">
+      <div class="flex flex-wrap gap-2 max-[560px]:w-full">
         <Button
           v-if="canManage && !hideConfig"
           size="sm"
+          class="max-[560px]:flex-1"
           variant="outline"
           @click="emit('edit', service)"
         >
@@ -225,6 +229,7 @@ function selectDeployment(deployment: DeploymentSummary) {
         <Button
           v-if="canManage"
           size="sm"
+          class="max-[560px]:flex-1"
           :disabled="submitting || needsConfiguration"
           @click="emit('deploy', service.id)"
         >
@@ -234,6 +239,7 @@ function selectDeployment(deployment: DeploymentSummary) {
         <Button
           v-if="canManage && canStop"
           size="sm"
+          class="max-[560px]:flex-1"
           variant="outline"
           :disabled="submitting"
           @click="
@@ -251,12 +257,13 @@ function selectDeployment(deployment: DeploymentSummary) {
     <div
       class="flex items-center justify-between gap-4 border-b border-border px-5 py-3 max-[560px]:items-start max-[560px]:flex-col"
     >
-      <Tabs v-model="activeTab">
-        <TabsList class="h-8 rounded-[4px]" aria-label="Service detail sections">
+      <Tabs v-model="activeTab" class="max-[560px]:w-full">
+        <TabsList class="h-8 rounded-[4px] max-[560px]:w-full" aria-label="Service detail sections">
           <TabsTrigger
             v-for="tab in detailTabs"
             :key="tab.value"
             :value="tab.value"
+            class="max-[560px]:flex-1"
             @click="activeTab = tab.value"
           >
             {{ tab.label }}
@@ -327,8 +334,8 @@ function selectDeployment(deployment: DeploymentSummary) {
           <div class="mt-2 flex items-center gap-2">
             <Badge
               v-if="latestDeployment"
-              :variant="statusVariant(latestDeployment.status)"
-              :class="statusClass(latestDeployment.status)"
+              variant="outline"
+              :class="statusBadgeClass(latestDeployment.status)"
             >
               <Check v-if="latestDeployment.status === 'healthy'" :stroke-width="1.5" />
               {{ latestDeployment.status }}
@@ -371,17 +378,21 @@ function selectDeployment(deployment: DeploymentSummary) {
         <div
           v-for="deployment in serviceDeployments"
           :key="deployment.id"
-          class="flex items-center gap-3 px-2 py-3 transition-colors hover:bg-muted/40 max-[560px]:items-start max-[560px]:flex-col"
-          :class="selectedDeploymentId === deployment.id ? 'bg-muted/60' : ''"
+          class="flex items-center gap-3 px-2 py-3 transition-colors max-[560px]:items-start max-[560px]:flex-col"
+          :class="selectedDeploymentId === deployment.id ? 'bg-muted' : 'hover:bg-muted/40'"
         >
           <Button
             variant="ghost"
-            class="grid min-w-0 flex-1 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 rounded-[4px] text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+            class="grid min-w-0 flex-1 grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-1 rounded-[4px] text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/50 sm:grid-cols-[auto_minmax(0,1fr)_auto]"
             type="button"
             :aria-current="selectedDeploymentId === deployment.id ? 'true' : undefined"
             @click="selectDeployment(deployment)"
           >
-            <span class="size-2 rounded-full" :class="statusDotClass(deployment.status)" />
+            <span
+              class="status-dot"
+              :data-status="statusDotState(deployment.status)"
+              aria-hidden="true"
+            />
             <span class="grid min-w-0 gap-1">
               <span class="text-sm font-medium">Generation {{ deployment.generation }}</span>
               <span class="truncate font-mono text-[11px] text-muted-foreground">
@@ -389,8 +400,9 @@ function selectDeployment(deployment: DeploymentSummary) {
               </span>
             </span>
             <Badge
-              :variant="statusVariant(deployment.status)"
-              :class="statusClass(deployment.status)"
+              variant="outline"
+              class="col-start-2 justify-self-start sm:col-auto sm:justify-self-auto"
+              :class="statusBadgeClass(deployment.status)"
             >
               {{ deployment.status }}
             </Badge>

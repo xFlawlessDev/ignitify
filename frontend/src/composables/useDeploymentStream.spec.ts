@@ -43,4 +43,28 @@ describe("useDeploymentStream", () => {
     expect(api.open.mock.calls[0]?.[2]).toBeUndefined();
     stream.stop();
   });
+
+  it("does not expose an aborted previous connection as the active stream error", async () => {
+    api.open.mockImplementation((...args: unknown[]) => {
+      const signal = args[1] as AbortSignal;
+      return new Promise<Response>((_resolve, reject) => {
+        signal.addEventListener(
+          "abort",
+          () => reject(new DOMException("The operation was aborted.", "AbortError")),
+          { once: true },
+        );
+      });
+    });
+    const { useDeploymentStream } = await import("./useDeploymentStream");
+    const stream = useDeploymentStream("first");
+    const initial = stream.connect();
+    await Promise.resolve();
+    api.open.mockResolvedValueOnce(response([]));
+
+    await stream.connect("second");
+    await initial;
+
+    expect(stream.error.value).toBeNull();
+    stream.stop();
+  });
 });

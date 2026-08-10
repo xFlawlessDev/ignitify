@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Globe2, LockKeyhole, ShieldCheck } from "@lucide/vue";
+import { computed } from "vue";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -30,6 +31,11 @@ interface Props {
 
 const props = defineProps<Props>();
 
+const isCloudflareTunnel = computed(
+  () =>
+    props.dnsRecordType === "cname" &&
+    props.dnsRecordTarget.toLowerCase().endsWith(".cfargotunnel.com"),
+);
 const emit = defineEmits<{
   (event: "update:applicationDomainSuffix", value: string): void;
   (event: "update:httpsEnabled", value: boolean): void;
@@ -144,6 +150,114 @@ function updateCustomCertificate(value: string | number) {
           </p>
         </div>
       </div>
+
+      <section
+        v-if="isCloudflareTunnel"
+        class="grid gap-4 border-t border-border pt-5"
+        aria-labelledby="cloudflare-tunnel-guide-heading"
+      >
+        <div>
+          <p class="ui-label">Cloudflare Tunnel</p>
+          <h3 id="cloudflare-tunnel-guide-heading" class="mt-1.5 text-sm font-medium">
+            Published application setup
+          </h3>
+          <p class="mt-1 text-xs leading-5 text-muted-foreground">
+            Replace the example hostnames and tunnel ID with values for your own environment.
+          </p>
+        </div>
+        <ol class="grid gap-3 text-xs leading-5 text-muted-foreground">
+          <li class="grid grid-cols-[1.5rem_minmax(0,1fr)] gap-2">
+            <span class="font-mono text-foreground">01</span>
+            <p>
+              In Cloudflare DNS, create a proxied CNAME record:
+              <code class="font-mono text-foreground">*.apps.example.com</code>
+              to
+              <code class="break-all font-mono text-foreground"
+                >&lt;tunnel-id&gt;.cfargotunnel.com</code
+              >.
+            </p>
+          </li>
+          <li class="grid grid-cols-[1.5rem_minmax(0,1fr)] gap-2">
+            <span class="font-mono text-foreground">02</span>
+            <p>
+              In the Tunnel, add a published application route from
+              <code class="font-mono text-foreground">*.apps.example.com</code>
+              to
+              <code class="font-mono text-foreground">http://127.0.0.1:80</code>.
+            </p>
+          </li>
+          <li class="grid grid-cols-[1.5rem_minmax(0,1fr)] gap-2">
+            <span class="font-mono text-foreground">03</span>
+            <p>
+              Keep the control-plane hostname separate, for example
+              <code class="font-mono text-foreground">console.example.com</code>
+              to
+              <code class="font-mono text-foreground">http://127.0.0.1:5656</code>.
+            </p>
+          </li>
+          <li class="grid grid-cols-[1.5rem_minmax(0,1fr)] gap-2">
+            <span class="font-mono text-foreground">04</span>
+            <p>
+              Cloudflare terminates public TLS. Disable Ignitify default HTTPS and automatic
+              certificates unless Traefik is directly reachable for ACME validation.
+            </p>
+          </li>
+        </ol>
+      </section>
+
+      <section
+        v-else-if="props.dnsRecordType === 'a'"
+        class="grid gap-4 border-t border-border pt-5"
+        aria-labelledby="public-vps-guide-heading"
+      >
+        <div>
+          <p class="ui-label">Public VPS</p>
+          <h3 id="public-vps-guide-heading" class="mt-1.5 text-sm font-medium">
+            Direct ingress setup
+          </h3>
+          <p class="mt-1 text-xs leading-5 text-muted-foreground">
+            Replace the example hostname and public IP with values for your own VPS.
+          </p>
+        </div>
+        <ol class="grid gap-3 text-xs leading-5 text-muted-foreground">
+          <li class="grid grid-cols-[1.5rem_minmax(0,1fr)] gap-2">
+            <span class="font-mono text-foreground">01</span>
+            <p>
+              Create an A record:
+              <code class="font-mono text-foreground">*.apps.example.com</code>
+              to
+              <code class="font-mono text-foreground">203.0.113.10</code>. Use DNS-only mode while
+              validating the direct origin.
+            </p>
+          </li>
+          <li class="grid grid-cols-[1.5rem_minmax(0,1fr)] gap-2">
+            <span class="font-mono text-foreground">02</span>
+            <p>
+              Publish Traefik ports
+              <code class="font-mono text-foreground">80</code>
+              and
+              <code class="font-mono text-foreground">443</code>, then allow only those ports in the
+              VPS firewall and provider firewall.
+            </p>
+          </li>
+          <li class="grid grid-cols-[1.5rem_minmax(0,1fr)] gap-2">
+            <span class="font-mono text-foreground">03</span>
+            <p>
+              Enable Ignitify default HTTPS and automatic certificates, then provide an ACME contact
+              email. Traefik can request and renew certificates after DNS points to this host.
+            </p>
+          </li>
+          <li class="grid grid-cols-[1.5rem_minmax(0,1fr)] gap-2">
+            <span class="font-mono text-foreground">04</span>
+            <p>
+              Keep the control-plane port
+              <code class="font-mono text-foreground">5656</code>
+              private. Expose the dashboard only through its own authenticated reverse-proxy route
+              or a Cloudflare Tunnel.
+            </p>
+          </li>
+        </ol>
+      </section>
 
       <div class="flex items-start justify-between gap-4 border-t border-border pt-5">
         <div class="flex min-w-0 items-start gap-3">

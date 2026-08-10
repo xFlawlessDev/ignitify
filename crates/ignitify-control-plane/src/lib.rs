@@ -26,7 +26,7 @@ use ignitify_db::{
     CancelDeploymentOutcome, CreateDeploymentOutcome, DeploymentActor, DeploymentRecord,
     DeploymentsRepository, DomainsRepository, NewDeployment, NewProjectVariable,
     NewServiceVariable, ProjectActor, ProjectVariablesMutationOutcome, ProjectsRepository,
-    RetrySchedule, ServiceActor, ServiceMutationOutcome, ServicesRepository,
+    RetrySchedule, ServiceActor, ServiceMutationOutcome, ServiceVariableRecord, ServicesRepository,
 };
 use ignitify_domain::{
     DeploymentState, DomainId, DomainName, ServiceId, ServiceInput, ServiceSpec,
@@ -225,7 +225,28 @@ impl ServiceControl {
         service_id: &str,
         input: ServiceInput,
     ) -> Result<ServiceMutationOutcomeModel> {
-        let (configuration, variables) = self.encrypt_variables(input)?;
+        self.update_preserving_secrets(actor, service_id, input, HashSet::new())
+            .await
+    }
+
+    pub async fn update_preserving_secrets(
+        &self,
+        actor: ServiceActor<'_>,
+        service_id: &str,
+        input: ServiceInput,
+        preserved_secret_keys: HashSet<String>,
+    ) -> Result<ServiceMutationOutcomeModel> {
+        let Some(current) = self.services.get(actor, service_id).await? else {
+            return Ok(ServiceMutationOutcomeModel::Missing);
+        };
+        if !actor.is_admin && !current.role.can_manage_services() {
+            return Ok(ServiceMutationOutcomeModel::Forbidden);
+        }
+        let (configuration, variables) = self.encrypt_variables_preserving_secrets(
+            input,
+            &current.variables,
+            &preserved_secret_keys,
+        )?;
         Ok(
             match self
                 .services
@@ -283,6 +304,46 @@ impl ServiceControl {
             .variables
             .into_iter()
             .map(|variable| {
+                let plaintext = Zeroizing::new(variable.value);
+                Ok(NewServiceVariable {
+                    key: variable.key,
+                    is_secret: variable.is_secret,
+                    ciphertext: self.cipher.encrypt(plaintext.as_bytes())?,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        Ok((input.configuration, variables))
+    }
+
+    fn encrypt_variables_preserving_secrets(
+        &self,
+        input: ServiceInput,
+        existing_variables: &[ServiceVariableRecord],
+        preserved_secret_keys: &HashSet<String>,
+    ) -> Result<(
+        ignitify_domain::ServiceConfiguration,
+        Vec<NewServiceVariable>,
+    )> {
+        let variables = input
+            .variables
+            .into_iter()
+            .map(|variable| {
+                if preserved_secret_keys.contains(&variable.key) {
+                    if !variable.is_secret || !variable.value.is_empty() {
+                        return Err(Error::Policy(
+                            "a stored secret can only be preserved without a replacement value",
+                        ));
+                    }
+                    let existing = existing_variables
+                        .iter()
+                        .find(|existing| existing.key == variable.key && existing.is_secret)
+                        .ok_or(Error::Policy("the stored secret no longer exists"))?;
+                    return Ok(NewServiceVariable {
+                        key: variable.key,
+                        is_secret: true,
+                        ciphertext: existing.ciphertext.clone(),
+                    });
+                }
                 let plaintext = Zeroizing::new(variable.value);
                 Ok(NewServiceVariable {
                     key: variable.key,
@@ -674,6 +735,46 @@ impl StreamPublisher {
     }
 }
 
+#[derive(Clone)]
+pub struct DeploymentLogSink {
+    deployments: DeploymentsRepository,
+    publisher: StreamPublisher,
+    deployment_id: String,
+}
+
+impl DeploymentLogSink {
+    fn new(
+        deployments: DeploymentsRepository,
+        publisher: StreamPublisher,
+        deployment_id: impl Into<String>,
+    ) -> Self {
+        Self {
+            deployments,
+            publisher,
+            deployment_id: deployment_id.into(),
+        }
+    }
+
+    pub async fn system(&self, line: impl Into<String>) -> Result<()> {
+        self.append("system", line).await
+    }
+
+    pub async fn append(&self, stream: &str, line: impl Into<String>) -> Result<()> {
+        let inserted = self
+            .deployments
+            .append_logs(
+                &self.deployment_id,
+                &[ignitify_db::NewDeploymentLog {
+                    stream: stream.to_owned(),
+                    line: line.into(),
+                }],
+            )
+            .await?;
+        self.publisher.publish_logs(inserted);
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum StreamRecord {
     Event(ignitify_db::DeploymentEventRecord),
@@ -904,6 +1005,7 @@ pub trait SourceBuild: Send + Sync + 'static {
     fn build(
         &self,
         deployment: &DeploymentRecord,
+        logs: &DeploymentLogSink,
     ) -> impl Future<Output = Result<Option<SourceBuildOutput>>> + Send;
 }
 
@@ -911,7 +1013,11 @@ pub trait SourceBuild: Send + Sync + 'static {
 pub struct NoopSourceBuild;
 
 impl SourceBuild for NoopSourceBuild {
-    async fn build(&self, deployment: &DeploymentRecord) -> Result<Option<SourceBuildOutput>> {
+    async fn build(
+        &self,
+        deployment: &DeploymentRecord,
+        _logs: &DeploymentLogSink,
+    ) -> Result<Option<SourceBuildOutput>> {
         if deployment.source_config.as_ref().is_some_and(|source| {
             source.source == "application"
                 || (source.source == "compose" && source.provider_id.is_some())
@@ -1408,15 +1514,6 @@ where
                 if let Some(runtime_ref) = deployment.runtime_ref.as_deref() {
                     let runtime_deployment = RuntimeDeployment::from(&deployment);
                     let observation = runtime.inspect(&runtime_deployment, runtime_ref).await?;
-                    let became_healthy = advance_observed_deployment(
-                        deployments,
-                        runtime,
-                        &deployment,
-                        runtime_ref,
-                        observation,
-                        publisher,
-                    )
-                    .await?;
                     if observation.owned {
                         persist_logs(
                             deployments,
@@ -1428,6 +1525,15 @@ where
                         )
                         .await?;
                     }
+                    let became_healthy = advance_observed_deployment(
+                        deployments,
+                        runtime,
+                        &deployment,
+                        runtime_ref,
+                        observation,
+                        publisher,
+                    )
+                    .await?;
                     if became_healthy {
                         cleanup_prior_deployments(deployments, runtime, &deployment, publisher)
                             .await?;
@@ -1482,6 +1588,19 @@ where
     }
     for deployment in deployments.routable().await? {
         let runtime_deployment = RuntimeDeployment::from(&deployment);
+        if deployment.state == DeploymentState::Healthy
+            && let Some(runtime_ref) = deployment.runtime_ref.as_deref()
+        {
+            persist_logs(
+                deployments,
+                cipher,
+                runtime,
+                &deployment,
+                runtime_ref,
+                publisher,
+            )
+            .await?;
+        }
         reconcile_routes(
             domains,
             cipher,
@@ -1569,8 +1688,15 @@ where
     if deployments.cancel_requested(deployment.id.as_str()).await? {
         return Ok(());
     }
-    let runtime_deployment = match source_build.build(&deployment).await {
+    let source_logs = DeploymentLogSink::new(
+        deployments.clone(),
+        publisher.clone(),
+        deployment.id.as_str(),
+    );
+    source_logs.system("Source build started").await?;
+    let runtime_deployment = match source_build.build(&deployment, &source_logs).await {
         Ok(Some(output)) => {
+            source_logs.system("Source build completed").await?;
             if deployments.cancel_requested(deployment.id.as_str()).await? {
                 return Ok(());
             }
@@ -1595,12 +1721,20 @@ where
             if deployments.cancel_requested(deployment.id.as_str()).await? {
                 return Ok(());
             }
+            let failure_reason = match error {
+                Error::SourceBuild(reason) => format!("source build failed: {reason}"),
+                Error::Policy(reason) => format!("source build policy rejected: {reason}"),
+                error => format!("source build failed: {error}"),
+            };
+            let _ = source_logs
+                .system(format!("Source build failed: {failure_reason}"))
+                .await;
             deployments
                 .transition(
                     deployment.id.as_str(),
                     DeploymentState::Failed,
                     None,
-                    Some("source build failed"),
+                    Some(&failure_reason),
                 )
                 .await?;
             publisher
@@ -1663,15 +1797,6 @@ where
             return Ok(());
         }
     };
-    let became_healthy = advance_observed_deployment(
-        deployments,
-        runtime,
-        &deployment,
-        &runtime_ref,
-        observation,
-        publisher,
-    )
-    .await?;
     if observation.owned {
         persist_logs(
             deployments,
@@ -1682,6 +1807,17 @@ where
             publisher,
         )
         .await?;
+    }
+    let became_healthy = advance_observed_deployment(
+        deployments,
+        runtime,
+        &deployment,
+        &runtime_ref,
+        observation,
+        publisher,
+    )
+    .await?;
+    if observation.owned {
         reconcile_routes(
             domains,
             cipher,
@@ -2219,6 +2355,8 @@ pub enum Error {
     InvalidIdempotencyKey,
     #[error("image runtime failed")]
     Runtime,
+    #[error("source build failed: {0}")]
+    SourceBuild(String),
     #[error("runtime policy rejected input: {0}")]
     Policy(&'static str),
     #[error("worker is unavailable")]
@@ -2241,6 +2379,7 @@ fn validate_idempotency_key(value: &str) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
     use std::sync::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
@@ -2249,7 +2388,7 @@ mod tests {
     use age::secrecy::ExposeSecret;
     use ignitify_db::{
         Database, DatabaseConfig, DeploymentActor, NewServiceVariable, ProjectActor, ServiceActor,
-        UserRole as DatabaseUserRole,
+        ServiceVariableRecord, UserRole as DatabaseUserRole,
     };
     use ignitify_domain::{
         DnsRecord, DnsRecordType, DnsVerificationStatus, DomainName, DomainStatus, ProjectInput,
@@ -2323,6 +2462,48 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn service_update_preserves_existing_secret_ciphertext() {
+        let database = Database::connect(&DatabaseConfig {
+            url: "sqlite::memory:".to_owned(),
+        })
+        .await
+        .unwrap();
+        let identity = age::x25519::Identity::generate().to_string();
+        let control = ServiceControl::new(
+            database.services(),
+            database.projects(),
+            identity.expose_secret(),
+        )
+        .unwrap();
+        let input = ServiceInput::image(
+            "web",
+            "nginx@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            Some(80),
+            None,
+            vec![ServiceVariableInput {
+                key: "API_TOKEN".to_owned(),
+                value: String::new(),
+                is_secret: true,
+            }],
+        )
+        .unwrap();
+
+        let (_, variables) = control
+            .encrypt_variables_preserving_secrets(
+                input,
+                &[ServiceVariableRecord {
+                    key: "API_TOKEN".to_owned(),
+                    is_secret: true,
+                    ciphertext: "existing-ciphertext".to_owned(),
+                }],
+                &HashSet::from(["API_TOKEN".to_owned()]),
+            )
+            .unwrap();
+
+        assert_eq!(variables[0].ciphertext, "existing-ciphertext");
+    }
+
     struct FakeIngress;
 
     impl Ingress for FakeIngress {
@@ -2379,6 +2560,7 @@ mod tests {
     struct FakeRuntime {
         calls: Arc<Mutex<Vec<String>>>,
         routed_local_images: Arc<Mutex<Vec<Option<String>>>>,
+        logs: Arc<Mutex<Vec<Vec<super::RuntimeLog>>>>,
         routes_fail: bool,
     }
 
@@ -2396,6 +2578,7 @@ mod tests {
         let runtime = FakeRuntime {
             calls: Arc::new(Mutex::new(vec![])),
             routed_local_images: Arc::new(Mutex::new(vec![])),
+            logs: Arc::new(Mutex::new(vec![])),
             routes_fail: false,
         };
         let (publisher, _) = tokio::sync::broadcast::channel(16);
@@ -2484,6 +2667,7 @@ mod tests {
         let runtime = FakeRuntime {
             calls: Arc::new(Mutex::new(vec![])),
             routed_local_images: Arc::new(Mutex::new(vec![])),
+            logs: Arc::new(Mutex::new(vec![])),
             routes_fail: false,
         };
         let ingress = SyncingIngress(Arc::new(AtomicBool::new(false)));
@@ -2555,7 +2739,12 @@ mod tests {
             _runtime_ref: &str,
             _since: i64,
         ) -> super::Result<Vec<super::RuntimeLog>> {
-            Ok(vec![])
+            let mut logs = self.logs.lock().unwrap();
+            Ok(if logs.is_empty() {
+                vec![]
+            } else {
+                logs.remove(0)
+            })
         }
 
         async fn reconcile_routes(
@@ -2677,6 +2866,16 @@ mod tests {
         let runtime = FakeRuntime {
             calls: Arc::new(Mutex::new(vec![])),
             routed_local_images: Arc::new(Mutex::new(vec![])),
+            logs: Arc::new(Mutex::new(vec![
+                vec![super::RuntimeLog {
+                    stream: "stdout".to_owned(),
+                    line: "starting application".to_owned(),
+                }],
+                vec![super::RuntimeLog {
+                    stream: "stdout".to_owned(),
+                    line: "application is ready".to_owned(),
+                }],
+            ])),
             routes_fail: false,
         };
         let (publisher, _) = tokio::sync::broadcast::channel(16);
@@ -2709,6 +2908,15 @@ mod tests {
             ]
         );
         assert!(runtime.calls.lock().unwrap().is_empty());
+        let logs = database
+            .deployments()
+            .logs_after(deployment.id.as_str(), 0, 10)
+            .await
+            .unwrap();
+        assert_eq!(
+            logs.into_iter().map(|log| log.line).collect::<Vec<_>>(),
+            ["starting application", "application is ready"]
+        );
         assert_eq!(
             runtime.routed_local_images.lock().unwrap().as_slice(),
             [Some(
@@ -2808,6 +3016,7 @@ mod tests {
         let runtime = FakeRuntime {
             calls: Arc::new(Mutex::new(vec![])),
             routed_local_images: Arc::new(Mutex::new(vec![])),
+            logs: Arc::new(Mutex::new(vec![])),
             routes_fail: true,
         };
         let (publisher, _) = tokio::sync::broadcast::channel(16);
