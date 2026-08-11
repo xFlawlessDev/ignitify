@@ -343,12 +343,10 @@ async fn validate_request(
             )
         })?)
     };
-    if control_plane_hostname.is_some() {
-        if !state.secure_cookies {
-            return Err(ApiError::BadRequest(
-                "control plane domain requires secure cookies",
-            ));
-        }
+    if control_plane_hostname.is_some() && !state.secure_cookies {
+        return Err(ApiError::BadRequest(
+            "control plane domain requires secure cookies",
+        ));
     }
     let current = state.database.server_settings().get().await?;
     let concurrent_builds = request
