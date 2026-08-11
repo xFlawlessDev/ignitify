@@ -203,7 +203,7 @@ install_prerequisites() {
 
 validate_prerequisites() {
   local command
-  for command in docker git ssh ssh-keygen systemctl; do
+  for command in awk docker git ssh ssh-keygen systemctl; do
     require_command "$command"
   done
   docker compose version >/dev/null
@@ -232,6 +232,8 @@ ensure_service_account() {
 install_ingress_assets() {
   local target="$PREFIX/infra/traefik"
   local dynamic_dir="$DATA_DIR/traefik/dynamic"
+  local fallback_dir="$DATA_DIR/traefik/fallback"
+  local fallback_page="$fallback_dir/404.html"
   local required
 
   for required in \
@@ -259,8 +261,18 @@ install_ingress_assets() {
   install -o root -g root -m 0755 "$INGRESS_SOURCE/socket-proxy/entrypoint.sh" "$target/socket-proxy/entrypoint.sh"
 
   install -d -o "$SERVICE_USER" -g "$SERVICE_GROUP" -m 0700 "$dynamic_dir/certs"
+  install -d -o "$SERVICE_USER" -g "$SERVICE_GROUP" -m 0755 "$fallback_dir"
   install -o "$SERVICE_USER" -g "$SERVICE_GROUP" -m 0644 "$INGRESS_SOURCE/dynamic/fallback.yml" "$dynamic_dir/fallback.yml"
   install -o "$SERVICE_USER" -g "$SERVICE_GROUP" -m 0644 "$INGRESS_SOURCE/dynamic/middlewares.yml" "$dynamic_dir/middlewares.yml"
+  if [[ -e "$fallback_page" && ! -f "$fallback_page" ]]; then
+    die "runtime fallback page is not a regular file: $fallback_page"
+  fi
+  if [[ ! -e "$fallback_page" ]]; then
+    install -o "$SERVICE_USER" -g "$SERVICE_GROUP" -m 0644 "$INGRESS_SOURCE/fallback/404.html" "$fallback_page"
+  else
+    chown "$SERVICE_USER:$SERVICE_GROUP" "$fallback_page"
+    chmod 0644 "$fallback_page"
+  fi
 }
 
 generate_secret() {
@@ -298,9 +310,23 @@ IGNITIFY_ALLOW_LOCAL_BUILDS=$local_builds
 EOF
   if [[ "$INSTALL_INGRESS_ASSETS" -eq 1 ]]; then
     printf 'IGNITIFY_TRAEFIK_COMPOSE_FILE=%s\n' "$PREFIX/infra/traefik/compose.yaml" >> "$CONFIG_FILE"
+    printf 'IGNITIFY_TRAEFIK_FALLBACK_PAGE_FILE=%s\n' "$DATA_DIR/traefik/fallback/404.html" >> "$CONFIG_FILE"
   fi
   chown root:root "$CONFIG_FILE"
   chmod 0600 "$CONFIG_FILE"
+}
+
+ensure_ingress_runtime_config() {
+  [[ "$INSTALL_INGRESS_ASSETS" -eq 1 ]] || return 0
+
+  if awk '/^[[:space:]]*IGNITIFY_TRAEFIK_FALLBACK_PAGE_FILE=/{found=1} END {exit !found}' "$CONFIG_FILE"; then
+    return 0
+  fi
+
+  printf '\nIGNITIFY_TRAEFIK_FALLBACK_PAGE_FILE=%s\n' "$DATA_DIR/traefik/fallback/404.html" >> "$CONFIG_FILE"
+  chown root:root "$CONFIG_FILE"
+  chmod 0600 "$CONFIG_FILE"
+  info "configured runtime Traefik fallback page"
 }
 
 write_launcher() {
@@ -393,6 +419,7 @@ if [[ ! -e "$CONFIG_FILE" ]]; then
 else
   warn "preserving existing configuration: $CONFIG_FILE"
 fi
+ensure_ingress_runtime_config
 
 write_systemd_unit
 systemctl daemon-reload

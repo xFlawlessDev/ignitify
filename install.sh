@@ -15,8 +15,9 @@ To select a version:
 
 Downloads the matching Linux Ignitify release bundle, verifies its SHA-256
 checksum, and runs its privileged installer. The installer configures Docker
-Engine, Docker Compose, Docker Buildx, Git, OpenSSH, Traefik assets, and the
-Ignitify systemd service on supported Linux hosts.
+Engine, Docker Compose, Docker Buildx, Git, OpenSSH, Traefik assets with
+writable fallback-page storage, and the Ignitify systemd service on supported
+Linux hosts.
 
 Environment:
   IGNITIFY_VERSION          Release tag to install (default: latest)

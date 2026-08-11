@@ -207,7 +207,7 @@ dependencies required by the supported local features:
 - Docker Engine, Docker Compose, and Docker Buildx;
 - Git and OpenSSH client;
 - the matching Railpack binary included in the release archive;
-- curated Traefik operator assets;
+- curated Traefik operator assets and writable runtime fallback-page storage;
 - a dedicated `ignitify` system account, persistent data directory, root-only
   runtime configuration, and `ignitify.service`.
 

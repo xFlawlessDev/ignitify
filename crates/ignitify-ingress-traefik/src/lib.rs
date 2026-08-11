@@ -358,8 +358,11 @@ fn fallback_page_path_from_environment() -> PathBuf {
     {
         return PathBuf::from(path);
     }
-    OperatorConfig::from_environment()
-        .compose_file
+    fallback_page_path_from_dynamic_dir(&dynamic_dir_from_environment())
+}
+
+fn fallback_page_path_from_dynamic_dir(dynamic_dir: &Path) -> PathBuf {
+    dynamic_dir
         .parent()
         .filter(|path| !path.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."))
@@ -517,11 +520,24 @@ fn remove_file_if_exists(path: &Path) -> std::io::Result<()> {
 }
 
 fn write_restricted(path: &Path, contents: &[u8]) -> std::io::Result<()> {
+    write_with_permissions(path, contents, 0o700, 0o600)
+}
+
+fn write_public(path: &Path, contents: &[u8]) -> std::io::Result<()> {
+    write_with_permissions(path, contents, 0o755, 0o644)
+}
+
+fn write_with_permissions(
+    path: &Path,
+    contents: &[u8],
+    directory_mode: u32,
+    file_mode: u32,
+) -> std::io::Result<()> {
     let parent = path.parent().ok_or_else(|| {
         std::io::Error::new(std::io::ErrorKind::InvalidInput, "file path has no parent")
     })?;
     fs::create_dir_all(parent)?;
-    restrict_directory(parent)?;
+    set_permissions(parent, directory_mode)?;
     let temporary = path.with_extension(format!(
         "{}.tmp",
         path.extension()
@@ -534,21 +550,21 @@ fn write_restricted(path: &Path, contents: &[u8]) -> std::io::Result<()> {
         #[cfg(unix)]
         {
             use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o600);
+            options.mode(file_mode);
         }
         let mut file = options.open(&temporary)?;
         file.write_all(contents)?;
         file.sync_all()?;
     }
-    restrict_file(&temporary)?;
+    set_permissions(&temporary, file_mode)?;
     #[cfg(windows)]
     remove_file_if_exists(path)?;
     fs::rename(temporary, path)?;
-    restrict_file(path)
+    set_permissions(path, file_mode)
 }
 
 fn write_fallback_page(path: &Path, settings: &ServerSettingsRecord) -> std::io::Result<()> {
-    write_restricted(
+    write_public(
         path,
         render_fallback_page(
             settings.fallback_page_heading.as_str(),
@@ -616,25 +632,14 @@ fn escape_html(value: &str) -> String {
     escaped
 }
 
-fn restrict_directory(path: &Path) -> std::io::Result<()> {
+fn set_permissions(path: &Path, mode: u32) -> std::io::Result<()> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
+        fs::set_permissions(path, fs::Permissions::from_mode(mode))?;
     }
     #[cfg(not(unix))]
-    let _ = path;
-    Ok(())
-}
-
-fn restrict_file(path: &Path) -> std::io::Result<()> {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
-    }
-    #[cfg(not(unix))]
-    let _ = path;
+    let _ = (path, mode);
     Ok(())
 }
 
@@ -678,9 +683,9 @@ mod tests {
 
     use super::{
         CERT_RESOLVER, CONTROL_PLANE_ROUTE_FILE, ENTRYPOINT, PROXY_NETWORK, RoutingPolicy,
-        TLS_REDIRECT_MIDDLEWARE, clear_dynamic_certificates, render_control_plane_route,
-        render_fallback_page, render_route, render_route_with_policy, sync_control_plane_route,
-        write_dynamic_certificates,
+        TLS_REDIRECT_MIDDLEWARE, clear_dynamic_certificates, fallback_page_path_from_dynamic_dir,
+        render_control_plane_route, render_fallback_page, render_route, render_route_with_policy,
+        sync_control_plane_route, write_dynamic_certificates, write_fallback_page,
     };
 
     fn ids() -> (DomainId, DomainName) {
@@ -799,6 +804,51 @@ mod tests {
     }
 
     #[test]
+    fn fallback_page_path_is_next_to_the_dynamic_directory() {
+        let path = fallback_page_path_from_dynamic_dir(std::path::Path::new(
+            "/var/lib/ignitify/traefik/dynamic",
+        ));
+
+        assert_eq!(
+            path,
+            std::path::Path::new("/var/lib/ignitify/traefik/fallback/404.html")
+        );
+    }
+
+    #[test]
+    fn fallback_page_is_written_to_a_caddy_readable_file() {
+        let directory =
+            std::env::temp_dir().join(format!("ignitify-traefik-{}", uuid::Uuid::new_v4()));
+        let path = directory.join("fallback").join("404.html");
+
+        write_fallback_page(&path, &server_settings()).unwrap();
+
+        assert!(
+            std::fs::read_to_string(&path)
+                .unwrap()
+                .contains("Application not found")
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+                0o644
+            );
+            assert_eq!(
+                std::fs::metadata(path.parent().unwrap())
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o755
+            );
+        }
+
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
     fn control_plane_route_uses_the_host_gateway_and_tls() {
         let hostname = DomainName::new("console.example.com").unwrap();
         let config = render_control_plane_route(&hostname, Some(CERT_RESOLVER));
@@ -817,7 +867,15 @@ mod tests {
         std::fs::create_dir_all(&directory).unwrap();
         let path = directory.join(CONTROL_PLANE_ROUTE_FILE);
         std::fs::write(&path, "stale route").unwrap();
-        let settings = ignitify_db::ServerSettingsRecord {
+        let settings = server_settings();
+
+        sync_control_plane_route(&directory, &settings).unwrap();
+        assert!(!path.exists());
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    fn server_settings() -> ignitify_db::ServerSettingsRecord {
+        ignitify_db::ServerSettingsRecord {
             control_plane_domain: String::new(),
             application_domain_suffix: "apps.example.com".to_owned(),
             https_enabled: true,
@@ -831,10 +889,6 @@ mod tests {
             custom_certificate_id: None,
             concurrent_builds: 2,
             updated_at: String::new(),
-        };
-
-        sync_control_plane_route(&directory, &settings).unwrap();
-        assert!(!path.exists());
-        std::fs::remove_dir_all(directory).unwrap();
+        }
     }
 }

@@ -3,7 +3,7 @@ services:
   docker-read-proxy:
     build:
       context: ./socket-proxy
-    image: ignitify-docker-socket-proxy:0.1.2
+    image: ignitify-docker-socket-proxy:0.1.3
     environment:
       CONTAINERS: 1
       EVENTS: 1
@@ -74,7 +74,7 @@ services:
     command: ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
     volumes:
       - ./fallback/Caddyfile:/etc/caddy/Caddyfile:ro
-      - ./fallback/404.html:/srv/404.html:ro
+      - ${IGNITIFY_TRAEFIK_FALLBACK_PAGE_FILE:-./fallback/404.html}:/srv/404.html:ro
       - ./fallback/ignitify-mark.svg:/srv/ignitify-mark.svg:ro
     tmpfs:
       - /config
