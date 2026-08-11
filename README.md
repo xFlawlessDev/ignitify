@@ -1,17 +1,48 @@
-# Ignitify
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="infra/traefik/fallback/ignitify-mark.svg">
+    <img src="frontend/src/assets/logo/logo-black.svg" width="104" alt="Ignitify mark">
+  </picture>
+</p>
 
-Ignitify is a self-hosted deployment and operations control plane. It lets an
-operator manage projects, build and deploy services, route domains through
-Traefik, connect Git providers and remote servers, inspect runtime state, and
-retain encrypted backups from a single web application.
+<h1 align="center">Ignitify</h1>
 
-Ignitify runs real Docker, Docker Compose, SSH, Git, DNS, HTTP-monitoring, and
-S3-compatible storage operations when configured. Install it only on hosts and
-infrastructure you administer.
+<p align="center">Self-hosted deployment and operations control plane for infrastructure you administer.</p>
+
+<p align="center">
+  <a href="https://github.com/xFlawlessDev/ignitify/actions/workflows/ci.yml?query=branch%3Amain"><img src="https://github.com/xFlawlessDev/ignitify/actions/workflows/ci.yml/badge.svg?branch=main" alt="Continuous integration status"></a>
+  <a href="https://github.com/xFlawlessDev/ignitify/releases"><img src="https://img.shields.io/github/v/release/xFlawlessDev/ignitify?display_name=tag&sort=semver" alt="Latest release"></a>
+  <a href="LICENSE-MIT"><img src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-2ea44f" alt="Dual MIT or Apache-2.0 license"></a>
+  <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/backend-Rust%202024-dea584" alt="Rust 2024 backend"></a>
+  <a href="https://vuejs.org/"><img src="https://img.shields.io/badge/frontend-Vue%203-42b883" alt="Vue 3 frontend"></a>
+</p>
+
+<p align="center">
+  <a href="#production-installation">Install</a>
+  &middot;
+  <a href="#capabilities">Capabilities</a>
+  &middot;
+  <a href="#security-and-operations">Security</a>
+  &middot;
+  <a href="#development">Develop</a>
+  &middot;
+  <a href="CONTRIBUTING.md">Contribute</a>
+</p>
+
+Ignitify brings projects, deployment execution, ingress, infrastructure
+connections, runtime inspection, and encrypted backup operations into one web
+application. It is designed for operators who need control over the machines,
+credentials, and services they run.
+
+When configured, Ignitify performs real Docker, Docker Compose, SSH, Git, DNS,
+HTTP-monitoring, and S3-compatible storage operations. Install it only on
+hosts and infrastructure you administer.
 
 ## Contents
 
 - [Capabilities](#capabilities)
+- [At a glance](#at-a-glance)
+- [Quick start](#quick-start)
 - [AI assistant](#ai-assistant)
 - [Notification channels](#notification-channels)
 - [Compose template catalog](#compose-template-catalog)
@@ -26,6 +57,29 @@ infrastructure you administer.
 - [Repository layout](#repository-layout)
 - [Contributing](#contributing)
 - [License](#license)
+
+## At A Glance
+
+| Area | What Ignitify provides |
+| --- | --- |
+| Deploy | Image, reviewed Compose, and Git-backed services with queued deploys, rollback, cancellation, events, and live logs. |
+| Connect | Local Docker, restricted Compose, SSH remote servers, Git providers, remote builders, Traefik, and DNS verification. |
+| Operate | Container inspection and actions, controlled terminals, host metrics, uptime monitoring, remote-agent heartbeats, and delivery notifications. |
+| Protect | Encrypted secrets, role-gated controls, step-up authentication, audit context, a loopback-only backend, and offline-compatible backup and restore. |
+
+The HTTP API records intent and serves the embedded Vue application. Background
+workers and dedicated adapters carry out external effects, keeping Docker,
+Compose, SSH, Git, DNS, and ingress work out of request handlers. Read the
+[architecture overview](#architecture) for the runtime boundary.
+
+## Quick Start
+
+| Goal | Start here |
+| --- | --- |
+| Install on a supported Linux host | Run the verified release installer in [Production installation](#production-installation). |
+| Create the first operator and deploy a service | Follow [First operator setup](#first-operator-setup). |
+| Put Ignitify behind a public domain | Review [Security and operations](#security-and-operations) before enabling remote mode or managed routes. |
+| Build, test, or contribute | Read [Development](#development), then [Contributing](CONTRIBUTING.md). |
 
 ## Capabilities
 
