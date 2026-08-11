@@ -15,6 +15,7 @@ ignitify-backup-s3 = { path = "../ignitify-backup-s3" }
 ignitify-control-plane = { path = "../ignitify-control-plane" }
 ignitify-ingress-traefik = { path = "../ignitify-ingress-traefik" }
 ignitify-monitoring = { path = "../ignitify-monitoring" }
+ignitify-notifications = { path = "../ignitify-notifications" }
 ignitify-db = { path = "../ignitify-db" }
 ignitify-dns = { path = "../ignitify-dns" }
 ignitify-runtime-docker = { path = "../ignitify-runtime-docker" }

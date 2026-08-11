@@ -147,6 +147,21 @@ async fn run_backup(
         .backup_destinations()
         .finish_s3_run(&run_id, result.is_ok())
         .await;
+    if finish.is_ok() {
+        let status = if result.is_ok() {
+            ignitify_notifications::BackupStatus::Succeeded
+        } else {
+            ignitify_notifications::BackupStatus::Failed
+        };
+        if let Ok(cipher) = AgeCipher::from_identity(secrets_age_identity)
+            && let Err(error) = ignitify_notifications::dispatch_backup(
+                &database, &cipher, &run_id, trigger, status,
+            )
+            .await
+        {
+            eprintln!("backup notification dispatch failed: {error}");
+        }
+    }
     database.close().await;
 
     result?;

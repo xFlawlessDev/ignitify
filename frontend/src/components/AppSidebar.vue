@@ -8,6 +8,7 @@ import {
   HeartPulse,
   LayoutDashboard,
   LogOut,
+  MessageSquareMore,
   PanelLeftClose,
   RefreshCw,
   Settings2,
@@ -45,6 +46,11 @@ const primaryNavigation = computed(() => {
   ];
   if (auth.isAdmin) {
     items.push({ labelKey: "navigation.providers", to: "/providers", icon: GitBranch });
+    items.push({
+      labelKey: "navigation.notifications",
+      to: "/notifications",
+      icon: MessageSquareMore,
+    });
     items.push({ labelKey: "navigation.docker", to: "/containers", icon: Container });
     items.push({ labelKey: "navigation.terminal", to: "/terminal", icon: TerminalSquare });
     items.push({ labelKey: "navigation.remoteBuilders", to: "/remote-builders", icon: Cpu });

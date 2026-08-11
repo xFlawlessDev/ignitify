@@ -874,6 +874,10 @@ impl StreamPublisher {
             let _ = self.sender.send(StreamRecord::Log(log));
         }
     }
+
+    pub fn subscribe(&self) -> broadcast::Receiver<StreamRecord> {
+        self.sender.subscribe()
+    }
 }
 
 #[derive(Clone)]

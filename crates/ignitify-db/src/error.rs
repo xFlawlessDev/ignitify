@@ -66,6 +66,10 @@ pub enum DatabaseError {
     InvalidConcurrentBuilds,
     #[error("invalid stored certificate provider: {0}")]
     InvalidCertificateProvider(String),
+    #[error("invalid stored notification channel: {0}")]
+    InvalidStoredNotificationChannel(String),
+    #[error("notification channel name already exists")]
+    NotificationChannelNameConflict,
 }
 
 pub type Result<T> = std::result::Result<T, DatabaseError>;

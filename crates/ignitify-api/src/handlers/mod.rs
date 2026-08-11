@@ -5,6 +5,7 @@ pub(crate) mod dashboard;
 pub(crate) mod deployments;
 pub(crate) mod domains;
 pub(crate) mod health;
+pub(crate) mod notifications;
 pub(crate) mod project_environment;
 pub(crate) mod projects;
 pub(crate) mod provider_test;

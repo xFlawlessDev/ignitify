@@ -1,0 +1,20 @@
+[package]
+name = "ignitify-notifications"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+ignitify-control-plane = { path = "../ignitify-control-plane" }
+ignitify-db = { path = "../ignitify-db" }
+lettre.workspace = true
+reqwest.workspace = true
+resend-rs.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+teloxide.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+url.workspace = true
+zeroize.workspace = true

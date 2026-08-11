@@ -127,6 +127,10 @@ impl IntoResponse for ApiError {
                 StatusCode::CONFLICT,
                 "uptime monitor name already exists".to_owned(),
             ),
+            Self::Database(DatabaseError::NotificationChannelNameConflict) => (
+                StatusCode::CONFLICT,
+                "notification channel name already exists".to_owned(),
+            ),
             Self::Database(DatabaseError::ServiceNameConflict)
             | Self::Control(ignitify_control_plane::Error::Database(
                 DatabaseError::ServiceNameConflict,

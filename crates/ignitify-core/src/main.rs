@@ -220,6 +220,11 @@ async fn main() -> Result<()> {
     let services =
         ServiceControl::new(database.services(), database.projects(), &secrets_identity)?;
     let (control, wake) = ControlHandle::new(database.deployments(), &secrets_identity)?;
+    let _notification_dispatcher = ignitify_notifications::spawn_deployment_dispatcher(
+        database.clone(),
+        control.worker_cipher(),
+        control.worker_publisher(),
+    );
     let image_runtime = DockerRuntime::from_environment().map_err(|_| CoreError::DockerRuntime)?;
     let compose_runtime = ComposeRuntime::from_environment()?;
     let metrics_runtime = image_runtime.clone();

@@ -6,11 +6,11 @@ use ignitify_domain::{
 use uuid::Uuid;
 
 use crate::{
-    ActivityActor, Database, DatabaseConfig, DomainActor, NewBackupS3Destination, NewProvider,
-    NewRemoteBuilder, NewRemoteServer, NewServerCertificate, NewServiceVariable, NewUptimeMonitor,
-    ProjectActor, ProjectRemoveOutcome, ProjectUpdateOutcome, ProviderAuthMode, ProviderKind,
-    RemoteServerAgentHeartbeat, ServerSettingsUpdate, ServiceActor, ServiceMutationOutcome,
-    UptimeCheckUpdate, UptimeMonitorUpdate,
+    ActivityActor, Database, DatabaseConfig, DomainActor, NewBackupS3Destination,
+    NewNotificationChannel, NewProvider, NewRemoteBuilder, NewRemoteServer, NewServerCertificate,
+    NewServiceVariable, NewUptimeMonitor, ProjectActor, ProjectRemoveOutcome, ProjectUpdateOutcome,
+    ProviderAuthMode, ProviderKind, RemoteServerAgentHeartbeat, ServerSettingsUpdate, ServiceActor,
+    ServiceMutationOutcome, UptimeCheckUpdate, UptimeMonitorUpdate,
 };
 
 async fn database() -> Database {
@@ -101,6 +101,59 @@ async fn backup_s3_controls_and_run_history_are_durable() {
     assert_eq!(runs.len(), 1);
     assert_eq!(runs[0].status, "succeeded");
     assert_eq!(runs[0].message.as_deref(), Some("Backup completed"));
+}
+
+#[tokio::test]
+async fn notification_channels_encrypt_connection_configuration_and_deduplicate_deliveries() {
+    let database = database().await;
+    let channel = database
+        .notification_channels()
+        .create(NewNotificationChannel {
+            name: "Operations Telegram".to_owned(),
+            kind: "telegram".to_owned(),
+            enabled: true,
+            event_types: vec!["deployment.healthy".to_owned(), "backup.failed".to_owned()],
+            configuration_summary: serde_json::json!({ "chat_id": "-100123" }),
+            configuration_ciphertext: "encrypted-secret".to_owned(),
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(channel.event_types, ["deployment.healthy", "backup.failed"]);
+    assert!(channel.configuration_summary.get("bot_token").is_none());
+    let connections = database
+        .notification_channels()
+        .enabled_for_event("deployment.healthy")
+        .await
+        .unwrap();
+    assert_eq!(connections.len(), 1);
+    assert_eq!(connections[0].configuration_ciphertext, "encrypted-secret");
+    assert!(
+        database
+            .notification_channels()
+            .claim_delivery(&channel.id, "deployment", "42", "deployment.healthy")
+            .await
+            .unwrap()
+    );
+    assert!(
+        !database
+            .notification_channels()
+            .claim_delivery(&channel.id, "deployment", "42", "deployment.healthy")
+            .await
+            .unwrap()
+    );
+    database
+        .notification_channels()
+        .finish_delivery(&channel.id, "deployment", "42", "deployment.healthy", true)
+        .await
+        .unwrap();
+    assert!(
+        database
+            .notification_channels()
+            .delete(&channel.id)
+            .await
+            .unwrap()
+    );
 }
 
 #[tokio::test]

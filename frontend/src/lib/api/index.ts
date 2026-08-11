@@ -10,6 +10,7 @@ export * from "./providers";
 export * from "./services";
 export * from "./deployments";
 export * from "./domains";
+export * from "./notifications";
 export * from "./settings";
 export * from "./backup-destinations";
 export * from "./remote-builders";

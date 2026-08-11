@@ -10,10 +10,10 @@ use sqlx::{
 
 use crate::{
     ActivityRepository, BackupDestinationsRepository, DashboardRepository, DeploymentsRepository,
-    DomainsRepository, EnvironmentsRepository, ProjectsRepository, ProvidersRepository,
-    RefreshTokensRepository, RemoteBuildersRepository, RemoteServerAgentsRepository,
-    RemoteServersRepository, Result, ServerSettingsRepository, ServicesRepository,
-    UptimeMonitorsRepository, UsersRepository,
+    DomainsRepository, EnvironmentsRepository, NotificationChannelsRepository, ProjectsRepository,
+    ProvidersRepository, RefreshTokensRepository, RemoteBuildersRepository,
+    RemoteServerAgentsRepository, RemoteServersRepository, Result, ServerSettingsRepository,
+    ServicesRepository, UptimeMonitorsRepository, UsersRepository,
 };
 
 static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!();
@@ -116,6 +116,10 @@ impl Database {
 
     pub fn environments(&self) -> EnvironmentsRepository {
         EnvironmentsRepository::new(self.pool.clone())
+    }
+
+    pub fn notification_channels(&self) -> NotificationChannelsRepository {
+        NotificationChannelsRepository::new(self.pool.clone())
     }
 
     pub fn services(&self) -> ServicesRepository {

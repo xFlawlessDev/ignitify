@@ -4,7 +4,7 @@ use utoipa::openapi::{
 };
 use utoipa::{Modify, OpenApi};
 
-use crate::handlers::{backup_destinations, health};
+use crate::handlers::{backup_destinations, health, notifications};
 
 #[rustfmt::skip]
 macro_rules! protected_get {
@@ -600,6 +600,10 @@ protected_get!(terminal_doc, "/api/v1/terminal", "Terminal");
         auth_step_up_doc,
         auth_me_doc,
         dashboard_doc,
+        notifications::list,
+        notifications::create,
+        notifications::update,
+        notifications::remove,
         providers_list_doc,
         providers_create_doc,
         providers_github_manifest_doc,
@@ -684,13 +688,16 @@ protected_get!(terminal_doc, "/api/v1/terminal", "Terminal");
             backup_destinations::BackupS3DestinationRequest,
             backup_destinations::BackupS3DestinationResponse,
             backup_destinations::BackupS3ControlsRequest,
-            backup_destinations::BackupS3RunResponse
+            backup_destinations::BackupS3RunResponse,
+            notifications::NotificationChannelRequest,
+            notifications::NotificationChannelResponse
         )
     ),
     tags(
         (name = "Health", description = "Runtime readiness checks"),
         (name = "Auth", description = "Authentication and session lifecycle"),
         (name = "Dashboard", description = "Dashboard aggregates"),
+        (name = "Notifications", description = "Operator notification channel management"),
         (name = "Providers", description = "Source-control provider connections"),
         (name = "Settings", description = "Infrastructure and server settings"),
         (name = "Backup", description = "S3 destination, scheduler, and run history"),

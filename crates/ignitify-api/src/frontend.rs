@@ -11,7 +11,15 @@ mod assets {
     include!(concat!(env!("OUT_DIR"), "/frontend_assets.rs"));
 }
 
+mod build_config {
+    include!(concat!(env!("OUT_DIR"), "/frontend_build_config.rs"));
+}
+
 const INDEX_DOCUMENT: &str = "index.html";
+
+pub(crate) fn template_catalog_url() -> &'static str {
+    build_config::TEMPLATE_CATALOG_URL
+}
 
 /// Serves the embedded control-plane SPA after the API routes have been matched.
 pub(crate) async fn serve(method: Method, uri: Uri) -> Response {

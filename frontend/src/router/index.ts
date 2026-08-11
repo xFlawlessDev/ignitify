@@ -51,6 +51,12 @@ const router = createRouter({
       meta: { requiresAuth: true, requiresAdmin: true, breadcrumb: "navigation.providers" },
     },
     {
+      path: "/notifications",
+      name: "Notifications",
+      component: () => import("@/views/NotificationsView.vue"),
+      meta: { requiresAuth: true, requiresAdmin: true, breadcrumb: "navigation.notifications" },
+    },
+    {
       path: "/containers",
       name: "DockerContainers",
       component: () => import("@/views/DockerContainersView.vue"),

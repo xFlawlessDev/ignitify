@@ -6,6 +6,7 @@ use axum::{
     response::Response,
     routing::{get, post},
 };
+use url::Url;
 
 use crate::{frontend, handlers, openapi, state::AppState};
 use utoipa_swagger_ui::SwaggerUi;
@@ -30,6 +31,15 @@ pub(crate) fn router(state: AppState) -> Router {
         .route("/api/v1/auth/step-up", post(handlers::auth::step_up))
         .route("/api/v1/auth/me", get(handlers::auth::me))
         .route("/api/v1/dashboard", get(handlers::dashboard::get))
+        .route(
+            "/api/v1/notifications",
+            get(handlers::notifications::list).post(handlers::notifications::create),
+        )
+        .route(
+            "/api/v1/notifications/{notification_id}",
+            axum::routing::delete(handlers::notifications::remove)
+                .put(handlers::notifications::update),
+        )
         .route(
             "/api/v1/providers",
             get(handlers::providers::list).post(handlers::providers::create),
@@ -264,9 +274,7 @@ async fn security_headers(mut response: Response) -> Response {
     }
     headers.insert(
         "content-security-policy",
-        HeaderValue::from_static(
-            "default-src 'self'; connect-src 'self' wss:; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; object-src 'none'",
-        ),
+        content_security_policy(frontend::template_catalog_url()),
     );
     headers.insert(
         "cross-origin-opener-policy",
@@ -285,6 +293,29 @@ async fn security_headers(mut response: Response) -> Response {
     response
 }
 
+fn content_security_policy(template_catalog_url: &str) -> HeaderValue {
+    const DEFAULT_POLICY: &str = "default-src 'self'; style-src 'self'; style-src-attr 'unsafe-inline'; connect-src 'self' wss:; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; object-src 'none'";
+
+    let policy = template_catalog_connect_origin(template_catalog_url)
+        .map(|origin| format!("default-src 'self'; style-src 'self'; style-src-attr 'unsafe-inline'; connect-src 'self' wss: {origin}; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; object-src 'none'"))
+        .unwrap_or_else(|| DEFAULT_POLICY.to_owned());
+    policy
+        .parse()
+        .unwrap_or_else(|_| HeaderValue::from_static(DEFAULT_POLICY))
+}
+
+fn template_catalog_connect_origin(value: &str) -> Option<String> {
+    let url = Url::parse(value).ok()?;
+    if !matches!(url.scheme(), "http" | "https")
+        || url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+    {
+        return None;
+    }
+    Some(url.origin().ascii_serialization())
+}
+
 #[cfg(test)]
 mod tests {
     use axum::{
@@ -293,7 +324,7 @@ mod tests {
         response::Response,
     };
 
-    use super::security_headers;
+    use super::{content_security_policy, security_headers, template_catalog_connect_origin};
 
     #[tokio::test]
     async fn security_headers_preserve_frontend_asset_cache_policy() {
@@ -315,5 +346,33 @@ mod tests {
             response.headers().get("x-content-type-options"),
             Some(&HeaderValue::from_static("nosniff"))
         );
+        let policy = response
+            .headers()
+            .get("content-security-policy")
+            .and_then(|value| value.to_str().ok())
+            .unwrap();
+        let origin =
+            template_catalog_connect_origin(crate::frontend::template_catalog_url()).unwrap();
+        assert!(policy.contains(&format!("connect-src 'self' wss: {origin}")));
+    }
+
+    #[test]
+    fn template_catalog_connect_origin_allows_only_http_origins() {
+        assert_eq!(
+            template_catalog_connect_origin("https://templates.example.com/api/templates?page=1"),
+            Some("https://templates.example.com".to_owned())
+        );
+        assert_eq!(template_catalog_connect_origin("file:///templates"), None);
+        assert_eq!(
+            template_catalog_connect_origin("https://user@templates.example.com/api/templates"),
+            None
+        );
+    }
+
+    #[test]
+    fn content_security_policy_allows_the_configured_catalog_origin() {
+        let header = content_security_policy("https://templates.example.com/api/templates");
+        let policy = header.to_str().unwrap();
+        assert!(policy.contains("connect-src 'self' wss: https://templates.example.com"));
     }
 }

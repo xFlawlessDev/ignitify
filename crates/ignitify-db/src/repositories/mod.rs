@@ -4,6 +4,7 @@ mod dashboard;
 mod deployments;
 mod domains;
 mod environments;
+mod notifications;
 mod projects;
 mod providers;
 mod refresh_tokens;
@@ -34,6 +35,10 @@ pub use domains::{
     DomainsRepository,
 };
 pub use environments::EnvironmentsRepository;
+pub use notifications::{
+    NewNotificationChannel, NotificationChannelConnection, NotificationChannelRecord,
+    NotificationChannelsRepository,
+};
 pub use projects::{
     AuthorizedProjectVariables, NewProjectVariable, ProjectActor, ProjectRemoveOutcome,
     ProjectUpdateOutcome, ProjectVariableRecord, ProjectVariablesMutationOutcome,
