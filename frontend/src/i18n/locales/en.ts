@@ -309,4 +309,23 @@ export default {
     copied: "Copied",
     done: "Done",
   },
+  ingressSetup: {
+    publicVps: "Public VPS",
+    title: "Direct ingress setup",
+    description: "Create the following records at the DNS provider that hosts your domain.",
+    applicationDnsPrefix: "Create an A record for application traffic:",
+    controlPlaneDnsPrefix: "Create a separate A record for the control plane:",
+    to: "to",
+    proxyPrefix: "Configure an operator-managed HTTPS reverse-proxy route for",
+    proxySuffix: "that preserves the Host header and forwards only to",
+    firewallPrefix: "Allow public TCP ports",
+    and: "and",
+    firewallSuffix: "through the VPS and provider firewalls. Keep",
+    private: "private; do not expose it directly to the Internet.",
+    environment:
+      "Set these values in /etc/ignitify/ignitify.env, then restart the Ignitify service.",
+    originFallback:
+      "The running service has no public HTTPS origin configured yet. Replace the example domain with the control-plane hostname above.",
+    tls: "After DNS resolves, enable default HTTPS and automatic certificates with an ACME contact email. Keep DNS-only mode until direct TLS validation succeeds.",
+  },
 } as const;

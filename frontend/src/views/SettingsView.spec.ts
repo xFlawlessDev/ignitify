@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp, nextTick } from "vue";
+import i18n from "@/i18n";
 
 const mocks = vi.hoisted(() => ({ toastSuccess: vi.fn() }));
 
@@ -54,6 +55,7 @@ async function mountSettings() {
   const host = document.createElement("div");
   document.body.append(host);
   const app = createApp(component);
+  app.use(i18n);
   app.mount(host);
   await settle();
   return { app, host };
@@ -201,6 +203,8 @@ describe("SettingsView", () => {
     const domain = host.querySelector("#application-domain-suffix") as HTMLInputElement;
     expect(host.textContent).toContain("DNS record type");
     expect(host.querySelector("#dns-record-target")).not.toBeNull();
+    expect(host.textContent).toContain("Create a separate A record for the control plane:");
+    expect(host.textContent).toContain("IGNITIFY_TRUSTED_ORIGINS=https://admin.example.com");
 
     domain.value = "apps.example.com";
     domain.dispatchEvent(new Event("input", { bubbles: true }));

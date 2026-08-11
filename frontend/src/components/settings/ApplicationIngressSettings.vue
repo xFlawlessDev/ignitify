@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Globe2, LockKeyhole, ShieldCheck } from "@lucide/vue";
 import { computed } from "vue";
+import { useI18n } from "vue-i18n";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -14,6 +15,7 @@ import { Switch } from "@/components/ui/switch";
 import type { CertificateProvider, CustomCertificateSummary } from "./types";
 
 interface Props {
+  publicOrigin: string;
   applicationDomainSuffix: string;
   httpsEnabled: boolean;
   automaticallyProvisionSsl: boolean;
@@ -30,6 +32,33 @@ interface Props {
 }
 
 const props = defineProps<Props>();
+const { t } = useI18n();
+
+function configuredPublicOrigin(value: string): URL | null {
+  try {
+    const origin = new URL(value.trim());
+    const isLoopback =
+      origin.hostname === "localhost" ||
+      origin.hostname === "127.0.0.1" ||
+      origin.hostname === "::1";
+    return origin.protocol === "https:" && !isLoopback ? origin : null;
+  } catch {
+    return null;
+  }
+}
+
+const serviceWildcard = computed(() => {
+  const suffix = props.applicationDomainSuffix.trim().toLowerCase();
+  return `*.${suffix || "apps.example.com"}`;
+});
+const dnsTarget = computed(() => props.dnsRecordTarget.trim() || "<public-vps-ip>");
+const currentPublicOrigin = computed(() => configuredPublicOrigin(props.publicOrigin));
+const controlPlaneOrigin = computed(
+  () => currentPublicOrigin.value?.origin ?? "https://admin.example.com",
+);
+const controlPlaneHostname = computed(
+  () => currentPublicOrigin.value?.hostname ?? "admin.example.com",
+);
 
 const isCloudflareTunnel = computed(
   () =>
@@ -211,50 +240,72 @@ function updateCustomCertificate(value: string | number) {
         aria-labelledby="public-vps-guide-heading"
       >
         <div>
-          <p class="ui-label">Public VPS</p>
+          <p class="ui-label">{{ t("ingressSetup.publicVps") }}</p>
           <h3 id="public-vps-guide-heading" class="mt-1.5 text-sm font-medium">
-            Direct ingress setup
+            {{ t("ingressSetup.title") }}
           </h3>
           <p class="mt-1 text-xs leading-5 text-muted-foreground">
-            Replace the example hostname and public IP with values for your own VPS.
+            {{ t("ingressSetup.description") }}
           </p>
         </div>
         <ol class="grid gap-3 text-xs leading-5 text-muted-foreground">
           <li class="grid grid-cols-[1.5rem_minmax(0,1fr)] gap-2">
             <span class="font-mono text-foreground">01</span>
             <p>
-              Create an A record:
-              <code class="font-mono text-foreground">*.apps.example.com</code>
-              to
-              <code class="font-mono text-foreground">203.0.113.10</code>. Use DNS-only mode while
-              validating the direct origin.
+              {{ t("ingressSetup.applicationDnsPrefix") }}
+              <code class="break-all font-mono text-foreground">{{ serviceWildcard }}</code>
+              {{ t("ingressSetup.to") }}
+              <code class="break-all font-mono text-foreground">{{ dnsTarget }}</code
+              >.
             </p>
           </li>
           <li class="grid grid-cols-[1.5rem_minmax(0,1fr)] gap-2">
             <span class="font-mono text-foreground">02</span>
             <p>
-              Publish Traefik ports
-              <code class="font-mono text-foreground">80</code>
-              and
-              <code class="font-mono text-foreground">443</code>, then allow only those ports in the
-              VPS firewall and provider firewall.
+              {{ t("ingressSetup.controlPlaneDnsPrefix") }}
+              <code class="break-all font-mono text-foreground">{{ controlPlaneHostname }}</code>
+              {{ t("ingressSetup.to") }}
+              <code class="break-all font-mono text-foreground">{{ dnsTarget }}</code
+              >.
             </p>
           </li>
           <li class="grid grid-cols-[1.5rem_minmax(0,1fr)] gap-2">
             <span class="font-mono text-foreground">03</span>
             <p>
-              Enable Ignitify default HTTPS and automatic certificates, then provide an ACME contact
-              email. Traefik can request and renew certificates after DNS points to this host.
+              {{ t("ingressSetup.proxyPrefix") }}
+              <code class="break-all font-mono text-foreground">{{ controlPlaneOrigin }}</code>
+              {{ t("ingressSetup.proxySuffix") }}
+              <code class="font-mono text-foreground">127.0.0.1:5656</code>.
             </p>
           </li>
           <li class="grid grid-cols-[1.5rem_minmax(0,1fr)] gap-2">
             <span class="font-mono text-foreground">04</span>
             <p>
-              Keep the control-plane port
+              {{ t("ingressSetup.firewallPrefix") }}
+              <code class="font-mono text-foreground">80</code>
+              {{ t("ingressSetup.and") }}
+              <code class="font-mono text-foreground">443</code>
+              {{ t("ingressSetup.firewallSuffix") }}
               <code class="font-mono text-foreground">5656</code>
-              private. Expose the dashboard only through its own authenticated reverse-proxy route
-              or a Cloudflare Tunnel.
+              {{ t("ingressSetup.private") }}
             </p>
+          </li>
+          <li class="grid grid-cols-[1.5rem_minmax(0,1fr)] gap-2">
+            <span class="font-mono text-foreground">05</span>
+            <div class="grid gap-2">
+              <p>{{ t("ingressSetup.environment") }}</p>
+              <pre
+                class="overflow-x-auto border border-border bg-muted px-3 py-2 font-mono text-[11px] leading-5 text-foreground"
+              ><code>IGNITIFY_REMOTE_MODE=true
+IGNITIFY_TRUST_PROXY_HEADERS=true
+IGNITIFY_SECURE_COOKIES=true
+IGNITIFY_TRUSTED_ORIGINS={{ controlPlaneOrigin }}</code></pre>
+              <p v-if="!currentPublicOrigin">{{ t("ingressSetup.originFallback") }}</p>
+            </div>
+          </li>
+          <li class="grid grid-cols-[1.5rem_minmax(0,1fr)] gap-2">
+            <span class="font-mono text-foreground">06</span>
+            <p>{{ t("ingressSetup.tls") }}</p>
           </li>
         </ol>
       </section>

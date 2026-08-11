@@ -313,4 +313,22 @@ export default {
     copied: "Tersalin",
     done: "Selesai",
   },
+  ingressSetup: {
+    publicVps: "VPS publik",
+    title: "Pengaturan ingress langsung",
+    description: "Buat record berikut di provider DNS yang mengelola domain Anda.",
+    applicationDnsPrefix: "Buat A record untuk trafik aplikasi:",
+    controlPlaneDnsPrefix: "Buat A record terpisah untuk control plane:",
+    to: "ke",
+    proxyPrefix: "Konfigurasikan rute HTTPS reverse proxy yang dikelola operator untuk",
+    proxySuffix: "yang mempertahankan header Host dan meneruskan hanya ke",
+    firewallPrefix: "Izinkan port TCP publik",
+    and: "dan",
+    firewallSuffix: "melalui firewall VPS dan provider. Biarkan",
+    private: "tetap privat; jangan ekspos langsung ke Internet.",
+    environment: "Atur nilai ini di /etc/ignitify/ignitify.env, lalu restart service Ignitify.",
+    originFallback:
+      "Service yang berjalan belum memiliki public origin HTTPS. Ganti domain contoh dengan hostname control plane di atas.",
+    tls: "Setelah DNS ter-resolve, aktifkan HTTPS default dan sertifikat otomatis dengan email kontak ACME. Gunakan mode DNS-only hingga validasi TLS langsung berhasil.",
+  },
 } as const;

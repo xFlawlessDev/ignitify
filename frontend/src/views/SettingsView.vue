@@ -497,6 +497,7 @@ onMounted(loadSettings);
       <TabsContent value="ingress" class="mt-4">
         <form class="grid gap-4" @submit.prevent="saveSettings">
           <ApplicationIngressSettings
+            :public-origin="applicationEnvironment?.public_origin ?? ''"
             :application-domain-suffix="draft.applicationDomainSuffix"
             :https-enabled="draft.httpsEnabled"
             :automatically-provision-ssl="draft.automaticallyProvisionSsl"
