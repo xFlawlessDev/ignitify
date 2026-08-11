@@ -55,6 +55,11 @@ function focusTerminal() {
   terminal?.focus();
 }
 
+function clearTerminal() {
+  // xterm clears scrollback while keeping the active prompt/command line.
+  terminal?.clear();
+}
+
 function writeOutput() {
   if (!terminal) return;
   if (props.output.length < sentOutput) {
@@ -107,6 +112,8 @@ onUnmounted(() => {
   observer?.disconnect();
   terminal?.dispose();
 });
+
+defineExpose({ clear: clearTerminal });
 </script>
 
 <template>

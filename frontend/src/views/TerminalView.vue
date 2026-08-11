@@ -29,10 +29,11 @@ const stepUpLoading = shallowRef(false);
 const selectedDestinationId = shallowRef("local");
 const selectedRemoteServer = shallowRef<RemoteServerSummary | null>(null);
 const isLocalDestination = computed(() => selectedDestinationId.value === "local");
-const { clear, connect, disconnect, error, id, input, output, resize, status } = usePtyTerminal({
+const { connect, disconnect, error, id, input, output, resize, status } = usePtyTerminal({
   createSocket: () => createTerminalSocket(stepUpToken.value, selectedDestinationId.value),
 });
 const terminalFrame = useTemplateRef<HTMLElement>("terminalFrame");
+const terminal = useTemplateRef<{ clear: () => void }>("terminal");
 
 const statusLabel = computed(() => {
   const labels: Record<PtyTerminalStatus, string> = {
@@ -83,6 +84,10 @@ function toggleFullscreen() {
   } else {
     void terminalFrame.value.requestFullscreen();
   }
+}
+
+function clearTerminal() {
+  terminal.value?.clear();
 }
 
 async function openTerminal(): Promise<void> {
@@ -196,7 +201,7 @@ onUnmounted(() => {
                 class="text-[#d4d4d8] hover:bg-[#27272a] hover:text-[#fafafa]"
                 aria-label="Clear terminal"
                 title="Clear terminal"
-                @click="clear"
+                @click="clearTerminal"
               >
                 <Eraser class="size-4" :stroke-width="1.5" />
               </Button>
@@ -224,7 +229,14 @@ onUnmounted(() => {
         </div>
       </div>
       <div class="relative flex min-h-0 flex-1">
-        <PtyTerminal :id="id" :status="status" :output="output" @input="input" @resize="resize" />
+        <PtyTerminal
+          ref="terminal"
+          :id="id"
+          :status="status"
+          :output="output"
+          @input="input"
+          @resize="resize"
+        />
       </div>
     </section>
 

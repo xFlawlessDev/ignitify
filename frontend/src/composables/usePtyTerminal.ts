@@ -142,6 +142,10 @@ export function usePtyTerminal(options: UsePtyTerminalOptions = {}) {
     connectionAttempt += 1;
     socket?.close();
     socket = null;
+    resetBuffer();
+    status.value = "exited";
+    error.value = null;
+    receivedExit = false;
   }
 
   function clear() {
