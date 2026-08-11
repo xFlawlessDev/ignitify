@@ -48,6 +48,8 @@ pub(crate) enum ApiError {
     DockerCapabilityUnavailable,
     #[error("provider secret storage unavailable")]
     ProviderCapabilityUnavailable,
+    #[error("runtime security state is unavailable")]
+    RuntimeStateUnavailable,
     #[error("provider remote request failed")]
     ProviderRemote(#[from] reqwest::Error),
     #[error("AI assistant is not configured")]
@@ -104,6 +106,10 @@ impl IntoResponse for ApiError {
             Self::Auth(AuthError::BootstrapUnavailable) => {
                 (StatusCode::FORBIDDEN, "bootstrap is unavailable".to_owned())
             }
+            Self::RuntimeStateUnavailable => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "internal server error".to_owned(),
+            ),
             Self::Database(DatabaseError::ProjectConfirmationMismatch) => (
                 StatusCode::BAD_REQUEST,
                 "project removal confirmation does not match name".to_owned(),

@@ -170,7 +170,7 @@ server.
 ```text
 Browser
   |
-  +-- TLS reverse proxy (required for remote access)
+  +-- Ignitify-managed Traefik HTTPS route (or an external TLS reverse proxy)
         |
         +-- Ignitify API and embedded Vue application (127.0.0.1:5656)
               |
@@ -233,7 +233,7 @@ sudo journalctl -u ignitify -f
 The installer deliberately binds the application to `127.0.0.1:5656`. Do not
 expose that port directly to the Internet.
 
-## First Operator Setup
+## First Operator And VPS Setup
 
 1. Retrieve the generated bootstrap secret from the host:
 
@@ -241,7 +241,7 @@ expose that port directly to the Internet.
    sudo awk -F= '/^IGNITIFY_BOOTSTRAP_SECRET=/{print $2}' /etc/ignitify/ignitify.env
    ```
 
-2. For a remote host before a TLS reverse proxy is configured, create an SSH
+2. For a remote host before its admin domain is configured, create an SSH
    tunnel from your local computer and keep it open:
 
    ```sh
@@ -250,28 +250,37 @@ expose that port directly to the Internet.
 
    Then open `http://127.0.0.1:5656` in your local browser. The application
    remains loopback-only on the remote host.
-3. Open Ignitify through the local host, an active SSH tunnel, or a TLS reverse
-   proxy and use that secret to create the first operator account.
-4. In **Infrastructure**, set the ACME contact email, domain policy, and any
-   required DNS settings before enabling public service domains.
-5. Add Git providers, remote servers, remote builders, or S3-compatible backup
+3. Open Ignitify through the local host or active SSH tunnel and use that secret
+   to create the first operator account.
+4. Create a DNS `A` record, and an `AAAA` record when applicable, for a separate
+   control-plane hostname such as `console.example.com` that points to this VPS.
+   Allow public TCP ports `80` and `443` through both the VPS and provider
+   firewall.
+5. In **Infrastructure > Ingress & TLS**, set that control-plane hostname, the
+   application domain suffix, an ACME contact email, and automatic certificates
+   (or select a custom certificate). Ignitify generates the Traefik HTTPS route
+   to its loopback-only backend. The control-plane hostname must be outside the
+   managed application suffix.
+6. Add Git providers, remote servers, remote builders, or S3-compatible backup
    destinations only when their credentials and network access are ready.
-6. Create a project and service, choose an image, Compose, or Git source, then
+7. Create a project and service, choose an image, Compose, or Git source, then
    deploy. Review the deployment events and logs after every change.
 
-Remote browser access needs an operator-managed TLS reverse proxy and explicit
-configuration in `/etc/ignitify/ignitify.env`:
+## Managed Admin Domain
 
-```dotenv
-IGNITIFY_REMOTE_MODE=true
-IGNITIFY_TRUST_PROXY_HEADERS=true
-IGNITIFY_TRUSTED_ORIGINS=https://ignitify.example.com
-```
+The bundled Traefik operator is the normal way to expose the Ignitify console
+on a public VPS. After the control-plane hostname is saved, Ignitify manages the
+HTTPS route, enables that HTTPS origin for browser requests, and accepts the
+forwarded headers from its own proxy. No manual reverse-proxy configuration or
+environment-variable change is needed. Keep port `5656` private.
 
-`IGNITIFY_SECURE_COOKIES=true` is already the installation default. Domain
-names, TLS certificates, ACME contact details, DNS credentials, Git tokens,
-SSH keys, and S3 credentials are not invented by the installer and must be
-provided by the operator.
+The managed control-plane domain requires `IGNITIFY_SECURE_COOKIES=true`, which
+is already the installation default. Use `IGNITIFY_REMOTE_MODE`,
+`IGNITIFY_TRUST_PROXY_HEADERS`, and an HTTPS `IGNITIFY_TRUSTED_ORIGINS` value
+only when placing a different external reverse proxy or tunnel in front of the
+application. Domain names, TLS certificates, ACME contact details, DNS
+credentials, Git tokens, SSH keys, and S3 credentials are not invented by the
+installer and must be provided by the operator.
 
 ## Security And Operations
 

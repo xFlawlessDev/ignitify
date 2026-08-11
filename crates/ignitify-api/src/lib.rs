@@ -220,6 +220,53 @@ pub fn router_with_system_metrics_and_docker_and_provider_cipher_and_ingress_and
     ingress_health: Arc<dyn RuntimeHealth>,
     domain_policy: DomainPolicy,
 ) -> Router {
+    router_with_system_metrics_and_docker_and_provider_cipher_and_ingress_and_domain_policy_and_control_plane_domain(
+        auth,
+        database,
+        services,
+        control,
+        runtime_health,
+        worker_health,
+        system_metrics,
+        docker_runtime,
+        terminal,
+        host_terminal_enabled,
+        require_explicit_origin,
+        trust_proxy_headers,
+        secure_cookies,
+        trusted_origins,
+        provider_cipher,
+        ingress_health,
+        domain_policy,
+        None,
+    )
+}
+
+/// Builds the HTTP router with a persisted HTTPS control-plane hostname.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "router composes independent runtime dependencies"
+)]
+pub fn router_with_system_metrics_and_docker_and_provider_cipher_and_ingress_and_domain_policy_and_control_plane_domain(
+    auth: Arc<AuthService>,
+    database: Database,
+    services: Option<ServiceControl>,
+    control: Option<ControlHandle>,
+    runtime_health: Arc<dyn RuntimeHealth>,
+    worker_health: Arc<dyn RuntimeHealth>,
+    system_metrics: Arc<dyn SystemMetricsProvider>,
+    docker_runtime: Option<DockerRuntime>,
+    terminal: ignitify_terminal::TerminalService,
+    host_terminal_enabled: bool,
+    require_explicit_origin: bool,
+    trust_proxy_headers: bool,
+    secure_cookies: bool,
+    trusted_origins: Arc<[String]>,
+    provider_cipher: Option<Arc<AgeCipher>>,
+    ingress_health: Arc<dyn RuntimeHealth>,
+    domain_policy: DomainPolicy,
+    control_plane_domain: Option<String>,
+) -> Router {
     routes::router(AppState {
         auth,
         database,
@@ -235,10 +282,13 @@ pub fn router_with_system_metrics_and_docker_and_provider_cipher_and_ingress_and
         terminal_sessions: Arc::new(tokio::sync::Semaphore::new(4)),
         login_rate_limiter: state::LoginRateLimiter::default(),
         ai_chat_rate_limiter: state::AiChatRateLimiter::default(),
-        require_explicit_origin,
-        trust_proxy_headers,
         secure_cookies,
-        trusted_origins,
+        origin_policy: state::OriginPolicy::new(
+            require_explicit_origin,
+            trust_proxy_headers,
+            trusted_origins.clone(),
+            control_plane_domain,
+        ),
         provider_cipher,
         domain_policy,
         github_manifest_states: Arc::new(tokio::sync::Mutex::new(HashMap::new())),

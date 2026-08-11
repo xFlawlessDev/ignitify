@@ -48,11 +48,7 @@ pub(crate) fn require_trusted_websocket_origin(
         .get(header::ORIGIN)
         .and_then(|value| value.to_str().ok())
         .ok_or(ApiError::Forbidden)?;
-    if state
-        .trusted_origins
-        .iter()
-        .any(|trusted| trusted == origin)
-    {
+    if state.origin_policy.is_trusted(origin) {
         Ok(())
     } else {
         Err(ApiError::Forbidden)
@@ -67,18 +63,14 @@ pub(crate) fn require_same_origin_request(
         return Err(AuthError::InvalidRequest.into());
     }
     let Some(origin) = headers.get(header::ORIGIN) else {
-        return if state.require_explicit_origin {
+        return if state.origin_policy.requires_explicit_origin() {
             Err(AuthError::InvalidRequest.into())
         } else {
             Ok(())
         };
     };
     let origin = origin.to_str().map_err(|_| AuthError::InvalidRequest)?;
-    if state
-        .trusted_origins
-        .iter()
-        .any(|trusted| trusted == origin)
-    {
+    if state.origin_policy.is_trusted(origin) {
         Ok(())
     } else {
         Err(AuthError::InvalidRequest.into())

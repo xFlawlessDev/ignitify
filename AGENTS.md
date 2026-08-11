@@ -8,7 +8,7 @@ Ignitify is a self-hosted deployment and operations control plane built with Rus
 - projects, encrypted project and service environment variables, image, Compose, and Git-backed services;
 - queued deployment, rollback, cancel, stop, deployment events, and server-sent deployment logs;
 - local Docker, restricted Compose, and SSH remote-server runtimes; Git source builds using Dockerfile, static, Railpack, or reviewed Compose sources;
-- Traefik ingress, managed routes and certificates, DNS verification, domain policy, infrastructure settings, and ingress fallback configuration;
+- Traefik ingress, managed application and control-plane routes, certificates, DNS verification, domain policy, infrastructure settings, and ingress fallback configuration;
 - GitHub/GitLab/Gitea providers, provider tests and repository/branch discovery, remote BuildKit builders, runtime container inspection/actions, controlled terminals, host metrics, uptime monitoring, and remote-agent heartbeats;
 - operator-managed notification channels for deployment and backup events via Telegram, Discord, SMTP, Resend, or custom HTTPS webhooks;
 - an operator-configured OpenAI-compatible AI assistant with encrypted API-key storage, a global floating chat surface, and bounded diagnostic context from deployment, container, and terminal logs;
@@ -28,7 +28,7 @@ The product executes real Docker, Compose, SSH, DNS, HTTP-monitoring, Git, and S
 - Runtime/infrastructure adapters implement the control-plane contracts: `ignitify-runtime-docker`, `ignitify-runtime-compose`, `ignitify-runtime-remote`, `ignitify-ingress-traefik`, `ignitify-source-git`, and `ignitify-dns`. `ignitify-monitoring` runs the uptime worker; `ignitify-notifications` dispatches deployment and backup events; `ignitify-terminal` owns PTY primitives; `ignitify-backup-s3` owns S3 upload signing and transport.
 - Keep dependencies acyclic. The usual flow is `core -> api -> auth/control-plane/db/domain and adapters`; `control-plane -> db/domain`; adapters depend on control-plane/domain/db only where their contract requires it. Lower layers must never import `ignitify-api` or `ignitify-core`.
 - Frontend flow: `src/main.ts` installs Pinia, i18n, and Router; the router initializes `useAuthStore`; API calls attach the memory-only Bearer token; refresh uses a strict HttpOnly cookie; Vite proxies `/api` in development. Production requests are served from the embedded frontend bundle by the backend.
-- Backend defaults to `127.0.0.1:5656`. The Vite development server defaults to port `6565` and proxies to the backend. The backend remains loopback-only; remote access belongs behind a TLS reverse proxy with remote mode enabled.
+- Backend defaults to `127.0.0.1:5656`. The Vite development server defaults to port `6565` and proxies to the backend. The backend remains loopback-only. The bundled Traefik stack can expose a separately configured HTTPS control-plane hostname and dynamically enables its trusted origin/proxy-header policy; an unrelated external reverse proxy requires remote mode and its explicit environment configuration.
 
 ## Current Runtime Boundaries
 
@@ -36,7 +36,7 @@ The product executes real Docker, Compose, SSH, DNS, HTTP-monitoring, Git, and S
 - The Docker runtime manages only labelled Ignitify containers and applies resource limits. Compose input is parsed and policy-checked before execution; do not weaken the host-escape, digest-pinning, port, mount, privileged, or network restrictions without an explicit security decision and regression coverage.
 - Git source builds use temporary checkouts and credentials. Never put provider secrets in service specs, deployment snapshots, generated images, logs, command arguments, or the frontend. Preserve pinned-image and timeout checks.
 - Remote runtime uses SSH with strict host-key checking and temporary private-key/known-host files. Remote builders require mTLS material. Keep all private material encrypted at rest and zeroized/removed after use.
-- Traefik is an operator stack. The worker owns generated routes and TLS configuration; `infra/traefik/` owns the stack files. Do not invoke Docker or Compose during agent work unless the user explicitly requests it.
+- Traefik is an operator stack. The worker owns generated application/control-plane routes and TLS configuration; `infra/traefik/` owns the stack files. The control plane always remains loopback-only and is reached through Traefik's host-gateway upstream. Keep its configured HTTPS hostname outside the managed application suffix, preserve the dynamic origin/proxy-header policy, and never add a route that exposes port `5656` directly. Do not invoke Docker or Compose during agent work unless the user explicitly requests it.
 - Uptime monitoring is a background worker. Validate monitor targets and preserve SSRF protections, timeouts, redirect policy, and heartbeat expiry behavior.
 - Notification delivery is a background adapter. Keep channel credentials encrypted, do not include them in API responses or logs, preserve per-event delivery deduplication, and retain HTTPS/SSRF checks for custom webhooks.
 - AI chat is a diagnostic HTTP adapter, not a worker or an execution channel. It calls only the configured OpenAI-compatible Chat Completions endpoint and must never run commands, mutate infrastructure, or trust instructions found in attached logs. Preserve request bounds, authenticated-user rate limiting, same-origin protection, HTTPS-or-loopback base-URL validation, redirect disabling, and safe provider-error mapping.
@@ -130,7 +130,7 @@ Run the release build on native Linux amd64. `scripts/build-release.sh` invokes 
 
 ### Persistence, Worker, And Errors
 
-- Add durable schema changes as a new, sequential SQL migration in `crates/ignitify-db/migrations/`; never edit an applied migration or reuse an existing migration number. The next committed migration must follow the current `0030` high-water mark. Add repository coverage with an isolated `sqlite::memory:` database when behavior changes.
+- Add durable schema changes as a new, sequential SQL migration in `crates/ignitify-db/migrations/`; never edit an applied migration or reuse an existing migration number. The next committed migration must follow the current `0031` high-water mark. Add repository coverage with an isolated `sqlite::memory:` database when behavior changes.
 - Keep SQL in repositories and bind every user-controlled value with SQLx `.bind(...)`. Do not concatenate input into SQL. Use transactions for state transitions that must be atomic, especially deployment, token-family, secret, and audit writes.
 - API handlers must map validation to `400`, unauthenticated to `401`, forbidden to `403`, inaccessible/nonexistent to `404`, conflicts to `409`, unavailable capability/dependency to the appropriate `5xx`, and unexpected failures to a non-sensitive `500` response. Only `ignitify-api` implements `IntoResponse`.
 - Use `Result` and `?` for recoverable failures. Never use `unwrap()` or `expect()` in production paths. Tests may use them when failure diagnostics remain clear.
@@ -167,7 +167,7 @@ Run the release build on native Linux amd64. `scripts/build-release.sh` invokes 
 - `scripts/version.sh`, `scripts/build-release.sh`, `scripts/install-release.sh`, and `scripts/package-release.sh` - version derivation/synchronization, native release build, release-bundle installer, and packager. The installer provisions official Docker Engine/Compose/Buildx, Git, OpenSSH, Railpack, Traefik assets, and systemd on Ubuntu, Debian, or Fedora; the packager emits versioned archives and combined `SHA256SUMS` for GitHub Release assets.
 - `.env.example` - documented runtime configuration and security-sensitive defaults; never put real values here.
 - `crates/ignitify-core/src/main.rs` - process entrypoint and runtime composition; `operations.rs` owns backup/restore dispatch.
-- `crates/ignitify-api/src/lib.rs`, `routes.rs`, `openapi.rs`, `state.rs`, and `handlers/` - public router composition, route registration, OpenAPI/Swagger, dependencies, and HTTP adapters.
+- `crates/ignitify-api/src/lib.rs`, `routes.rs`, `openapi.rs`, `state.rs`, and `handlers/` - public router composition, route registration, OpenAPI/Swagger, dependencies, HTTP adapters, and the runtime control-plane origin policy.
 - `crates/ignitify-api/src/handlers/ai.rs` - OpenAI-compatible AI settings and chat adapter; preserve its provider URL policy, request bounds, rate limit, and response sanitization.
 - `crates/ignitify-api/build.rs` and `src/frontend.rs` - embed and serve the frontend bundle. Do not hand-edit generated frontend asset code.
 - `crates/ignitify-control-plane/src/lib.rs` - worker/control contracts and encrypted service configuration; split new responsibilities from this large facade instead of extending it indiscriminately.

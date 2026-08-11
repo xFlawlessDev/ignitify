@@ -309,6 +309,17 @@ export default {
     copied: "Copied",
     done: "Done",
   },
+  controlPlaneIngress: {
+    eyebrow: "Control plane access",
+    title: "Admin domain",
+    domain: "HTTPS hostname",
+    placeholder: "console.example.com",
+    help: "Ignitify creates a Traefik route to this loopback-only control plane. Use a hostname outside the managed application suffix and point its DNS record at this server.",
+    invalidDomain: "Use a valid hostname without a protocol or path.",
+    overlapsApplicationDomain: "Use a hostname outside the managed application suffix.",
+    requiresHttps: "Enable HTTPS before exposing the control plane.",
+    requiresCertificate: "Enable automatic certificates or select a custom certificate.",
+  },
   ingressSetup: {
     publicVps: "Public VPS",
     title: "Direct ingress setup",
@@ -316,16 +327,21 @@ export default {
     applicationDnsPrefix: "Create an A record for application traffic:",
     controlPlaneDnsPrefix: "Create a separate A record for the control plane:",
     to: "to",
-    proxyPrefix: "Configure an operator-managed HTTPS reverse-proxy route for",
-    proxySuffix: "that preserves the Host header and forwards only to",
+    proxyPrefix: "Save the control-plane hostname in Infrastructure. Ignitify routes",
+    proxySuffix: "through Traefik to",
     firewallPrefix: "Allow public TCP ports",
     and: "and",
     firewallSuffix: "through the VPS and provider firewalls. Keep",
     private: "private; do not expose it directly to the Internet.",
-    environment:
-      "Set these values in /etc/ignitify/ignitify.env, then restart the Ignitify service.",
-    originFallback:
-      "The running service has no public HTTPS origin configured yet. Replace the example domain with the control-plane hostname above.",
+    managedControlPlane:
+      "Saving the control-plane hostname enables its HTTPS trusted origin and proxy-header handling. Keep port 5656 private.",
     tls: "After DNS resolves, enable default HTTPS and automatic certificates with an ACME contact email. Keep DNS-only mode until direct TLS validation succeeds.",
+    cloudflareControlPlaneDnsPrefix: "Create another proxied CNAME record for",
+    cloudflareControlPlaneRoutePrefix: "In the Tunnel, add a published application route from",
+    cloudflareExternalProxySuffix: "external-proxy setup, not the managed Traefik route.",
+    cloudflareExternalConfiguration: "Before exposing the console, configure",
+    cloudflareRestart: "then restart Ignitify.",
+    cloudflareTls:
+      "Cloudflare terminates public TLS. Do not also configure this hostname as the managed admin domain. Disable Ignitify default HTTPS and automatic certificates unless Traefik is directly reachable for ACME validation.",
   },
 } as const;

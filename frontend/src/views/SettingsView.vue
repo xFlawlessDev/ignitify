@@ -8,12 +8,14 @@ import {
   Save,
 } from "@lucide/vue";
 import { computed, onMounted, reactive, shallowRef } from "vue";
+import { useI18n } from "vue-i18n";
 import { toast } from "vue-sonner";
 import ApplicationEnvironment from "@/components/settings/ApplicationEnvironment.vue";
 import ApplicationIngressSettings from "@/components/settings/ApplicationIngressSettings.vue";
 import BackupDestinationSettings from "@/components/settings/BackupDestinationSettings.vue";
 import BuildCapacitySettings from "@/components/settings/BuildCapacitySettings.vue";
 import CertificateManager from "@/components/settings/CertificateManager.vue";
+import ControlPlaneIngressSettings from "@/components/settings/ControlPlaneIngressSettings.vue";
 import IngressFallbackSettings from "@/components/settings/IngressFallbackSettings.vue";
 import InfrastructureHealth from "@/components/settings/InfrastructureHealth.vue";
 import type {
@@ -36,6 +38,7 @@ import type {
 } from "@/lib/api/settings";
 
 interface SettingsDraft {
+  controlPlaneDomain: string;
   applicationDomainSuffix: string;
   httpsEnabled: boolean;
   automaticallyProvisionSsl: boolean;
@@ -53,6 +56,7 @@ interface SettingsDraft {
 type SettingsSection = "overview" | "ingress" | "backup";
 
 const defaults: SettingsDraft = {
+  controlPlaneDomain: "",
   applicationDomainSuffix: "",
   httpsEnabled: false,
   automaticallyProvisionSsl: false,
@@ -95,6 +99,7 @@ function toDraft(settings: InfrastructureSettingsResponse): SettingsDraft {
       : null;
 
   return {
+    controlPlaneDomain: settings.control_plane_domain,
     applicationDomainSuffix: settings.application_domain_suffix,
     httpsEnabled: settings.https_enabled,
     automaticallyProvisionSsl:
@@ -121,6 +126,7 @@ const applicationEnvironment = shallowRef<ApplicationEnvironmentStatus | null>(n
 const infrastructureHealth = shallowRef<InfrastructureHealthStatus | null>(null);
 const saveState = shallowRef<"loading" | "idle" | "saving" | "saved" | "error">("loading");
 const requestError = shallowRef("");
+const { t } = useI18n();
 
 const domainError = computed(() => {
   const value = draft.applicationDomainSuffix.trim();
@@ -131,6 +137,34 @@ const domainError = computed(() => {
     !/^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/i.test(value)
   ) {
     return "Use a valid hostname without a protocol or path.";
+  }
+  return "";
+});
+
+const controlPlaneDomainError = computed(() => {
+  const value = draft.controlPlaneDomain.trim();
+  if (!value) return "";
+  if (
+    value.length > 253 ||
+    value.includes("..") ||
+    !/^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/i.test(value)
+  ) {
+    return t("controlPlaneIngress.invalidDomain");
+  }
+  const applicationSuffix = draft.applicationDomainSuffix.trim().toLowerCase();
+  if (
+    applicationSuffix &&
+    (value.toLowerCase() === applicationSuffix ||
+      value.toLowerCase().endsWith(`.${applicationSuffix}`))
+  ) {
+    return t("controlPlaneIngress.overlapsApplicationDomain");
+  }
+  if (!draft.httpsEnabled) return t("controlPlaneIngress.requiresHttps");
+  if (
+    draft.certificateProvider !== "custom" &&
+    !(draft.certificateProvider === "lets-encrypt" && draft.automaticallyProvisionSsl)
+  ) {
+    return t("controlPlaneIngress.requiresCertificate");
   }
   return "";
 });
@@ -239,6 +273,7 @@ const canSave = computed(
     saveState.value !== "saving" &&
     isDirty.value &&
     !domainError.value &&
+    !controlPlaneDomainError.value &&
     !tlsError.value &&
     !emailError.value &&
     !dnsError.value &&
@@ -368,6 +403,7 @@ async function saveSettings() {
   saveState.value = "saving";
   requestError.value = "";
   const result = await apiUpdateInfrastructureSettings({
+    control_plane_domain: draft.controlPlaneDomain.trim(),
     application_domain_suffix: draft.applicationDomainSuffix.trim(),
     https_enabled: draft.httpsEnabled,
     automatically_provision_ssl: draft.automaticallyProvisionSsl,
@@ -496,8 +532,18 @@ onMounted(loadSettings);
 
       <TabsContent value="ingress" class="mt-4">
         <form class="grid gap-4" @submit.prevent="saveSettings">
+          <ControlPlaneIngressSettings
+            :domain="draft.controlPlaneDomain"
+            :error="isDirty ? controlPlaneDomainError : ''"
+            @update:domain="
+              draft.controlPlaneDomain = $event;
+              markDirty();
+            "
+          />
+
           <ApplicationIngressSettings
             :public-origin="applicationEnvironment?.public_origin ?? ''"
+            :control-plane-domain="draft.controlPlaneDomain"
             :application-domain-suffix="draft.applicationDomainSuffix"
             :https-enabled="draft.httpsEnabled"
             :automatically-provision-ssl="draft.automaticallyProvisionSsl"

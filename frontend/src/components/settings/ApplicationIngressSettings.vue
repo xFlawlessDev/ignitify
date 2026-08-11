@@ -16,6 +16,7 @@ import type { CertificateProvider, CustomCertificateSummary } from "./types";
 
 interface Props {
   publicOrigin: string;
+  controlPlaneDomain: string;
   applicationDomainSuffix: string;
   httpsEnabled: boolean;
   automaticallyProvisionSsl: boolean;
@@ -53,12 +54,13 @@ const serviceWildcard = computed(() => {
 });
 const dnsTarget = computed(() => props.dnsRecordTarget.trim() || "<public-vps-ip>");
 const currentPublicOrigin = computed(() => configuredPublicOrigin(props.publicOrigin));
-const controlPlaneOrigin = computed(
-  () => currentPublicOrigin.value?.origin ?? "https://admin.example.com",
-);
 const controlPlaneHostname = computed(
-  () => currentPublicOrigin.value?.hostname ?? "admin.example.com",
+  () =>
+    props.controlPlaneDomain.trim().toLowerCase() ||
+    currentPublicOrigin.value?.hostname ||
+    "console.example.com",
 );
+const controlPlaneOrigin = computed(() => `https://${controlPlaneHostname.value}`);
 
 const isCloudflareTunnel = computed(
   () =>
@@ -218,17 +220,40 @@ function updateCustomCertificate(value: string | number) {
           <li class="grid grid-cols-[1.5rem_minmax(0,1fr)] gap-2">
             <span class="font-mono text-foreground">03</span>
             <p>
-              Keep the control-plane hostname separate, for example
-              <code class="font-mono text-foreground">console.example.com</code>
+              {{ t("ingressSetup.cloudflareControlPlaneDnsPrefix") }}
+              <code class="break-all font-mono text-foreground">{{ controlPlaneHostname }}</code>
               to
-              <code class="font-mono text-foreground">http://127.0.0.1:5656</code>.
+              <code class="break-all font-mono text-foreground"
+                >&lt;tunnel-id&gt;.cfargotunnel.com</code
+              >.
             </p>
           </li>
           <li class="grid grid-cols-[1.5rem_minmax(0,1fr)] gap-2">
             <span class="font-mono text-foreground">04</span>
             <p>
-              Cloudflare terminates public TLS. Disable Ignitify default HTTPS and automatic
-              certificates unless Traefik is directly reachable for ACME validation.
+              {{ t("ingressSetup.cloudflareControlPlaneRoutePrefix") }}
+              <code class="break-all font-mono text-foreground">{{ controlPlaneHostname }}</code>
+              to
+              <code class="font-mono text-foreground">http://127.0.0.1:5656</code>. This is an
+              {{ t("ingressSetup.cloudflareExternalProxySuffix") }}
+            </p>
+          </li>
+          <li class="grid grid-cols-[1.5rem_minmax(0,1fr)] gap-2">
+            <span class="font-mono text-foreground">05</span>
+            <p>
+              {{ t("ingressSetup.cloudflareExternalConfiguration") }}
+              <code class="font-mono text-foreground">IGNITIFY_REMOTE_MODE=true</code>,
+              <code class="font-mono text-foreground">IGNITIFY_TRUST_PROXY_HEADERS=true</code>, and
+              an HTTPS
+              <code class="break-all font-mono text-foreground"
+                >IGNITIFY_TRUSTED_ORIGINS={{ controlPlaneOrigin }}</code
+              >, {{ t("ingressSetup.cloudflareRestart") }}
+            </p>
+          </li>
+          <li class="grid grid-cols-[1.5rem_minmax(0,1fr)] gap-2">
+            <span class="font-mono text-foreground">06</span>
+            <p>
+              {{ t("ingressSetup.cloudflareTls") }}
             </p>
           </li>
         </ol>
@@ -292,16 +317,7 @@ function updateCustomCertificate(value: string | number) {
           </li>
           <li class="grid grid-cols-[1.5rem_minmax(0,1fr)] gap-2">
             <span class="font-mono text-foreground">05</span>
-            <div class="grid gap-2">
-              <p>{{ t("ingressSetup.environment") }}</p>
-              <pre
-                class="overflow-x-auto border border-border bg-muted px-3 py-2 font-mono text-[11px] leading-5 text-foreground"
-              ><code>IGNITIFY_REMOTE_MODE=true
-IGNITIFY_TRUST_PROXY_HEADERS=true
-IGNITIFY_SECURE_COOKIES=true
-IGNITIFY_TRUSTED_ORIGINS={{ controlPlaneOrigin }}</code></pre>
-              <p v-if="!currentPublicOrigin">{{ t("ingressSetup.originFallback") }}</p>
-            </div>
+            <p>{{ t("ingressSetup.managedControlPlane") }}</p>
           </li>
           <li class="grid grid-cols-[1.5rem_minmax(0,1fr)] gap-2">
             <span class="font-mono text-foreground">06</span>

@@ -6,6 +6,7 @@ use crate::{DatabaseError, Result};
 
 #[derive(Debug, Clone)]
 pub struct ServerSettingsRecord {
+    pub control_plane_domain: String,
     pub application_domain_suffix: String,
     pub https_enabled: bool,
     pub automatically_provision_ssl: bool,
@@ -22,6 +23,7 @@ pub struct ServerSettingsRecord {
 
 #[derive(Debug, Clone)]
 pub struct ServerSettingsUpdate {
+    pub control_plane_domain: String,
     pub application_domain_suffix: String,
     pub https_enabled: bool,
     pub automatically_provision_ssl: bool,
@@ -68,7 +70,7 @@ impl ServerSettingsRepository {
 
     pub async fn get(&self) -> Result<ServerSettingsRecord> {
         let row = sqlx::query_as::<_, ServerSettingsRow>(
-            "SELECT server_domain AS application_domain_suffix, https_enabled, automatically_provision_ssl,
+            "SELECT control_plane_domain, server_domain AS application_domain_suffix, https_enabled, automatically_provision_ssl,
                     acme_email,
                     dns_record_type, dns_record_target,
                     fallback_page_heading, fallback_page_message,
@@ -87,13 +89,14 @@ impl ServerSettingsRepository {
         let now = Utc::now().to_rfc3339();
         sqlx::query(
             "UPDATE server_settings
-             SET server_domain = ?, https_enabled = ?, automatically_provision_ssl = ?,
+             SET control_plane_domain = ?, server_domain = ?, https_enabled = ?, automatically_provision_ssl = ?,
                  acme_email = ?, dns_record_type = ?, dns_record_target = ?,
                  fallback_page_heading = ?, fallback_page_message = ?,
                  certificate_provider = ?, custom_certificate_id = ?, concurrent_builds = ?,
                  updated_at = ?
              WHERE id = 1",
         )
+        .bind(&input.control_plane_domain)
         .bind(&input.application_domain_suffix)
         .bind(input.https_enabled)
         .bind(input.automatically_provision_ssl)
@@ -188,6 +191,7 @@ impl ServerSettingsRepository {
 
 #[derive(Debug, FromRow)]
 struct ServerSettingsRow {
+    control_plane_domain: String,
     application_domain_suffix: String,
     https_enabled: i64,
     automatically_provision_ssl: i64,
@@ -216,6 +220,7 @@ impl ServerSettingsRow {
             ));
         }
         Ok(ServerSettingsRecord {
+            control_plane_domain: self.control_plane_domain,
             application_domain_suffix: self.application_domain_suffix,
             https_enabled: self.https_enabled != 0,
             automatically_provision_ssl: self.automatically_provision_ssl != 0,

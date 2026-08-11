@@ -56,7 +56,7 @@ pub(crate) fn source_ip(
     headers: &HeaderMap,
     peer: Option<&ConnectInfo<SocketAddr>>,
 ) -> Option<String> {
-    if state.trust_proxy_headers {
+    if state.origin_policy.trusts_proxy_headers() {
         let forwarded = headers
             .get("X-Forwarded-For")
             .and_then(|value| value.to_str().ok())

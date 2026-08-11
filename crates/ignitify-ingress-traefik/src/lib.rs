@@ -27,7 +27,9 @@ const HTTP_ENTRYPOINT: &str = "web";
 const TLS_REDIRECT_MIDDLEWARE: &str = "redirect-to-https@file";
 const DYNAMIC_CERTIFICATES_FILE: &str = "certificates.yml";
 const DYNAMIC_CERTIFICATES_DIR: &str = "certs";
+const CONTROL_PLANE_ROUTE_FILE: &str = "control-plane.yml";
 const TRAEFIK_DYNAMIC_DIRECTORY: &str = "/etc/traefik/dynamic";
+const CONTROL_PLANE_UPSTREAM: &str = "http://host.docker.internal:5656";
 
 #[derive(Clone)]
 pub struct TraefikIngress {
@@ -138,6 +140,8 @@ impl TraefikIngress {
     async fn sync_server_settings(&self, source: &ServerSettingsSource) -> ControlResult<()> {
         let settings = source.database.server_settings().get().await?;
         sync_dynamic_certificates(source, &settings).await?;
+        sync_control_plane_route(&source.dynamic_dir, &settings)
+            .map_err(|_| ControlError::Runtime)?;
         write_fallback_page(&source.fallback_page_path, &settings)
             .map_err(|_| ControlError::Runtime)?;
         self.reconcile_operator_email(&settings.acme_email).await?;
@@ -421,6 +425,67 @@ fn clear_dynamic_certificates(dynamic_dir: &Path) -> std::io::Result<()> {
     clear_managed_certificate_files(&dynamic_dir.join(DYNAMIC_CERTIFICATES_DIR))
 }
 
+fn sync_control_plane_route(
+    dynamic_dir: &Path,
+    settings: &ServerSettingsRecord,
+) -> std::io::Result<()> {
+    let path = dynamic_dir.join(CONTROL_PLANE_ROUTE_FILE);
+    let domain = settings.control_plane_domain.trim();
+    if domain.is_empty() {
+        return remove_file_if_exists(&path);
+    }
+    let hostname = DomainName::new(domain).map_err(|_| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "control plane domain is invalid",
+        )
+    })?;
+    let policy = RoutingPolicy::from_settings(settings);
+    let RoutingPolicy::Tls {
+        certificate_resolver,
+    } = policy
+    else {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "control plane route requires TLS",
+        ));
+    };
+    write_restricted(
+        &path,
+        render_control_plane_route(&hostname, certificate_resolver).as_bytes(),
+    )
+}
+
+fn render_control_plane_route(hostname: &DomainName, certificate_resolver: Option<&str>) -> String {
+    let certificate_resolver = certificate_resolver
+        .map(|resolver| format!("\n        certResolver: {resolver}"))
+        .unwrap_or_else(|| " {}".to_owned());
+    format!(
+        r#"http:
+  routers:
+    ignitify-control-plane:
+      entryPoints:
+        - websecure
+      rule: "Host(`{hostname}`)"
+      service: ignitify-control-plane
+      tls:{}
+    ignitify-control-plane-http:
+      entryPoints:
+        - web
+      rule: "Host(`{hostname}`)"
+      middlewares:
+        - redirect-to-https@file
+      service: ignitify-control-plane
+  services:
+    ignitify-control-plane:
+      loadBalancer:
+        servers:
+          - url: "{CONTROL_PLANE_UPSTREAM}"
+"#,
+        certificate_resolver
+    )
+}
+
 fn clear_managed_certificate_files(directory: &Path) -> std::io::Result<()> {
     let entries = match fs::read_dir(directory) {
         Ok(entries) => entries,
@@ -610,8 +675,9 @@ mod tests {
     use ignitify_domain::{DomainId, DomainName};
 
     use super::{
-        CERT_RESOLVER, ENTRYPOINT, PROXY_NETWORK, RoutingPolicy, TLS_REDIRECT_MIDDLEWARE,
-        clear_dynamic_certificates, render_fallback_page, render_route, render_route_with_policy,
+        CERT_RESOLVER, CONTROL_PLANE_ROUTE_FILE, ENTRYPOINT, PROXY_NETWORK, RoutingPolicy,
+        TLS_REDIRECT_MIDDLEWARE, clear_dynamic_certificates, render_control_plane_route,
+        render_fallback_page, render_route, render_route_with_policy, sync_control_plane_route,
         write_dynamic_certificates,
     };
 
@@ -728,5 +794,44 @@ mod tests {
         assert!(page.contains("Use &lt;support@example.com&gt;<br>Next line"));
         assert!(page.contains("src=\"/ignitify-mark.svg\""));
         assert!(!page.contains("<support@example.com>"));
+    }
+
+    #[test]
+    fn control_plane_route_uses_the_host_gateway_and_tls() {
+        let hostname = DomainName::new("console.example.com").unwrap();
+        let config = render_control_plane_route(&hostname, Some(CERT_RESOLVER));
+
+        assert!(config.contains("Host(`console.example.com`)"));
+        assert!(config.contains("url: \"http://host.docker.internal:5656\""));
+        assert!(config.contains("certResolver: le"));
+        assert!(config.contains("redirect-to-https@file"));
+    }
+
+    #[test]
+    fn clearing_the_control_plane_domain_removes_its_dynamic_route() {
+        let directory =
+            std::env::temp_dir().join(format!("ignitify-traefik-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let path = directory.join(CONTROL_PLANE_ROUTE_FILE);
+        std::fs::write(&path, "stale route").unwrap();
+        let settings = ignitify_db::ServerSettingsRecord {
+            control_plane_domain: String::new(),
+            application_domain_suffix: "apps.example.com".to_owned(),
+            https_enabled: true,
+            automatically_provision_ssl: true,
+            acme_email: "ops@example.com".to_owned(),
+            dns_record_type: "a".to_owned(),
+            dns_record_target: "203.0.113.10".to_owned(),
+            fallback_page_heading: "Application not found".to_owned(),
+            fallback_page_message: "Try another hostname.".to_owned(),
+            certificate_provider: "lets-encrypt".to_owned(),
+            custom_certificate_id: None,
+            concurrent_builds: 2,
+            updated_at: String::new(),
+        };
+
+        sync_control_plane_route(&directory, &settings).unwrap();
+        assert!(!path.exists());
+        std::fs::remove_dir_all(directory).unwrap();
     }
 }

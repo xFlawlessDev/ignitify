@@ -268,7 +268,8 @@ async fn main() -> Result<()> {
             .into_iter()
             .flat_map(|suffixes| suffixes.split(',').map(str::to_owned).collect::<Vec<_>>()),
     );
-    let app = ignitify_api::router_with_system_metrics_and_docker_and_provider_cipher_and_ingress_and_domain_policy(
+    let control_plane_domain = database.server_settings().get().await?.control_plane_domain;
+    let app = ignitify_api::router_with_system_metrics_and_docker_and_provider_cipher_and_ingress_and_domain_policy_and_control_plane_domain(
         auth,
         database,
         services,
@@ -286,6 +287,7 @@ async fn main() -> Result<()> {
         Some(provider_cipher),
         ingress_health,
         domain_policy,
+        (!control_plane_domain.is_empty()).then_some(control_plane_domain),
     );
     let listener = TcpListener::bind(listener_address).await?;
 

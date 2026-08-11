@@ -26,6 +26,7 @@ export interface ApplicationEnvironmentStatus {
 
 export interface InfrastructureSettingsResponse {
   application: ApplicationEnvironmentStatus;
+  control_plane_domain: string;
   application_domain_suffix: string;
   https_enabled: boolean;
   automatically_provision_ssl: boolean;
@@ -43,6 +44,7 @@ export interface InfrastructureSettingsResponse {
 }
 
 export interface InfrastructureSettingsInput {
+  control_plane_domain: string;
   application_domain_suffix: string;
   https_enabled: boolean;
   automatically_provision_ssl: boolean;

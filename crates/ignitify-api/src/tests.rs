@@ -67,10 +67,8 @@ async fn state() -> AppState {
         terminal_sessions: Arc::new(tokio::sync::Semaphore::new(4)),
         login_rate_limiter: crate::state::LoginRateLimiter::default(),
         ai_chat_rate_limiter: crate::state::AiChatRateLimiter::default(),
-        require_explicit_origin: false,
-        trust_proxy_headers: false,
         secure_cookies: false,
-        trusted_origins: Arc::from([]),
+        origin_policy: crate::state::OriginPolicy::new(false, false, Arc::from([]), None),
         provider_cipher: Some(Arc::new(
             AgeCipher::from_identity(identity.expose_secret()).unwrap(),
         )),
@@ -91,7 +89,7 @@ async fn health_reports_database_ready_when_runtime_is_unavailable() {
         state.runtime_health.clone(),
         state.worker_health.clone(),
         state.secure_cookies,
-        state.trusted_origins.clone(),
+        Arc::from([]),
     );
 
     let response = app
@@ -129,7 +127,7 @@ async fn system_metrics_returns_provider_snapshot_for_authenticated_actor() {
         }))),
         ignitify_terminal::TerminalService,
         state.secure_cookies,
-        state.trusted_origins.clone(),
+        Arc::from([]),
     );
 
     let response = app
@@ -157,7 +155,7 @@ async fn uptime_monitor_api_validates_and_persists_custom_endpoints() {
         state.runtime_health.clone(),
         state.worker_health.clone(),
         state.secure_cookies,
-        state.trusted_origins.clone(),
+        Arc::from([]),
     );
 
     let unauthenticated = app
@@ -233,7 +231,7 @@ async fn provider_routes_encrypt_credentials_and_require_admin_mutations() {
         state.docker_runtime.clone(),
         state.terminal,
         state.secure_cookies,
-        state.trusted_origins.clone(),
+        Arc::from([]),
         state.provider_cipher.clone(),
     );
 
@@ -378,7 +376,7 @@ async fn remote_builder_routes_encrypt_tls_material_and_require_admin() {
         state.docker_runtime.clone(),
         state.terminal,
         state.secure_cookies,
-        state.trusted_origins.clone(),
+        Arc::from([]),
         state.provider_cipher.clone(),
     );
     let unauthenticated = app
@@ -429,7 +427,7 @@ async fn remote_server_routes_hide_private_credentials_and_provide_access_setup(
         state.docker_runtime.clone(),
         state.terminal,
         state.secure_cookies,
-        state.trusted_origins.clone(),
+        Arc::from([]),
         state.provider_cipher.clone(),
     );
     let unauthenticated = app
@@ -542,7 +540,7 @@ async fn backup_s3_destination_routes_encrypt_credentials_and_require_admin() {
         state.docker_runtime.clone(),
         state.terminal,
         state.secure_cookies,
-        state.trusted_origins.clone(),
+        Arc::from([]),
         state.provider_cipher.clone(),
     );
     let unauthenticated = app
@@ -655,7 +653,7 @@ async fn openapi_document_and_swagger_ui_are_served() {
         state.runtime_health.clone(),
         state.worker_health.clone(),
         state.secure_cookies,
-        state.trusted_origins.clone(),
+        Arc::from([]),
     );
 
     let document = app
@@ -967,7 +965,7 @@ async fn infrastructure_settings_require_admin_and_persist_validated_updates() {
         state.runtime_health.clone(),
         state.worker_health.clone(),
         state.secure_cookies,
-        state.trusted_origins.clone(),
+        Arc::from([]),
     );
 
     let unauthenticated = app
@@ -1091,6 +1089,40 @@ async fn infrastructure_settings_require_admin_and_persist_validated_updates() {
 }
 
 #[tokio::test]
+async fn control_plane_domain_enables_its_https_origin_after_a_validated_update() {
+    let state = state().await;
+    let token = session_token(&state).await;
+    let app = router(
+        state.auth.clone(),
+        state.database.clone(),
+        state.services.clone(),
+        state.control.clone(),
+        state.runtime_health.clone(),
+        state.worker_health.clone(),
+        true,
+        Arc::from([]),
+    );
+
+    let response = app
+        .oneshot(request(
+            "PATCH",
+            "/api/v1/settings/infrastructure",
+            Some(&token),
+            r#"{"control_plane_domain":"Console.Example.com","application_domain_suffix":"apps.example.com","https_enabled":true,"automatically_provision_ssl":true,"acme_email":"ops@example.com","dns_record_type":"a","dns_record_target":"203.0.113.10","certificate_provider":"lets-encrypt","custom_certificate_id":null}"#,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let settings: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(settings["control_plane_domain"], "console.example.com");
+    assert_eq!(
+        settings["application"]["public_origin"],
+        "https://console.example.com"
+    );
+}
+
+#[tokio::test]
 async fn ai_settings_encrypt_the_api_key_and_chat_requires_configuration() {
     let state = state().await;
     let token = session_token(&state).await;
@@ -1159,7 +1191,7 @@ async fn project_routes_enforce_auth_membership_and_role() {
         state.runtime_health.clone(),
         state.worker_health.clone(),
         state.secure_cookies,
-        state.trusted_origins.clone(),
+        Arc::from([]),
     );
 
     let unauthenticated = app
@@ -1281,7 +1313,7 @@ async fn project_environment_routes_encrypt_values_and_enforce_roles() {
         state.runtime_health.clone(),
         state.worker_health.clone(),
         state.secure_cookies,
-        state.trusted_origins.clone(),
+        Arc::from([]),
     );
     let project = app
         .clone()
@@ -1388,7 +1420,7 @@ async fn deployment_route_rejects_invalid_idempotency_key() {
         state.runtime_health.clone(),
         state.worker_health.clone(),
         state.secure_cookies,
-        state.trusted_origins.clone(),
+        Arc::from([]),
     );
     let project = app
         .clone()
@@ -1452,7 +1484,7 @@ async fn deployment_events_replay_durable_rows_and_keep_unauthorized_hidden() {
         state.runtime_health.clone(),
         state.worker_health.clone(),
         state.secure_cookies,
-        state.trusted_origins.clone(),
+        Arc::from([]),
     );
     let project = app
         .clone()
@@ -1544,6 +1576,7 @@ async fn domain_routes_require_service_port_and_exact_confirmation() {
         .database
         .server_settings()
         .update(ServerSettingsUpdate {
+            control_plane_domain: String::new(),
             application_domain_suffix: "apps.example.com".to_owned(),
             https_enabled: true,
             automatically_provision_ssl: true,
@@ -1570,10 +1603,10 @@ async fn domain_routes_require_service_port_and_exact_confirmation() {
         state.docker_runtime.clone(),
         state.terminal,
         state.host_terminal_enabled,
-        state.require_explicit_origin,
-        state.trust_proxy_headers,
+        false,
+        false,
         state.secure_cookies,
-        state.trusted_origins.clone(),
+        Arc::from([]),
         state.provider_cipher.clone(),
         state.ingress_health.clone(),
         state.domain_policy.clone(),
@@ -1706,7 +1739,7 @@ async fn service_routes_encrypt_variables_and_enforce_access() {
         state.runtime_health.clone(),
         state.worker_health.clone(),
         state.secure_cookies,
-        state.trusted_origins.clone(),
+        Arc::from([]),
     );
     let health = app
         .clone()
@@ -1824,7 +1857,7 @@ async fn dashboard_requires_auth_and_returns_safe_aggregate() {
         state.runtime_health.clone(),
         state.worker_health.clone(),
         state.secure_cookies,
-        state.trusted_origins.clone(),
+        Arc::from([]),
     );
 
     let unauthenticated = app
@@ -1886,7 +1919,7 @@ async fn deferred_feature_routes_are_not_registered() {
         state.runtime_health.clone(),
         state.worker_health.clone(),
         state.secure_cookies,
-        state.trusted_origins.clone(),
+        Arc::from([]),
     );
 
     for uri in [
@@ -1917,7 +1950,7 @@ async fn service_and_deployment_routes_fail_closed_without_capability() {
         state.runtime_health.clone(),
         state.worker_health.clone(),
         state.secure_cookies,
-        state.trusted_origins.clone(),
+        Arc::from([]),
     );
 
     let project = app
@@ -1959,7 +1992,7 @@ async fn runtime_status_requires_auth_and_reports_component_state() {
         state.docker_runtime.clone(),
         state.terminal,
         state.secure_cookies,
-        state.trusted_origins.clone(),
+        Arc::from([]),
         state.provider_cipher.clone(),
         state.ingress_health.clone(),
     );
@@ -2019,7 +2052,7 @@ async fn runtime_status_returns_available_host_metrics() {
         state.runtime_health.clone(),
         state.worker_health.clone(),
         state.secure_cookies,
-        state.trusted_origins.clone(),
+        Arc::from([]),
     );
 
     let response = app
@@ -2078,7 +2111,7 @@ async fn runtime_containers_requires_auth_and_returns_inventory() {
         state.runtime_health.clone(),
         state.worker_health.clone(),
         state.secure_cookies,
-        state.trusted_origins.clone(),
+        Arc::from([]),
     );
 
     let unauthenticated = app
@@ -2122,7 +2155,7 @@ async fn runtime_container_action_requires_auth_and_docker_capability() {
         state.runtime_health.clone(),
         state.worker_health.clone(),
         state.secure_cookies,
-        state.trusted_origins.clone(),
+        Arc::from([]),
     );
 
     let unauthenticated = app

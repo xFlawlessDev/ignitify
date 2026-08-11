@@ -318,9 +318,8 @@ async fn exchange_github_manifest_code(code: &str) -> Result<GithubManifestConve
 
 fn frontend_origin(state: &AppState) -> String {
     state
-        .trusted_origins
-        .first()
-        .cloned()
+        .origin_policy
+        .public_origin()
         .unwrap_or_else(|| "http://localhost:6565".to_owned())
 }
 

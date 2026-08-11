@@ -17,15 +17,16 @@ const initialSettings = {
     public_origin: "http://127.0.0.1:6565",
     secure_cookies: false,
   },
+  control_plane_domain: "",
   application_domain_suffix: "",
-  https_enabled: false,
-  automatically_provision_ssl: false,
-  acme_email: "",
+  https_enabled: true,
+  automatically_provision_ssl: true,
+  acme_email: "ops@example.com",
   dns_record_type: "a" as const,
   dns_record_target: "",
   fallback_page_heading: "Application not found",
   fallback_page_message: "The requested hostname is not connected to an active application.",
-  certificate_provider: "none",
+  certificate_provider: "lets-encrypt",
   custom_certificate_id: null,
   concurrent_builds: 2,
   certificates: [],
@@ -204,7 +205,9 @@ describe("SettingsView", () => {
     expect(host.textContent).toContain("DNS record type");
     expect(host.querySelector("#dns-record-target")).not.toBeNull();
     expect(host.textContent).toContain("Create a separate A record for the control plane:");
-    expect(host.textContent).toContain("IGNITIFY_TRUSTED_ORIGINS=https://admin.example.com");
+    expect(host.textContent).toContain(
+      "Saving the control-plane hostname enables its HTTPS trusted origin",
+    );
 
     domain.value = "apps.example.com";
     domain.dispatchEvent(new Event("input", { bubbles: true }));
@@ -240,6 +243,37 @@ describe("SettingsView", () => {
 
     expect(host.textContent).toContain("Use a valid hostname without a protocol or path.");
     expect(save.disabled).toBe(true);
+    app.unmount();
+  });
+
+  it("configures a separate HTTPS control-plane domain", async () => {
+    const { app, host } = await mountSettings();
+    await selectSection(host, "Ingress & TLS");
+    const applicationDomain = host.querySelector("#application-domain-suffix") as HTMLInputElement;
+    const controlPlaneDomain = host.querySelector("#control-plane-domain") as HTMLInputElement;
+    const save = [...host.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("Save changes"),
+    ) as HTMLButtonElement;
+
+    applicationDomain.value = "apps.example.com";
+    applicationDomain.dispatchEvent(new Event("input", { bubbles: true }));
+    controlPlaneDomain.value = "console.example.com";
+    controlPlaneDomain.dispatchEvent(new Event("input", { bubbles: true }));
+    await nextTick();
+
+    expect(save.disabled).toBe(false);
+    expect(host.textContent).toContain("console.example.com");
+    expect(host.textContent).not.toContain("admin.example.com");
+    save.click();
+    await settle();
+
+    const patch = fetchCalls.find(
+      ([input, init]) =>
+        requestUrl(input).endsWith("/settings/infrastructure") && init?.method === "PATCH",
+    );
+    const requestBody = patch?.[1]?.body;
+    if (typeof requestBody !== "string") throw new Error("Expected a JSON settings payload.");
+    expect(JSON.parse(requestBody).control_plane_domain).toBe("console.example.com");
     app.unmount();
   });
 

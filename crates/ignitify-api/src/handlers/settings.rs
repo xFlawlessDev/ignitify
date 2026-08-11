@@ -22,6 +22,8 @@ const MAX_CERTIFICATE_BYTES: usize = 2 * 1024 * 1024;
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct InfrastructureSettingsRequest {
+    #[serde(default)]
+    control_plane_domain: String,
     application_domain_suffix: String,
     https_enabled: bool,
     automatically_provision_ssl: bool,
@@ -47,6 +49,7 @@ fn default_dns_record_type() -> String {
 #[derive(Debug, Serialize)]
 pub(crate) struct InfrastructureSettingsResponse {
     application: ApplicationEnvironmentResponse,
+    control_plane_domain: String,
     application_domain_suffix: String,
     https_enabled: bool,
     automatically_provision_ssl: bool,
@@ -116,9 +119,15 @@ pub(crate) async fn update(
     require_admin(&state, &headers).await?;
     require_same_origin_request(&state, &headers)?;
     let input = validate_request(&state, request).await?;
-    state.database.server_settings().update(input).await?;
+    let settings = state.database.server_settings().update(input).await?;
+    if !state.origin_policy.set_control_plane_domain(
+        (!settings.control_plane_domain.is_empty())
+            .then_some(settings.control_plane_domain.clone()),
+    ) {
+        return Err(ApiError::RuntimeStateUnavailable);
+    }
     wake_worker(&state);
-    response(&state).await.map(Json)
+    response_from_settings(&state, settings).await.map(Json)
 }
 
 pub(crate) async fn create_certificate(
@@ -228,6 +237,7 @@ pub(crate) async fn remove_certificate(
                 fallback_page_message: current.fallback_page_message,
                 certificate_provider: "none".to_owned(),
                 custom_certificate_id: None,
+                control_plane_domain: current.control_plane_domain,
                 concurrent_builds: current.concurrent_builds,
             })
             .await?;
@@ -239,6 +249,14 @@ pub(crate) async fn remove_certificate(
 async fn response(state: &AppState) -> Result<InfrastructureSettingsResponse, ApiError> {
     let repository = state.database.server_settings();
     let settings = repository.get().await?;
+    response_from_settings(state, settings).await
+}
+
+async fn response_from_settings(
+    state: &AppState,
+    settings: ServerSettingsRecord,
+) -> Result<InfrastructureSettingsResponse, ApiError> {
+    let repository = state.database.server_settings();
     let certificates = repository
         .list_certificates()
         .await?
@@ -255,7 +273,7 @@ async fn response(state: &AppState) -> Result<InfrastructureSettingsResponse, Ap
         settings,
         certificates,
         ApplicationEnvironmentResponse {
-            public_origin: state.trusted_origins.first().cloned().unwrap_or_default(),
+            public_origin: state.origin_policy.public_origin().unwrap_or_default(),
             secure_cookies: state.secure_cookies,
         },
         InfrastructureHealthResponse {
@@ -279,6 +297,7 @@ fn settings_response(
 ) -> InfrastructureSettingsResponse {
     InfrastructureSettingsResponse {
         application,
+        control_plane_domain: settings.control_plane_domain,
         application_domain_suffix: settings.application_domain_suffix,
         https_enabled: settings.https_enabled,
         automatically_provision_ssl: settings.automatically_provision_ssl,
@@ -314,6 +333,26 @@ async fn validate_request(
             "application domain suffix must be a valid hostname without a protocol or path",
         )
     })?;
+    let control_plane_domain = request.control_plane_domain.trim().to_ascii_lowercase();
+    if !control_plane_domain.is_empty() {
+        DomainName::new(&control_plane_domain).map_err(|_| {
+            ApiError::BadRequest(
+                "control plane domain must be a valid hostname without a protocol or path",
+            )
+        })?;
+        if control_plane_domain == application_domain_suffix
+            || control_plane_domain.ends_with(&format!(".{application_domain_suffix}"))
+        {
+            return Err(ApiError::BadRequest(
+                "control plane domain must be separate from the managed application suffix",
+            ));
+        }
+        if !state.secure_cookies {
+            return Err(ApiError::BadRequest(
+                "control plane domain requires secure cookies",
+            ));
+        }
+    }
     let current = state.database.server_settings().get().await?;
     let concurrent_builds = request
         .concurrent_builds
@@ -380,8 +419,22 @@ async fn validate_request(
     } else {
         None
     };
+    if !control_plane_domain.is_empty() && !request.https_enabled {
+        return Err(ApiError::BadRequest(
+            "control plane domain requires HTTPS ingress",
+        ));
+    }
+    if !control_plane_domain.is_empty()
+        && provider != "custom"
+        && !(request.automatically_provision_ssl && provider == "lets-encrypt")
+    {
+        return Err(ApiError::BadRequest(
+            "control plane domain requires automatic or custom TLS certificates",
+        ));
+    }
 
     Ok(ServerSettingsUpdate {
+        control_plane_domain,
         application_domain_suffix,
         https_enabled: request.https_enabled,
         automatically_provision_ssl: request.https_enabled && request.automatically_provision_ssl,

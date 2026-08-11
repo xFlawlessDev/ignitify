@@ -1,6 +1,6 @@
 use std::{
     collections::{HashMap, VecDeque},
-    sync::Arc,
+    sync::{Arc, RwLock},
     time::{Duration, Instant},
 };
 
@@ -34,6 +34,75 @@ pub(crate) struct GithubManifestPending {
 }
 
 pub(crate) type GithubManifestStates = Arc<Mutex<HashMap<String, GithubManifestPending>>>;
+
+#[derive(Clone)]
+pub(crate) struct OriginPolicy {
+    inner: Arc<RwLock<OriginPolicyState>>,
+}
+
+struct OriginPolicyState {
+    base_origins: Arc<[String]>,
+    base_require_explicit_origin: bool,
+    base_trust_proxy_headers: bool,
+    control_plane_origin: Option<String>,
+}
+
+impl OriginPolicy {
+    pub(crate) fn new(
+        require_explicit_origin: bool,
+        trust_proxy_headers: bool,
+        base_origins: Arc<[String]>,
+        control_plane_domain: Option<String>,
+    ) -> Self {
+        Self {
+            inner: Arc::new(RwLock::new(OriginPolicyState {
+                base_origins,
+                base_require_explicit_origin: require_explicit_origin,
+                base_trust_proxy_headers: trust_proxy_headers,
+                control_plane_origin: control_plane_domain
+                    .filter(|domain| !domain.is_empty())
+                    .map(|domain| format!("https://{domain}")),
+            })),
+        }
+    }
+
+    pub(crate) fn is_trusted(&self, origin: &str) -> bool {
+        self.inner.read().is_ok_and(|state| {
+            state.base_origins.iter().any(|trusted| trusted == origin)
+                || state.control_plane_origin.as_deref() == Some(origin)
+        })
+    }
+
+    pub(crate) fn requires_explicit_origin(&self) -> bool {
+        self.inner.read().map_or(true, |state| {
+            state.base_require_explicit_origin || state.control_plane_origin.is_some()
+        })
+    }
+
+    pub(crate) fn trusts_proxy_headers(&self) -> bool {
+        self.inner.read().is_ok_and(|state| {
+            state.base_trust_proxy_headers || state.control_plane_origin.is_some()
+        })
+    }
+
+    pub(crate) fn public_origin(&self) -> Option<String> {
+        self.inner.read().ok().and_then(|state| {
+            state
+                .control_plane_origin
+                .clone()
+                .or_else(|| state.base_origins.first().cloned())
+        })
+    }
+
+    pub(crate) fn set_control_plane_domain(&self, domain: Option<String>) -> bool {
+        self.inner.write().is_ok_and(|mut state| {
+            state.control_plane_origin = domain
+                .filter(|value| !value.is_empty())
+                .map(|value| format!("https://{value}"));
+            true
+        })
+    }
+}
 
 #[derive(Clone, Default)]
 pub(crate) struct LoginRateLimiter {
@@ -124,10 +193,8 @@ pub(crate) struct AppState {
     pub(crate) terminal_sessions: Arc<Semaphore>,
     pub(crate) login_rate_limiter: LoginRateLimiter,
     pub(crate) ai_chat_rate_limiter: AiChatRateLimiter,
-    pub(crate) require_explicit_origin: bool,
-    pub(crate) trust_proxy_headers: bool,
     pub(crate) secure_cookies: bool,
-    pub(crate) trusted_origins: Arc<[String]>,
+    pub(crate) origin_policy: OriginPolicy,
     pub(crate) provider_cipher: Option<Arc<AgeCipher>>,
     pub(crate) domain_policy: DomainPolicy,
     pub(crate) github_manifest_states: GithubManifestStates,

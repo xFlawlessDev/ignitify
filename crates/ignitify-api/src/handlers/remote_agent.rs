@@ -263,10 +263,10 @@ fn bearer_token(headers: &HeaderMap) -> Option<&str> {
 
 fn agent_endpoint(state: &AppState) -> Result<String, ApiError> {
     state
-        .trusted_origins
-        .iter()
-        .find_map(|origin| {
-            let url = Url::parse(origin).ok()?;
+        .origin_policy
+        .public_origin()
+        .and_then(|origin| {
+            let url = Url::parse(&origin).ok()?;
             if !matches!(url.scheme(), "http" | "https") {
                 return None;
             }

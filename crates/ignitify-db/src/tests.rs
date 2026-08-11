@@ -309,6 +309,7 @@ async fn server_settings_and_encrypted_certificate_records_are_durable() {
     let updated = database
         .server_settings()
         .update(ServerSettingsUpdate {
+            control_plane_domain: "console.example.com".to_owned(),
             application_domain_suffix: "apps.example.com".to_owned(),
             https_enabled: true,
             automatically_provision_ssl: true,
@@ -323,6 +324,7 @@ async fn server_settings_and_encrypted_certificate_records_are_durable() {
         })
         .await
         .unwrap();
+    assert_eq!(updated.control_plane_domain, "console.example.com");
     assert_eq!(updated.application_domain_suffix, "apps.example.com");
     assert_eq!(updated.acme_email, "ops@apps.example.com");
     assert_eq!(updated.fallback_page_heading, "This app is unavailable");
