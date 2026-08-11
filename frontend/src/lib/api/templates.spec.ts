@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { apiListTemplates } from "./templates";
+import { TEMPLATES_URL, apiListTemplates } from "./templates";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -35,8 +35,9 @@ describe("apiListTemplates", () => {
     const firstCall = fetchMock.mock.calls[0];
     if (!firstCall) throw new Error("Expected a catalog request");
 
+    const querySeparator = TEMPLATES_URL.includes("?") ? "&" : "?";
     expect(firstCall[0]).toBe(
-      "http://localhost:4545/api/templates?page=2&page_size=24&q=database&tag=database",
+      `${TEMPLATES_URL}${querySeparator}page=2&page_size=24&q=database&tag=database`,
     );
     expect((firstCall[1] as RequestInit).credentials).toBe("omit");
     expect(result).toEqual({
