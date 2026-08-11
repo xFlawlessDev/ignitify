@@ -241,13 +241,22 @@ expose that port directly to the Internet.
    sudo awk -F= '/^IGNITIFY_BOOTSTRAP_SECRET=/{print $2}' /etc/ignitify/ignitify.env
    ```
 
-2. Open Ignitify through the local host or a TLS reverse proxy and use that
-   secret to create the first operator account.
-3. In **Infrastructure**, set the ACME contact email, domain policy, and any
+2. For a remote host before a TLS reverse proxy is configured, create an SSH
+   tunnel from your local computer and keep it open:
+
+   ```sh
+   ssh -L 5656:127.0.0.1:5656 <ssh-user>@<server-address>
+   ```
+
+   Then open `http://127.0.0.1:5656` in your local browser. The application
+   remains loopback-only on the remote host.
+3. Open Ignitify through the local host, an active SSH tunnel, or a TLS reverse
+   proxy and use that secret to create the first operator account.
+4. In **Infrastructure**, set the ACME contact email, domain policy, and any
    required DNS settings before enabling public service domains.
-4. Add Git providers, remote servers, remote builders, or S3-compatible backup
+5. Add Git providers, remote servers, remote builders, or S3-compatible backup
    destinations only when their credentials and network access are ready.
-5. Create a project and service, choose an image, Compose, or Git source, then
+6. Create a project and service, choose an image, Compose, or Git source, then
    deploy. Review the deployment events and logs after every change.
 
 Remote browser access needs an operator-managed TLS reverse proxy and explicit
