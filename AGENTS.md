@@ -10,6 +10,7 @@ Ignitify is a self-hosted deployment and operations control plane built with Rus
 - local Docker, restricted Compose, and SSH remote-server runtimes; Git source builds using Dockerfile, static, Railpack, or reviewed Compose sources;
 - Traefik ingress, managed routes and certificates, DNS verification, domain policy, infrastructure settings, and ingress fallback configuration;
 - GitHub/GitLab/Gitea providers, provider tests and repository/branch discovery, remote BuildKit builders, runtime container inspection/actions, controlled terminals, host metrics, uptime monitoring, and remote-agent heartbeats;
+- operator-managed notification channels for deployment and backup events via Telegram, Discord, SMTP, Resend, or custom HTTPS webhooks;
 - offline SQLite/runtime-secret backup and restore, with optional S3-compatible upload, scheduled S3 runs, and backup-run history.
 
 The product executes real Docker, Compose, SSH, DNS, HTTP-monitoring, Git, and S3 effects when configured. Treat all runtime and infrastructure code as security-sensitive. Never claim a capability is only a UI fixture unless the relevant implementation is actually absent.
@@ -20,10 +21,10 @@ The product executes real Docker, Compose, SSH, DNS, HTTP-monitoring, Git, and S
 - `ignitify-core` is the binary composition root. It loads runtime secrets/configuration, dispatches `backup` and `restore` CLI operations, builds adapters and workers, binds the loopback listener, and calls `axum::serve`. It owns no HTTP routes, handlers, request/response DTOs, or `IntoResponse` mapping.
 - `ignitify-api` owns Axum route registration, handlers, HTTP DTOs, request extractors, cookies/origin checks, WebSocket/SSE adapters, static frontend serving, OpenAPI/Swagger documentation, audit context, and safe API-error mapping. A handler authenticates, authorizes, validates, calls a service/repository, records audit context where required, then maps the result.
 - `ignitify-auth` owns Argon2 credentials, bootstrap and step-up flow, JWT access tokens, rotating hashed refresh-token families, session DTOs, and `AuthError`. It receives `Database` through `AuthService::new(database, config)`.
-- `ignitify-db` owns SQLite connection setup, embedded migrations, persistence records, and repositories. It is the authoritative state store for users, projects, services, deployments, domains, settings, providers, remote infrastructure, monitoring, audit activity, and backup destinations.
+- `ignitify-db` owns SQLite connection setup, embedded migrations, persistence records, and repositories. It is the authoritative state store for users, projects, services, deployments, domains, settings, providers, remote infrastructure, monitoring, notification channels, audit activity, and backup destinations.
 - `ignitify-domain` owns transport-agnostic validation and domain types. It must not import SQLx, Axum, authentication, Docker, or runtime types.
 - `ignitify-control-plane` owns service configuration encryption/read models, deployment submission, worker reconciliation, stream publication, and runtime/ingress/source-build traits. HTTP submits or reads state; the worker and adapters own external effects and retries.
-- Runtime/infrastructure adapters implement the control-plane contracts: `ignitify-runtime-docker`, `ignitify-runtime-compose`, `ignitify-runtime-remote`, `ignitify-ingress-traefik`, `ignitify-source-git`, and `ignitify-dns`. `ignitify-monitoring` runs the uptime worker; `ignitify-terminal` owns PTY primitives; `ignitify-backup-s3` owns S3 upload signing and transport.
+- Runtime/infrastructure adapters implement the control-plane contracts: `ignitify-runtime-docker`, `ignitify-runtime-compose`, `ignitify-runtime-remote`, `ignitify-ingress-traefik`, `ignitify-source-git`, and `ignitify-dns`. `ignitify-monitoring` runs the uptime worker; `ignitify-notifications` dispatches deployment and backup events; `ignitify-terminal` owns PTY primitives; `ignitify-backup-s3` owns S3 upload signing and transport.
 - Keep dependencies acyclic. The usual flow is `core -> api -> auth/control-plane/db/domain and adapters`; `control-plane -> db/domain`; adapters depend on control-plane/domain/db only where their contract requires it. Lower layers must never import `ignitify-api` or `ignitify-core`.
 - Frontend flow: `src/main.ts` installs Pinia, i18n, and Router; the router initializes `useAuthStore`; API calls attach the memory-only Bearer token; refresh uses a strict HttpOnly cookie; Vite proxies `/api` in development. Production requests are served from the embedded frontend bundle by the backend.
 - Backend defaults to `127.0.0.1:5656`. The Vite development server defaults to port `6565` and proxies to the backend. The backend remains loopback-only; remote access belongs behind a TLS reverse proxy with remote mode enabled.
@@ -36,6 +37,7 @@ The product executes real Docker, Compose, SSH, DNS, HTTP-monitoring, Git, and S
 - Remote runtime uses SSH with strict host-key checking and temporary private-key/known-host files. Remote builders require mTLS material. Keep all private material encrypted at rest and zeroized/removed after use.
 - Traefik is an operator stack. The worker owns generated routes and TLS configuration; `infra/traefik/` owns the stack files. Do not invoke Docker or Compose during agent work unless the user explicitly requests it.
 - Uptime monitoring is a background worker. Validate monitor targets and preserve SSRF protections, timeouts, redirect policy, and heartbeat expiry behavior.
+- Notification delivery is a background adapter. Keep channel credentials encrypted, do not include them in API responses or logs, preserve per-event delivery deduplication, and retain HTTPS/SSRF checks for custom webhooks.
 - `ignitify-core backup <directory>` creates an offline-compatible database and runtime-secret snapshot, then optionally uploads it to the configured S3-compatible destination. Enabled S3 destinations can schedule the same operation at a validated 1-720 hour interval and retain non-sensitive run history. `restore <directory> --confirm-offline` is deliberately offline-only. Do not add web restore, automatic remote deletion, or plaintext secret export.
 
 ## Key Directories
@@ -43,13 +45,13 @@ The product executes real Docker, Compose, SSH, DNS, HTTP-monitoring, Git, and S
 - `crates/ignitify-core/` - runtime configuration/secrets, dependency composition, backup/restore operations, listener, and process error.
 - `crates/ignitify-api/` - Axum router, handlers, HTTP DTOs/extractors, static SPA embedding/serving, OpenAPI/Swagger documentation, audit helpers, and API error mapping.
 - `crates/ignitify-auth/` - credential, token, session, bootstrap, and step-up behavior.
-- `crates/ignitify-db/` - SQLx SQLite database, numbered migrations (`0001` through `0027` are present in the current worktree), models, repositories, and persistence tests.
+- `crates/ignitify-db/` - SQLx SQLite database, numbered migrations (`0001` through `0029` are present in the current worktree), models, repositories, and persistence tests.
 - `crates/ignitify-domain/` - validation and runtime-neutral domain types.
 - `crates/ignitify-control-plane/` - deployment worker, service control, encrypted environment handling, streams, and runtime contracts.
 - `crates/ignitify-runtime-docker/`, `ignitify-runtime-compose/`, and `ignitify-runtime-remote/` - image, Compose, and SSH runtime adapters.
 - `crates/ignitify-source-git/` - source checkout/build execution and provider credential use.
 - `crates/ignitify-ingress-traefik/` and `ignitify-dns/` - ingress lifecycle/route generation and DNS verification.
-- `crates/ignitify-monitoring/`, `ignitify-terminal/`, and `ignitify-backup-s3/` - monitoring, PTY, and backup-upload boundaries.
+- `crates/ignitify-monitoring/`, `ignitify-notifications/`, `ignitify-terminal/`, and `ignitify-backup-s3/` - monitoring, notification delivery, PTY, and backup-upload boundaries.
 - `frontend/src/lib/api/` - typed API functions, authentication transport, request behavior, and the external template catalog client.
 - `frontend/src/composables/` - reusable domain orchestration; `frontend/src/stores/` - Pinia state, including the setup-style `auth.ts` store.
 - `frontend/src/views/` - routed application surfaces; `frontend/src/components/` - feature components and reusable UI primitives under `components/ui/`.
@@ -126,19 +128,19 @@ Run the release build on native Linux amd64. `scripts/build-release.sh` invokes 
 
 ### Persistence, Worker, And Errors
 
-- Add durable schema changes as a new, sequential SQL migration in `crates/ignitify-db/migrations/`; never edit an applied migration or reuse an existing migration number. The next committed migration must follow the current `0027` high-water mark. Add repository coverage with an isolated `sqlite::memory:` database when behavior changes.
+- Add durable schema changes as a new, sequential SQL migration in `crates/ignitify-db/migrations/`; never edit an applied migration or reuse an existing migration number. The next committed migration must follow the current `0029` high-water mark. Add repository coverage with an isolated `sqlite::memory:` database when behavior changes.
 - Keep SQL in repositories and bind every user-controlled value with SQLx `.bind(...)`. Do not concatenate input into SQL. Use transactions for state transitions that must be atomic, especially deployment, token-family, secret, and audit writes.
 - API handlers must map validation to `400`, unauthenticated to `401`, forbidden to `403`, inaccessible/nonexistent to `404`, conflicts to `409`, unavailable capability/dependency to the appropriate `5xx`, and unexpected failures to a non-sensitive `500` response. Only `ignitify-api` implements `IntoResponse`.
 - Use `Result` and `?` for recoverable failures. Never use `unwrap()` or `expect()` in production paths. Tests may use them when failure diagnostics remain clear.
 - Service/deployment handlers submit state through `ServiceControl` or `ControlHandle`; reconciliation, status observation, route changes, and retry logic belong in the control-plane worker and adapters. Preserve deployment event/log ordering and idempotency behavior.
-- Do not bypass encrypted variable/credential repositories. Project/service variables, provider credentials, remote-server credentials, builder TLS material, certificate keys, and backup credentials must remain encrypted with the runtime age identity and must never be returned in plaintext DTOs.
+- Do not bypass encrypted variable/credential repositories. Project/service variables, provider credentials, remote-server credentials, builder TLS material, certificate keys, notification channel credentials, and backup credentials must remain encrypted with the runtime age identity and must never be returned in plaintext DTOs.
 
 ### Security
 
 - Access tokens remain memory-only in the frontend. Refresh tokens remain hashed in SQLite and are delivered only in the `HttpOnly`, `SameSite=Strict` refresh cookie scoped to `/api/v1/auth`.
 - Every state-changing cookie route must retain `X-Ignitify-Request` protection and trusted-origin validation. Preserve secure-cookie and HTTPS-origin requirements in remote mode; trust forwarded headers only when the explicit setting enables it.
 - Keep bootstrap secret checks, login rate limiting, step-up requirements, authorization checks, audit records, request IDs, terminal concurrency limits, upload limits, and CSP/security headers intact when changing nearby code.
-- Client-side route guards are only UX. Every server-side read or mutation must enforce role/membership independently. Admin/operator-only runtime, provider, terminal, backup, remote-builder, remote-server, and infrastructure actions require explicit backend authorization.
+- Client-side route guards are only UX. Every server-side read or mutation must enforce role/membership independently. Admin/operator-only runtime, provider, notification channel, terminal, backup, remote-builder, remote-server, and infrastructure actions require explicit backend authorization.
 - Keep central `crates/ignitify-api/src/openapi.rs` operation definitions and any handler-level `#[utoipa::path]` documentation aligned with registered routes. Swagger UI is served at `/swagger-ui/` and the JSON document at `/api-docs/openapi.json`; document `X-Ignitify-Request` for browser state-changing endpoints, distinguish machine credentials such as remote-agent bearer tokens, and never include real secrets in schemas or examples.
 - Do not log secrets, access tokens, refresh tokens, private keys, certificate material, OAuth codes, signed URLs, raw deployment environment values, or unredacted command output.
 

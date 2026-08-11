@@ -12,6 +12,7 @@ infrastructure you administer.
 ## Contents
 
 - [Capabilities](#capabilities)
+- [Notification channels](#notification-channels)
 - [Compose template catalog](#compose-template-catalog)
 - [Architecture](#architecture)
 - [Production installation](#production-installation)
@@ -40,8 +41,24 @@ infrastructure you administer.
 - GitHub, GitLab, and Gitea integrations; repository and branch discovery;
   remote BuildKit builders; runtime inspection and actions; controlled
   terminals; host metrics; uptime monitoring; and remote-agent heartbeats.
+- Operator-managed notification channels for deployment and backup events via
+  Telegram, Discord, SMTP, Resend, or custom HTTPS webhooks.
 - Offline SQLite and runtime-secret backup/restore with optional
   S3-compatible upload, scheduled backup runs, and run history.
+
+## Notification Channels
+
+Platform operators can configure notification channels in **Notifications**.
+Each channel can be enabled independently and subscribed to one or more
+deployment events (`queued`, `preparing`, `running`, `healthy`, `failed`,
+`stopping`, `stopped`, and `superseded`) and backup outcomes (succeeded or
+failed).
+
+Ignitify encrypts channel credentials at rest and returns only non-sensitive
+configuration summaries through the API. Delivery runs in the background,
+records each event/channel delivery to prevent duplicates, and applies a
+15-second timeout. Custom webhooks must use a public HTTPS endpoint; private
+and loopback hosts are rejected to preserve SSRF protections.
 
 ## Compose Template Catalog
 
@@ -338,6 +355,7 @@ crates/
   ignitify-ingress-traefik/  Traefik lifecycle and route generation
   ignitify-dns/              DNS verification
   ignitify-monitoring/       Uptime-monitoring worker
+  ignitify-notifications/    Notification event delivery adapters
   ignitify-terminal/         Controlled PTY primitives
   ignitify-backup-s3/        S3-compatible upload implementation
 frontend/                    Vue 3, Pinia, Vue Router, Tailwind application
