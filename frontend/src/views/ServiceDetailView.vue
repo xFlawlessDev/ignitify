@@ -9,6 +9,7 @@ import {
   GitBranch,
   Globe2,
   RefreshCw,
+  Search,
   ScrollText,
   Settings2,
   Trash2,
@@ -119,6 +120,22 @@ const serviceLogEmptyMessage = computed(() => {
   if (serviceRuntimeLogs.emptyState.value === "no_output") return t("serviceLogs.noOutput");
   return t("serviceLogs.noDeployment");
 });
+const serviceLogSearch = shallowRef("");
+const serviceLogSearchQuery = computed(() => serviceLogSearch.value.trim().toLocaleLowerCase());
+const filteredServiceLogOutput = computed(() => {
+  const output = serviceRuntimeLogs.output.value;
+  if (!output || !serviceLogSearchQuery.value) return output;
+  return output
+    .split(/\r?\n/)
+    .filter((line) => line.toLocaleLowerCase().includes(serviceLogSearchQuery.value))
+    .join("\n");
+});
+const serviceLogLineCount = computed(() =>
+  serviceRuntimeLogs.output.value ? serviceRuntimeLogs.output.value.split(/\r?\n/).length : 0,
+);
+const filteredServiceLogLineCount = computed(() =>
+  filteredServiceLogOutput.value ? filteredServiceLogOutput.value.split(/\r?\n/).length : 0,
+);
 const serviceStatus = computed(() => {
   if (service.value?.source_config?.setup_required) return "setup";
   if (latestDeployment.value?.status === "healthy") return "healthy";
@@ -215,6 +232,7 @@ async function load() {
   deleting.value = false;
   selectedDeploymentId.value = null;
   streamLogs.value = [];
+  serviceLogSearch.value = "";
   serviceRuntimeLogs.clear();
   deployments.clear();
   stream.stop();
@@ -560,19 +578,46 @@ onUnmounted(() => {
                 {{ serviceRuntimeLogs.container.value.name }}
               </p>
             </div>
-            <Button
-              size="sm"
-              variant="outline"
-              :disabled="serviceRuntimeLogs.loading.value"
-              @click="loadServiceLogs"
-            >
-              <RefreshCw
-                data-icon="inline-start"
-                :class="serviceRuntimeLogs.loading.value ? 'animate-spin' : ''"
-                :stroke-width="1.5"
-              />
-              {{ t("serviceLogs.refresh") }}
-            </Button>
+            <div class="flex w-full flex-wrap items-center justify-end gap-3 sm:w-auto">
+              <label class="relative block w-full sm:w-56">
+                <span class="sr-only">{{ t("serviceLogs.search") }}</span>
+                <Search
+                  class="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground"
+                  aria-hidden="true"
+                />
+                <Input
+                  v-model="serviceLogSearch"
+                  type="search"
+                  class="h-8 w-full rounded-[3px] pr-2 pl-8 text-xs"
+                  :disabled="!serviceRuntimeLogs.output.value"
+                  :placeholder="t('serviceLogs.search')"
+                />
+              </label>
+              <span
+                v-if="serviceRuntimeLogs.output.value"
+                class="font-mono text-[11px] text-muted-foreground"
+              >
+                {{
+                  t("serviceLogs.lineCount", {
+                    shown: filteredServiceLogLineCount,
+                    total: serviceLogLineCount,
+                  })
+                }}
+              </span>
+              <Button
+                size="sm"
+                variant="outline"
+                :disabled="serviceRuntimeLogs.loading.value"
+                @click="loadServiceLogs"
+              >
+                <RefreshCw
+                  data-icon="inline-start"
+                  :class="serviceRuntimeLogs.loading.value ? 'animate-spin' : ''"
+                  :stroke-width="1.5"
+                />
+                {{ t("serviceLogs.refresh") }}
+              </Button>
+            </div>
           </header>
           <p
             v-if="serviceRuntimeLogs.error.value"
@@ -589,11 +634,18 @@ onUnmounted(() => {
             {{ t("serviceLogs.loading") }}
           </p>
           <Terminal
-            v-else-if="serviceRuntimeLogs.output.value"
+            v-else-if="filteredServiceLogOutput"
             :copy-label="t('serviceLogs.copy')"
-            :output="serviceRuntimeLogs.output.value"
+            :output="filteredServiceLogOutput"
             :title="t('serviceLogs.title')"
           />
+          <p
+            v-else-if="serviceRuntimeLogs.output.value"
+            class="py-8 text-sm text-muted-foreground"
+            role="status"
+          >
+            {{ t("serviceLogs.noMatches") }}
+          </p>
           <p v-else class="py-8 text-sm text-muted-foreground" role="status">
             {{ serviceLogEmptyMessage }}
           </p>

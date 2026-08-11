@@ -131,6 +131,9 @@ export default {
   deploymentLogs: {
     title: "Deployment logs",
     copy: "Copy deployment logs",
+    search: "Search logs",
+    lineCount: "{shown} of {total} lines",
+    noMatches: "No matching deployment log lines.",
   },
   serviceLogs: {
     tab: "Service logs",
@@ -143,6 +146,9 @@ export default {
     noContainer: "No managed container is available for the active deployment.",
     noOutput: "The active container has not emitted any log output.",
     copy: "Copy service logs",
+    search: "Search logs",
+    lineCount: "{shown} of {total} lines",
+    noMatches: "No matching service log lines.",
   },
   composeGuide: {
     title: "Compose requirements",

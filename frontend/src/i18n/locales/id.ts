@@ -131,6 +131,9 @@ export default {
   deploymentLogs: {
     title: "Log deployment",
     copy: "Salin log deployment",
+    search: "Cari log",
+    lineCount: "{shown} dari {total} baris",
+    noMatches: "Tidak ada baris log deployment yang cocok.",
   },
   serviceLogs: {
     tab: "Log layanan",
@@ -143,6 +146,9 @@ export default {
     noContainer: "Tidak ada container terkelola untuk deployment aktif.",
     noOutput: "Container aktif belum menghasilkan output log.",
     copy: "Salin log layanan",
+    search: "Cari log",
+    lineCount: "{shown} dari {total} baris",
+    noMatches: "Tidak ada baris log layanan yang cocok.",
   },
   composeGuide: {
     title: "Persyaratan Compose",

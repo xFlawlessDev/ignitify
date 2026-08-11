@@ -1,7 +1,9 @@
 <script setup lang="ts">
+import { Search } from "@lucide/vue";
 import { computed, shallowRef } from "vue";
 import { useI18n } from "vue-i18n";
 import { Terminal } from "@/components/terminal";
+import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -22,9 +24,16 @@ const props = defineProps<{
 const { t } = useI18n();
 const filter = shallowRef<"all" | DeploymentLog["stream"]>("all");
 const follow = shallowRef(true);
+const search = shallowRef("");
+const searchQuery = computed(() => search.value.trim().toLocaleLowerCase());
 const visibleLogs = computed(() =>
-  filter.value === "all" ? props.logs : props.logs.filter((log) => log.stream === filter.value),
+  props.logs.filter(
+    (log) =>
+      (filter.value === "all" || log.stream === filter.value) &&
+      (!searchQuery.value || log.line.toLocaleLowerCase().includes(searchQuery.value)),
+  ),
 );
+const hasLogFilter = computed(() => filter.value !== "all" || Boolean(searchQuery.value));
 const terminalOutput = computed(() => visibleLogs.value.map((log) => log.line).join("\n"));
 </script>
 
@@ -45,9 +54,22 @@ const terminalOutput = computed(() => visibleLogs.value.map((log) => log.line).j
         <h2 class="mt-2 text-xl leading-none font-normal">Logs</h2>
       </div>
       <div class="flex flex-wrap items-center justify-end gap-3">
-        <span class="font-mono text-[11px] text-muted-foreground"
-          >{{ visibleLogs.length }} lines</span
-        >
+        <label class="relative block w-full sm:w-52">
+          <span class="sr-only">{{ t("deploymentLogs.search") }}</span>
+          <Search
+            class="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground"
+            aria-hidden="true"
+          />
+          <Input
+            v-model="search"
+            type="search"
+            class="h-8 w-full rounded-[3px] pr-2 pl-8 text-xs"
+            :placeholder="t('deploymentLogs.search')"
+          />
+        </label>
+        <span class="font-mono text-[11px] text-muted-foreground">{{
+          t("deploymentLogs.lineCount", { shown: visibleLogs.length, total: logs.length })
+        }}</span>
         <Select v-model="filter">
           <SelectTrigger class="h-8 w-[100px] px-2 text-xs" aria-label="Log stream filter">
             <SelectValue placeholder="All" />
@@ -92,9 +114,15 @@ const terminalOutput = computed(() => visibleLogs.value.map((log) => log.line).j
     />
     <div v-else class="py-8" :class="props.embedded ? 'px-0' : 'px-5'">
       <p class="text-sm font-medium">
-        {{ connected ? "Waiting for deployment output" : "No retained logs" }}
+        {{
+          hasLogFilter
+            ? t("deploymentLogs.noMatches")
+            : connected
+              ? "Waiting for deployment output"
+              : "No retained logs"
+        }}
       </p>
-      <p class="mt-1 text-xs text-muted-foreground">
+      <p v-if="!hasLogFilter" class="mt-1 text-xs text-muted-foreground">
         {{
           connected
             ? "Build and runtime output will appear here."
