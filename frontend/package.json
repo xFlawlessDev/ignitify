@@ -24,9 +24,10 @@
     "@vue-flow/core": "^1.48.2",
     "@vue-flow/minimap": "1.5.3",
     "@vue-flow/node-toolbar": "^1.1.1",
-    "@vueuse/core": "^14.2.1",
+    "@vueuse/core": "^14.4.0",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
+    "ai": "^7.0.58",
     "ansi-to-vue3": "^0.1.2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -45,6 +46,8 @@
     "vue-i18n": "11.1.0",
     "vue-router": "^4.6.4",
     "vue-sonner": "^2.0.9",
+    "vue-stick-to-bottom": "^1.0.1",
+    "vue-stream-markdown": "^1.0.4",
     "zod": "3.25.76"
   },
   "devDependencies": {
