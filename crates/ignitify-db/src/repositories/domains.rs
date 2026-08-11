@@ -187,6 +187,15 @@ impl DomainsRepository {
         rows.into_iter().map(domain_from_row).collect()
     }
 
+    pub async fn hostname_exists(&self, hostname: &DomainName) -> Result<bool> {
+        let (exists,): (i64,) =
+            sqlx::query_as("SELECT EXISTS(SELECT 1 FROM domains WHERE hostname = ?)")
+                .bind(hostname.as_str())
+                .fetch_one(&self.pool)
+                .await?;
+        Ok(exists != 0)
+    }
+
     pub async fn set_status(
         &self,
         domain_id: &str,

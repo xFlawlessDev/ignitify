@@ -466,12 +466,14 @@ fn render_control_plane_route(hostname: &DomainName, certificate_resolver: Optio
     ignitify-control-plane:
       entryPoints:
         - websecure
+      priority: 1000
       rule: "Host(`{hostname}`)"
       service: ignitify-control-plane
       tls:{}
     ignitify-control-plane-http:
       entryPoints:
         - web
+      priority: 1000
       rule: "Host(`{hostname}`)"
       middlewares:
         - redirect-to-https@file
@@ -805,6 +807,7 @@ mod tests {
         assert!(config.contains("url: \"http://host.docker.internal:5656\""));
         assert!(config.contains("certResolver: le"));
         assert!(config.contains("redirect-to-https@file"));
+        assert_eq!(config.matches("priority: 1000").count(), 2);
     }
 
     #[test]

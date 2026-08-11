@@ -151,14 +151,6 @@ const controlPlaneDomainError = computed(() => {
   ) {
     return t("controlPlaneIngress.invalidDomain");
   }
-  const applicationSuffix = draft.applicationDomainSuffix.trim().toLowerCase();
-  if (
-    applicationSuffix &&
-    (value.toLowerCase() === applicationSuffix ||
-      value.toLowerCase().endsWith(`.${applicationSuffix}`))
-  ) {
-    return t("controlPlaneIngress.overlapsApplicationDomain");
-  }
   if (!draft.httpsEnabled) return t("controlPlaneIngress.requiresHttps");
   if (
     draft.certificateProvider !== "custom" &&

@@ -334,19 +334,16 @@ async fn validate_request(
         )
     })?;
     let control_plane_domain = request.control_plane_domain.trim().to_ascii_lowercase();
-    if !control_plane_domain.is_empty() {
-        DomainName::new(&control_plane_domain).map_err(|_| {
+    let control_plane_hostname = if control_plane_domain.is_empty() {
+        None
+    } else {
+        Some(DomainName::new(&control_plane_domain).map_err(|_| {
             ApiError::BadRequest(
                 "control plane domain must be a valid hostname without a protocol or path",
             )
-        })?;
-        if control_plane_domain == application_domain_suffix
-            || control_plane_domain.ends_with(&format!(".{application_domain_suffix}"))
-        {
-            return Err(ApiError::BadRequest(
-                "control plane domain must be separate from the managed application suffix",
-            ));
-        }
+        })?)
+    };
+    if control_plane_hostname.is_some() {
         if !state.secure_cookies {
             return Err(ApiError::BadRequest(
                 "control plane domain requires secure cookies",
@@ -430,6 +427,13 @@ async fn validate_request(
     {
         return Err(ApiError::BadRequest(
             "control plane domain requires automatic or custom TLS certificates",
+        ));
+    }
+    if let Some(hostname) = &control_plane_hostname
+        && state.database.domains().hostname_exists(hostname).await?
+    {
+        return Err(ApiError::BadRequest(
+            "control plane domain is already assigned to a service",
         ));
     }
 

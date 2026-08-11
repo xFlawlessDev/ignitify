@@ -1108,17 +1108,17 @@ async fn control_plane_domain_enables_its_https_origin_after_a_validated_update(
             "PATCH",
             "/api/v1/settings/infrastructure",
             Some(&token),
-            r#"{"control_plane_domain":"Console.Example.com","application_domain_suffix":"apps.example.com","https_enabled":true,"automatically_provision_ssl":true,"acme_email":"ops@example.com","dns_record_type":"a","dns_record_target":"203.0.113.10","certificate_provider":"lets-encrypt","custom_certificate_id":null}"#,
+            r#"{"control_plane_domain":"Console.Apps.Example.com","application_domain_suffix":"apps.example.com","https_enabled":true,"automatically_provision_ssl":true,"acme_email":"ops@example.com","dns_record_type":"a","dns_record_target":"203.0.113.10","certificate_provider":"lets-encrypt","custom_certificate_id":null}"#,
         ))
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
     let body = response.into_body().collect().await.unwrap().to_bytes();
     let settings: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(settings["control_plane_domain"], "console.example.com");
+    assert_eq!(settings["control_plane_domain"], "console.apps.example.com");
     assert_eq!(
         settings["application"]["public_origin"],
-        "https://console.example.com"
+        "https://console.apps.example.com"
     );
 }
 
@@ -1576,7 +1576,7 @@ async fn domain_routes_require_service_port_and_exact_confirmation() {
         .database
         .server_settings()
         .update(ServerSettingsUpdate {
-            control_plane_domain: String::new(),
+            control_plane_domain: "console.apps.example.com".to_owned(),
             application_domain_suffix: "apps.example.com".to_owned(),
             https_enabled: true,
             automatically_provision_ssl: true,
@@ -1646,6 +1646,20 @@ async fn domain_routes_require_service_port_and_exact_confirmation() {
         .unwrap()
         .to_bytes();
     let service: serde_json::Value = serde_json::from_slice(&service).unwrap();
+    let reserved_control_plane = app
+        .clone()
+        .oneshot(request(
+            "POST",
+            &format!(
+                "/api/v1/services/{}/domains",
+                service["id"].as_str().unwrap()
+            ),
+            Some(&token),
+            r#"{"hostname":"console.apps.example.com"}"#,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(reserved_control_plane.status(), StatusCode::BAD_REQUEST);
     let created = app
         .clone()
         .oneshot(request(
@@ -1665,6 +1679,17 @@ async fn domain_routes_require_service_port_and_exact_confirmation() {
     assert_eq!(domain["dns_record_type"], "a");
     assert_eq!(domain["dns_record_target"], "203.0.113.10");
     assert_eq!(domain["dns_status"], "not_checked");
+    let reserved = app
+        .clone()
+        .oneshot(request(
+            "PATCH",
+            "/api/v1/settings/infrastructure",
+            Some(&token),
+            r#"{"control_plane_domain":"app.apps.example.com","application_domain_suffix":"apps.example.com","https_enabled":true,"automatically_provision_ssl":true,"acme_email":"ops@apps.example.com","dns_record_type":"a","dns_record_target":"203.0.113.10","certificate_provider":"lets-encrypt","custom_certificate_id":null}"#,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(reserved.status(), StatusCode::BAD_REQUEST);
     let allowed_custom_domain = app
         .clone()
         .oneshot(request(

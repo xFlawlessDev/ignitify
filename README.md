@@ -259,8 +259,8 @@ expose that port directly to the Internet.
 5. In **Infrastructure > Ingress & TLS**, set that control-plane hostname, the
    application domain suffix, an ACME contact email, and automatic certificates
    (or select a custom certificate). Ignitify generates the Traefik HTTPS route
-   to its loopback-only backend. The control-plane hostname must be outside the
-   managed application suffix.
+   to its loopback-only backend. The control-plane hostname may be within the
+   managed application suffix, but is reserved from service routes.
 6. Add Git providers, remote servers, remote builders, or S3-compatible backup
    destinations only when their credentials and network access are ready.
 7. Create a project and service, choose an image, Compose, or Git source, then

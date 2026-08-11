@@ -257,12 +257,12 @@ describe("SettingsView", () => {
 
     applicationDomain.value = "apps.example.com";
     applicationDomain.dispatchEvent(new Event("input", { bubbles: true }));
-    controlPlaneDomain.value = "console.example.com";
+    controlPlaneDomain.value = "console.apps.example.com";
     controlPlaneDomain.dispatchEvent(new Event("input", { bubbles: true }));
     await nextTick();
 
     expect(save.disabled).toBe(false);
-    expect(host.textContent).toContain("console.example.com");
+    expect(host.textContent).toContain("console.apps.example.com");
     expect(host.textContent).not.toContain("admin.example.com");
     save.click();
     await settle();
@@ -273,7 +273,7 @@ describe("SettingsView", () => {
     );
     const requestBody = patch?.[1]?.body;
     if (typeof requestBody !== "string") throw new Error("Expected a JSON settings payload.");
-    expect(JSON.parse(requestBody).control_plane_domain).toBe("console.example.com");
+    expect(JSON.parse(requestBody).control_plane_domain).toBe("console.apps.example.com");
     app.unmount();
   });
 

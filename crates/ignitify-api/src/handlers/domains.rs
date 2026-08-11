@@ -119,6 +119,13 @@ pub(crate) async fn create(
         ));
     }
     let settings = state.database.server_settings().get().await?;
+    if !settings.control_plane_domain.is_empty()
+        && hostname.as_str() == settings.control_plane_domain
+    {
+        return Err(ApiError::BadRequest(
+            "hostname is reserved for the control plane",
+        ));
+    }
     let dns_record_type = DnsRecordType::try_from(settings.dns_record_type.as_str())
         .map_err(|_| ApiError::BadRequest("DNS record configuration is invalid"))?;
     if settings.dns_record_target.trim().is_empty() {
