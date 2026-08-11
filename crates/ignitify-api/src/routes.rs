@@ -353,6 +353,7 @@ mod tests {
             .unwrap();
         let origin =
             template_catalog_connect_origin(crate::frontend::template_catalog_url()).unwrap();
+        assert!(policy.contains("style-src-attr 'unsafe-inline'"));
         assert!(policy.contains(&format!("connect-src 'self' wss: {origin}")));
         assert!(policy.contains(&format!("img-src 'self' data: {origin}")));
     }

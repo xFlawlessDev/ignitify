@@ -506,7 +506,6 @@ impl ImageRuntime for ComposeRuntime {
         let mut args = compose_args(&stage, runtime_ref);
         args.extend([
             "logs".to_owned(),
-            "--no-color".to_owned(),
             "--timestamps".to_owned(),
             "--since".to_owned(),
             since.to_string(),

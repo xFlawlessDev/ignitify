@@ -442,7 +442,7 @@ cd "$STAGE"
         let stage = format!("$IGNITIFY_ROOT/releases/{service_id}/{generation}");
         let project = shell_quote(runtime_ref);
         let script = format!(
-            "set -eu\nIGNITIFY_ROOT={root}\nSTAGE={stage}\nPROJECT={project}\ncd \"$STAGE\"\ndocker compose --project-directory \"$STAGE\" --project-name \"$PROJECT\" --file compose.yaml --env-file ignitify.env --file ignitify.override.yaml logs --no-color --timestamps --since {since}\n"
+            "set -eu\nIGNITIFY_ROOT={root}\nSTAGE={stage}\nPROJECT={project}\ncd \"$STAGE\"\ndocker compose --project-directory \"$STAGE\" --project-name \"$PROJECT\" --file compose.yaml --env-file ignitify.env --file ignitify.override.yaml logs --timestamps --since {since}\n"
         );
         let output = self.execute(&secrets, script).await?;
         if !output.success {
