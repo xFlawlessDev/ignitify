@@ -4,6 +4,7 @@ import {
   Cpu,
   Container,
   Activity,
+  Bot,
   GitBranch,
   HeartPulse,
   LayoutDashboard,
@@ -53,6 +54,7 @@ const primaryNavigation = computed(() => {
     });
     items.push({ labelKey: "navigation.docker", to: "/containers", icon: Container });
     items.push({ labelKey: "navigation.terminal", to: "/terminal", icon: TerminalSquare });
+    items.push({ labelKey: "navigation.ai", to: "/ai", icon: Bot });
     items.push({ labelKey: "navigation.remoteBuilders", to: "/remote-builders", icon: Cpu });
     items.push({ labelKey: "navigation.remoteServers", to: "/remote-servers", icon: Server });
   }

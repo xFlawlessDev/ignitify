@@ -34,6 +34,8 @@ pub(crate) enum ApiError {
     TooManyRequests,
     #[error("too many authentication attempts")]
     AuthenticationRateLimited,
+    #[error("too many AI chat requests")]
+    AiChatRateLimited,
     #[error("invalid request")]
     BadRequest(&'static str),
     #[error("compose policy rejected input: {0}")]
@@ -48,6 +50,14 @@ pub(crate) enum ApiError {
     ProviderCapabilityUnavailable,
     #[error("provider remote request failed")]
     ProviderRemote(#[from] reqwest::Error),
+    #[error("AI assistant is not configured")]
+    AiNotConfigured,
+    #[error("AI provider request failed")]
+    AiRemote(#[source] reqwest::Error),
+    #[error("AI provider rejected the request")]
+    AiProviderRejected,
+    #[error("AI provider returned an invalid response")]
+    AiResponseInvalid,
     #[error("remote server connection failed")]
     RemoteServerCheckFailed,
     #[error("remote server connection failed: {0}")]
@@ -70,6 +80,11 @@ pub(crate) enum ApiError {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
+        let retry_after = match &self {
+            Self::AuthenticationRateLimited => Some("900"),
+            Self::AiChatRateLimited => Some("60"),
+            _ => None,
+        };
         let (status, message) = match self {
             Self::Auth(AuthError::AlreadyBootstrapped) => (
                 StatusCode::CONFLICT,
@@ -189,6 +204,10 @@ impl IntoResponse for ApiError {
                 StatusCode::TOO_MANY_REQUESTS,
                 "too many authentication attempts".to_owned(),
             ),
+            Self::AiChatRateLimited => (
+                StatusCode::TOO_MANY_REQUESTS,
+                "too many AI chat requests; try again shortly".to_owned(),
+            ),
             Self::BadRequest(message) => (StatusCode::BAD_REQUEST, message.to_owned()),
             Self::ActiveDeploymentConflict => (
                 StatusCode::CONFLICT,
@@ -206,9 +225,22 @@ impl IntoResponse for ApiError {
                 StatusCode::SERVICE_UNAVAILABLE,
                 "provider capability is unavailable".to_owned(),
             ),
+            Self::AiNotConfigured => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "AI assistant is not configured".to_owned(),
+            ),
             Self::ProviderRemote(_) => (
                 StatusCode::BAD_GATEWAY,
                 "provider integration request failed".to_owned(),
+            ),
+            Self::AiProviderRejected => (
+                StatusCode::BAD_GATEWAY,
+                "AI provider rejected the request; verify the base URL, model, and credentials"
+                    .to_owned(),
+            ),
+            Self::AiRemote(_) | Self::AiResponseInvalid => (
+                StatusCode::BAD_GATEWAY,
+                "AI provider did not return a usable response".to_owned(),
             ),
             Self::RemoteServerCheckFailed => (
                 StatusCode::BAD_GATEWAY,
@@ -275,10 +307,11 @@ impl IntoResponse for ApiError {
             ),
         };
         let mut response = (status, Json(serde_json::json!({ "error": message }))).into_response();
-        if status == StatusCode::TOO_MANY_REQUESTS {
-            response
-                .headers_mut()
-                .insert("retry-after", axum::http::HeaderValue::from_static("900"));
+        if let Some(retry_after) = retry_after {
+            response.headers_mut().insert(
+                "retry-after",
+                axum::http::HeaderValue::from_static(retry_after),
+            );
         }
         response
     }

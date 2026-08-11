@@ -66,6 +66,7 @@ async fn state() -> AppState {
         host_terminal_enabled: false,
         terminal_sessions: Arc::new(tokio::sync::Semaphore::new(4)),
         login_rate_limiter: crate::state::LoginRateLimiter::default(),
+        ai_chat_rate_limiter: crate::state::AiChatRateLimiter::default(),
         require_explicit_origin: false,
         trust_proxy_headers: false,
         secure_cookies: false,
@@ -1087,6 +1088,63 @@ async fn infrastructure_settings_require_admin_and_persist_validated_updates() {
         .await
         .unwrap();
     assert_eq!(invalid_fallback.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn ai_settings_encrypt_the_api_key_and_chat_requires_configuration() {
+    let state = state().await;
+    let token = session_token(&state).await;
+    let app = crate::routes::router(state.clone());
+
+    let unauthenticated = app
+        .clone()
+        .oneshot(request("GET", "/api/v1/settings/ai", None, ""))
+        .await
+        .unwrap();
+    assert_eq!(unauthenticated.status(), StatusCode::UNAUTHORIZED);
+
+    let unavailable = app
+        .clone()
+        .oneshot(request(
+            "POST",
+            "/api/v1/ai/chat",
+            Some(&token),
+            r#"{"messages":[{"role":"user","content":"Explain this deployment failure"}]}"#,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(unavailable.status(), StatusCode::SERVICE_UNAVAILABLE);
+
+    let saved = app
+        .clone()
+        .oneshot(request(
+            "PUT",
+            "/api/v1/settings/ai",
+            Some(&token),
+            r#"{"enabled":true,"base_url":"https://api.openai.com/v1","model":"gpt-4.1-mini","api_key":"test-ai-key","clear_api_key":false}"#,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(saved.status(), StatusCode::OK);
+    let saved_body = saved.into_body().collect().await.unwrap().to_bytes();
+    let saved_json: serde_json::Value = serde_json::from_slice(&saved_body).unwrap();
+    assert_eq!(saved_json["api_key_configured"], true);
+    assert!(saved_json.get("api_key").is_none());
+    assert!(!String::from_utf8_lossy(&saved_body).contains("test-ai-key"));
+
+    let connection = state.database.ai_settings().connection().await.unwrap();
+    assert_ne!(
+        connection.api_key_ciphertext.as_deref(),
+        Some("test-ai-key")
+    );
+
+    let read = app
+        .oneshot(request("GET", "/api/v1/settings/ai", Some(&token), ""))
+        .await
+        .unwrap();
+    assert_eq!(read.status(), StatusCode::OK);
+    let read_body = read.into_body().collect().await.unwrap().to_bytes();
+    assert!(!String::from_utf8_lossy(&read_body).contains("test-ai-key"));
 }
 
 #[tokio::test]

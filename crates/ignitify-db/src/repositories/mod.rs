@@ -1,4 +1,5 @@
 mod activity;
+mod ai_settings;
 mod backup_destinations;
 mod dashboard;
 mod deployments;
@@ -17,6 +18,9 @@ mod uptime_monitors;
 mod users;
 
 pub use activity::{ActivityActor, ActivityRecord, ActivityRepository};
+pub use ai_settings::{
+    AiSettingsConnection, AiSettingsRecord, AiSettingsRepository, NewAiSettings,
+};
 pub use backup_destinations::{
     BackupDestinationsRepository, BackupS3DestinationConnection, BackupS3DestinationRecord,
     BackupS3RunRecord, NewBackupS3Destination,

@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { Search } from "@lucide/vue";
+import { BotMessageSquare, Search } from "@lucide/vue";
 import { computed, shallowRef } from "vue";
 import { useI18n } from "vue-i18n";
 import { Terminal } from "@/components/terminal";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -12,6 +13,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { useAiChat } from "@/composables/useAiChat";
 import type { DeploymentLog } from "@/lib/types";
 
 const props = defineProps<{
@@ -22,6 +24,7 @@ const props = defineProps<{
 }>();
 
 const { t } = useI18n();
+const { askAiAboutLogs } = useAiChat();
 const filter = shallowRef<"all" | DeploymentLog["stream"]>("all");
 const follow = shallowRef(true);
 const search = shallowRef("");
@@ -35,6 +38,10 @@ const visibleLogs = computed(() =>
 );
 const hasLogFilter = computed(() => filter.value !== "all" || Boolean(searchQuery.value));
 const terminalOutput = computed(() => visibleLogs.value.map((log) => log.line).join("\n"));
+
+function askAboutVisibleLogs() {
+  askAiAboutLogs(t("ai.logContext.deployment"), terminalOutput.value);
+}
 </script>
 
 <template>
@@ -70,6 +77,16 @@ const terminalOutput = computed(() => visibleLogs.value.map((log) => log.line).j
         <span class="font-mono text-[11px] text-muted-foreground">{{
           t("deploymentLogs.lineCount", { shown: visibleLogs.length, total: logs.length })
         }}</span>
+        <Button
+          class="h-8 px-2 text-xs"
+          size="sm"
+          variant="outline"
+          :disabled="visibleLogs.length === 0"
+          @click="askAboutVisibleLogs"
+        >
+          <BotMessageSquare class="size-3.5" :stroke-width="1.5" />
+          {{ t("ai.actions.ask") }}
+        </Button>
         <Select v-model="filter">
           <SelectTrigger class="h-8 w-[100px] px-2 text-xs" aria-label="Log stream filter">
             <SelectValue placeholder="All" />

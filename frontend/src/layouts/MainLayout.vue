@@ -2,6 +2,7 @@
 import { shallowRef } from "vue";
 import AppSidebar from "@/components/AppSidebar.vue";
 import AppTopbar from "@/components/AppTopbar.vue";
+import AiChatAssistant from "@/components/AiChatAssistant.vue";
 import { Button } from "@/components/ui/button";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useControlPlanePreferences } from "@/composables/useControlPlanePreferences";
@@ -40,6 +41,7 @@ const { isSidebarCollapsed, toggleSidebar } = useControlPlanePreferences();
           <slot />
         </main>
       </div>
+      <AiChatAssistant />
     </div>
   </TooltipProvider>
 </template>

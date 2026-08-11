@@ -70,6 +70,14 @@ pub(crate) fn router(state: AppState) -> Router {
         )
         .route("/api/v1/runtime/status", get(handlers::runtime::status))
         .route(
+            "/api/v1/settings/ai",
+            get(handlers::ai::get_settings).put(handlers::ai::update_settings),
+        )
+        .route(
+            "/api/v1/ai/chat",
+            post(handlers::ai::chat).layer(DefaultBodyLimit::max(128 * 1024)),
+        )
+        .route(
             "/api/v1/settings/infrastructure",
             get(handlers::settings::get).patch(handlers::settings::update),
         )

@@ -27,16 +27,21 @@ export interface ApiResult<T> {
 }
 
 const DEFAULT_TIMEOUT_MS = 30_000;
+const AI_CHAT_TIMEOUT_MS = 55_000;
 const VISION_CONFIG_TIMEOUT_MS = 130_000;
 const MEDIA_GENERATION_TIMEOUT_MS = 300_000;
 
 export function apiFetchTimeoutMs(endpoint: string): number {
+  if (endpoint === "/ai/chat") return AI_CHAT_TIMEOUT_MS;
   if (endpoint === "/providers/vision") return VISION_CONFIG_TIMEOUT_MS;
   if (endpoint.startsWith("/media/admin/test/")) return MEDIA_GENERATION_TIMEOUT_MS;
   return DEFAULT_TIMEOUT_MS;
 }
 
 export function apiFetchTimeoutMessage(endpoint: string): string {
+  if (endpoint === "/ai/chat") {
+    return "AI assistant request timed out. Check the provider configuration and try again.";
+  }
   if (endpoint === "/providers/vision") {
     return `Saving vision config timed out after ${VISION_CONFIG_TIMEOUT_MS / 1000}s. Check backend logs/model files and try again.`;
   }

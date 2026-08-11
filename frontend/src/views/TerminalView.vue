@@ -1,6 +1,14 @@
 <script setup lang="ts">
-import { Eraser, Maximize2, Minimize2, RefreshCw, TerminalSquare } from "@lucide/vue";
+import {
+  BotMessageSquare,
+  Eraser,
+  Maximize2,
+  Minimize2,
+  RefreshCw,
+  TerminalSquare,
+} from "@lucide/vue";
 import { computed, onMounted, onUnmounted, shallowRef, useTemplateRef, watch } from "vue";
+import { useI18n } from "vue-i18n";
 import { toast } from "vue-sonner";
 import PtyTerminal from "@/components/PtyTerminal.vue";
 import DestinationSelector from "@/components/runtime/DestinationSelector.vue";
@@ -9,10 +17,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { usePtyTerminal, type PtyTerminalStatus } from "@/composables/usePtyTerminal";
+import { useAiChat } from "@/composables/useAiChat";
 import { apiStepUp, type RemoteServerSummary } from "@/lib/api";
 import { createTerminalSocket } from "@/lib/api/terminal";
 
 const stepUpPassword = shallowRef("");
+const { t } = useI18n();
+const { askAiAboutLogs } = useAiChat();
 const stepUpToken = shallowRef("");
 const stepUpLoading = shallowRef(false);
 const selectedDestinationId = shallowRef("local");
@@ -46,6 +57,20 @@ const terminalTarget = computed(() => {
 });
 
 const isFullscreen = shallowRef(false);
+
+function terminalOutputText() {
+  const decoder = new TextDecoder();
+  return `${output.value
+    .map((chunk, index) => decoder.decode(chunk, { stream: index < output.value.length - 1 }))
+    .join("")}${decoder.decode()}`;
+}
+
+function askAboutTerminalOutput() {
+  askAiAboutLogs(
+    t("ai.logContext.terminal", { target: terminalTarget.value }),
+    terminalOutputText(),
+  );
+}
 
 function syncFullscreen() {
   isFullscreen.value = document.fullscreenElement === terminalFrame.value;
@@ -114,6 +139,15 @@ onUnmounted(() => {
         <Button class="flex-1 shrink-0 sm:flex-none" variant="outline" @click="openTerminal">
           <RefreshCw class="size-4" :stroke-width="1.5" />
           Reconnect
+        </Button>
+        <Button
+          class="flex-1 shrink-0 sm:flex-none"
+          variant="outline"
+          :disabled="output.length === 0"
+          @click="askAboutTerminalOutput"
+        >
+          <BotMessageSquare class="size-4" :stroke-width="1.5" />
+          {{ t("ai.actions.ask") }}
         </Button>
       </div>
     </header>

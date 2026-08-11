@@ -4,7 +4,7 @@ use utoipa::openapi::{
 };
 use utoipa::{Modify, OpenApi};
 
-use crate::handlers::{backup_destinations, health, notifications};
+use crate::handlers::{ai, backup_destinations, health, notifications};
 
 #[rustfmt::skip]
 macro_rules! protected_get {
@@ -224,6 +224,9 @@ protected_mutation_param!(
     "container_id"
 );
 protected_get!(runtime_metrics_doc, "/api/v1/runtime/metrics", "Runtime");
+
+// AI routes describe concrete request bodies because their payloads are user-authored
+// conversations rather than generic control-plane mutations.
 
 protected_get!(
     infrastructure_settings_doc,
@@ -621,6 +624,9 @@ protected_get!(terminal_doc, "/api/v1/terminal", "Terminal");
         runtime_container_terminal_doc,
         runtime_remove_container_doc,
         runtime_metrics_doc,
+        ai::get_settings,
+        ai::update_settings,
+        ai::chat,
         infrastructure_settings_doc,
         update_infrastructure_settings_doc,
         create_infrastructure_certificate_doc,
@@ -685,6 +691,12 @@ protected_get!(terminal_doc, "/api/v1/terminal", "Terminal");
     components(
         schemas(
             health::HealthResponse,
+            ai::AiSettingsRequest,
+            ai::AiSettingsResponse,
+            ai::AiChatRequest,
+            ai::AiChatMessageRequest,
+            ai::AiLogContextRequest,
+            ai::AiChatResponse,
             backup_destinations::BackupS3DestinationRequest,
             backup_destinations::BackupS3DestinationResponse,
             backup_destinations::BackupS3ControlsRequest,
@@ -699,6 +711,7 @@ protected_get!(terminal_doc, "/api/v1/terminal", "Terminal");
         (name = "Dashboard", description = "Dashboard aggregates"),
         (name = "Notifications", description = "Operator notification channel management"),
         (name = "Providers", description = "Source-control provider connections"),
+        (name = "AI", description = "OpenAI-compatible operations assistant configuration and chat"),
         (name = "Settings", description = "Infrastructure and server settings"),
         (name = "Backup", description = "S3 destination, scheduler, and run history"),
         (name = "Remote Builders", description = "Remote build worker management"),

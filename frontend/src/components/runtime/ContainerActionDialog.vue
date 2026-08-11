@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {
   Check,
+  BotMessageSquare,
   CircleAlert,
   Copy,
   Eraser,
@@ -41,6 +42,8 @@ import {
 } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { usePtyTerminal } from "@/composables/usePtyTerminal";
+import { useAiChat } from "@/composables/useAiChat";
+import i18n from "@/i18n";
 import {
   apiGetRuntimeContainerDetails,
   apiGetRuntimeContainerLogs,
@@ -59,6 +62,8 @@ const props = defineProps<{
 const emit = defineEmits<{
   removed: [];
 }>();
+
+const { askAiAboutLogs } = useAiChat();
 
 const open = defineModel<boolean>("open", { required: true });
 const removeOpen = defineModel<boolean>("removeOpen", { required: true });
@@ -246,6 +251,14 @@ async function copyLogs() {
   }, 1_600);
 }
 
+function askAboutContainerLogs() {
+  if (!props.container || !logs.value) return;
+  askAiAboutLogs(
+    i18n.global.t("ai.logContext.container", { name: props.container.name }),
+    logs.value,
+  );
+}
+
 async function removeContainer() {
   const containerId = props.container?.id;
   if (!containerId) return;
@@ -316,21 +329,32 @@ async function removeContainer() {
             <div v-else-if="action === 'logs'" class="grid gap-2">
               <div class="flex items-center justify-between gap-3">
                 <p class="ui-label">Latest output</p>
-                <Tooltip>
-                  <TooltipTrigger as-child>
-                    <Button
-                      size="icon-sm"
-                      variant="ghost"
-                      :aria-label="copiedLogs ? 'Copied log output' : 'Copy log output'"
-                      :disabled="!logs"
-                      @click="copyLogs"
-                    >
-                      <Check v-if="copiedLogs" class="size-4" :stroke-width="1.5" />
-                      <Copy v-else class="size-4" :stroke-width="1.5" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>{{ copiedLogs ? "Copied" : "Copy log output" }}</TooltipContent>
-                </Tooltip>
+                <div class="flex items-center gap-1">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    :disabled="!logs"
+                    @click="askAboutContainerLogs"
+                  >
+                    <BotMessageSquare class="size-3.5" :stroke-width="1.5" />
+                    {{ i18n.global.t("ai.actions.ask") }}
+                  </Button>
+                  <Tooltip>
+                    <TooltipTrigger as-child>
+                      <Button
+                        size="icon-sm"
+                        variant="ghost"
+                        :aria-label="copiedLogs ? 'Copied log output' : 'Copy log output'"
+                        :disabled="!logs"
+                        @click="copyLogs"
+                      >
+                        <Check v-if="copiedLogs" class="size-4" :stroke-width="1.5" />
+                        <Copy v-else class="size-4" :stroke-width="1.5" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>{{ copiedLogs ? "Copied" : "Copy log output" }}</TooltipContent>
+                  </Tooltip>
+                </div>
               </div>
               <pre
                 class="max-h-96 min-h-28 overflow-auto border border-border bg-muted/40 p-3 font-mono text-xs leading-5 text-muted-foreground"

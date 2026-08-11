@@ -3,6 +3,7 @@
 
 export * from "./core";
 export * from "./activity";
+export * from "./ai";
 export * from "./auth";
 export * from "./dashboard";
 export * from "./projects";

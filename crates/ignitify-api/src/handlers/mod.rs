@@ -1,4 +1,5 @@
 pub(crate) mod activity;
+pub(crate) mod ai;
 pub(crate) mod auth;
 pub(crate) mod backup_destinations;
 pub(crate) mod dashboard;

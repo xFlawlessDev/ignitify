@@ -12,6 +12,7 @@ infrastructure you administer.
 ## Contents
 
 - [Capabilities](#capabilities)
+- [AI assistant](#ai-assistant)
 - [Notification channels](#notification-channels)
 - [Compose template catalog](#compose-template-catalog)
 - [Architecture](#architecture)
@@ -43,8 +44,37 @@ infrastructure you administer.
   terminals; host metrics; uptime monitoring; and remote-agent heartbeats.
 - Operator-managed notification channels for deployment and backup events via
   Telegram, Discord, SMTP, Resend, or custom HTTPS webhooks.
+- An operator-configured OpenAI-compatible AI assistant with a global chat
+  panel, chat continuation, response copy/regeneration, and context-aware
+  questions from deployment, container, and terminal logs.
 - Offline SQLite and runtime-secret backup/restore with optional
   S3-compatible upload, scheduled backup runs, and run history.
+
+## AI Assistant
+
+Platform operators configure the assistant in **AI assistant**. Ignitify calls
+the configured provider's OpenAI Chat Completions endpoint
+(`POST /v1/chat/completions`) with the selected model. Set a provider base URL
+that is either an origin or ends in `/v1`; public providers must use HTTPS,
+while loopback endpoints can use HTTP for local compatible providers.
+
+The API key is optional for local providers, encrypted at rest when provided,
+and never returned to the browser. AI configuration is operator-only. Every
+authenticated user can use the floating assistant after it is enabled.
+
+The conversation continues while the browser session remains open: each new
+turn includes the current in-memory history. It is not persisted, is cleared
+by the conversation clear action or page refresh, and accepts at most 32
+messages per request. Users can copy messages and regenerate the latest
+assistant response. Chat requests are limited to 20 requests per minute per
+authenticated user.
+
+Use **Ask AI** from deployment logs, container logs, or terminal output to
+open the assistant with that output attached as context. Only the message and
+log text explicitly submitted are sent to the configured provider. The
+assistant is a diagnostic aid: it cannot run commands or change
+infrastructure, and log text is treated as untrusted data rather than
+instructions.
 
 ## Notification Channels
 
@@ -190,6 +220,9 @@ provided by the operator.
 - Keep `/etc/ignitify/ignitify.env`, `/var/lib/ignitify`, backups, generated
   certificates, provider credentials, private keys, and database copies out of
   version control and out of untrusted storage.
+- Treat the configured AI provider as a data recipient. Submit only log output
+  and questions appropriate for that provider, and do not place API keys or
+  other credentials in chat messages or attached log context.
 - The Traefik operator owns managed routes and certificates. Do not edit
   generated files under the configured Traefik dynamic directory by hand.
 - Local source builds execute through the Docker host. Disable them with

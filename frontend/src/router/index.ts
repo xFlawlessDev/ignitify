@@ -75,6 +75,12 @@ const router = createRouter({
       meta: { requiresAuth: true, requiresAdmin: true, breadcrumb: "navigation.settings" },
     },
     {
+      path: "/ai",
+      name: "AiSettings",
+      component: () => import("@/views/AiSettingsView.vue"),
+      meta: { requiresAuth: true, requiresAdmin: true, breadcrumb: "navigation.ai" },
+    },
+    {
       path: "/remote-builders",
       name: "RemoteBuilders",
       component: () => import("@/views/RemoteBuildersView.vue"),

@@ -234,6 +234,7 @@ pub fn router_with_system_metrics_and_docker_and_provider_cipher_and_ingress_and
         host_terminal_enabled,
         terminal_sessions: Arc::new(tokio::sync::Semaphore::new(4)),
         login_rate_limiter: state::LoginRateLimiter::default(),
+        ai_chat_rate_limiter: state::AiChatRateLimiter::default(),
         require_explicit_origin,
         trust_proxy_headers,
         secure_cookies,

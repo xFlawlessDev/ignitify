@@ -20,6 +20,9 @@ pub(crate) const GITHUB_MANIFEST_STATE_TTL: std::time::Duration =
 const LOGIN_ATTEMPT_WINDOW: Duration = Duration::from_secs(15 * 60);
 const MAX_LOGIN_ATTEMPTS: usize = 5;
 const MAX_LOGIN_RATE_LIMIT_KEYS: usize = 4_096;
+const AI_CHAT_WINDOW: Duration = Duration::from_secs(60);
+const MAX_AI_CHAT_REQUESTS: usize = 20;
+const MAX_AI_CHAT_RATE_LIMIT_KEYS: usize = 4_096;
 
 #[derive(Debug)]
 pub(crate) struct GithubManifestPending {
@@ -35,6 +38,33 @@ pub(crate) type GithubManifestStates = Arc<Mutex<HashMap<String, GithubManifestP
 #[derive(Clone, Default)]
 pub(crate) struct LoginRateLimiter {
     attempts: Arc<Mutex<HashMap<String, VecDeque<Instant>>>>,
+}
+
+#[derive(Clone, Default)]
+pub(crate) struct AiChatRateLimiter {
+    attempts: Arc<Mutex<HashMap<String, VecDeque<Instant>>>>,
+}
+
+impl AiChatRateLimiter {
+    pub(crate) async fn allows(&self, user_id: &str) -> bool {
+        let mut attempts = self.attempts.lock().await;
+        let cutoff = Instant::now() - AI_CHAT_WINDOW;
+        attempts.retain(|_, entries| {
+            while entries.front().is_some_and(|attempt| *attempt <= cutoff) {
+                entries.pop_front();
+            }
+            !entries.is_empty()
+        });
+        if !attempts.contains_key(user_id) && attempts.len() >= MAX_AI_CHAT_RATE_LIMIT_KEYS {
+            return false;
+        }
+        let entries = attempts.entry(user_id.to_owned()).or_default();
+        if entries.len() >= MAX_AI_CHAT_REQUESTS {
+            return false;
+        }
+        entries.push_back(Instant::now());
+        true
+    }
 }
 
 impl LoginRateLimiter {
@@ -93,6 +123,7 @@ pub(crate) struct AppState {
     pub(crate) host_terminal_enabled: bool,
     pub(crate) terminal_sessions: Arc<Semaphore>,
     pub(crate) login_rate_limiter: LoginRateLimiter,
+    pub(crate) ai_chat_rate_limiter: AiChatRateLimiter,
     pub(crate) require_explicit_origin: bool,
     pub(crate) trust_proxy_headers: bool,
     pub(crate) secure_cookies: bool,
