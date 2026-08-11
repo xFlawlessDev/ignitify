@@ -1,7 +1,7 @@
 import type { TemplateSummary } from "../types";
 import type { ApiResult } from "./core";
 
-export const DEFAULT_TEMPLATES_URL = "http://localhost:4545/api/templates";
+export const DEFAULT_TEMPLATES_URL = "https://ignitify.xflawless.dev/api/templates";
 export const TEMPLATES_URL = import.meta.env.VITE_TEMPLATES_URL?.trim() || DEFAULT_TEMPLATES_URL;
 
 const TEMPLATES_TIMEOUT_MS = 30_000;
