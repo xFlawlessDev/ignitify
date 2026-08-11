@@ -16,7 +16,7 @@ import {
   Trash2,
   X,
 } from "@lucide/vue";
-import { computed, onUnmounted, shallowRef, watch } from "vue";
+import { computed, nextTick, onUnmounted, shallowRef, watch } from "vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
 import { toast } from "vue-sonner";
 import DeploymentLogsPanel from "@/components/project/DeploymentLogsPanel.vue";
@@ -65,6 +65,7 @@ const projectTabs = [
 ] as const;
 type ProjectTab = (typeof projectTabs)[number]["value"];
 const selectedDeploymentId = shallowRef<string | null>(null);
+const deploymentLogsAnchor = shallowRef<HTMLElement | null>(null);
 const streamLogs = shallowRef<DeploymentLog[]>([]);
 const logStream = useDeploymentStream("", {
   channel: "logs",
@@ -80,6 +81,7 @@ const serviceData = services.data;
 const serviceError = services.error;
 const serviceLoading = services.loading;
 const SERVICES_PER_PAGE = 6;
+const DEPLOYMENTS_PER_PAGE = 5;
 const serviceCurrentPage = shallowRef(1);
 const serviceViewMode = shallowRef<"list" | "catalog">("catalog");
 const serviceCount = computed(() => serviceData.value.length);
@@ -107,6 +109,21 @@ const availableDeployments = computed(() =>
   [...deploymentData.value].sort(
     (left, right) => new Date(right.created_at).getTime() - new Date(left.created_at).getTime(),
   ),
+);
+const deploymentCurrentPage = shallowRef(1);
+const deploymentCount = computed(() => availableDeployments.value.length);
+const deploymentPageCount = computed(() =>
+  Math.max(1, Math.ceil(deploymentCount.value / DEPLOYMENTS_PER_PAGE)),
+);
+const visibleDeployments = computed(() => {
+  const start = (deploymentCurrentPage.value - 1) * DEPLOYMENTS_PER_PAGE;
+  return availableDeployments.value.slice(start, start + DEPLOYMENTS_PER_PAGE);
+});
+const firstVisibleDeployment = computed(() =>
+  deploymentCount.value === 0 ? 0 : (deploymentCurrentPage.value - 1) * DEPLOYMENTS_PER_PAGE + 1,
+);
+const lastVisibleDeployment = computed(() =>
+  Math.min(deploymentCurrentPage.value * DEPLOYMENTS_PER_PAGE, deploymentCount.value),
 );
 const selectedDeployment = computed(() =>
   availableDeployments.value.find((deployment) => deployment.id === selectedDeploymentId.value),
@@ -139,6 +156,14 @@ watch(
   { immediate: true },
 );
 
+watch(
+  deploymentPageCount,
+  (count) => {
+    if (deploymentCurrentPage.value > count) deploymentCurrentPage.value = count;
+  },
+  { immediate: true },
+);
+
 function setServiceViewMode(mode: "list" | "catalog") {
   serviceViewMode.value = mode;
   serviceCurrentPage.value = 1;
@@ -155,6 +180,17 @@ function goToPreviousServicePage() {
 
 function goToNextServicePage() {
   serviceCurrentPage.value = Math.min(servicePageCount.value, serviceCurrentPage.value + 1);
+}
+
+function goToPreviousDeploymentPage() {
+  deploymentCurrentPage.value = Math.max(1, deploymentCurrentPage.value - 1);
+}
+
+function goToNextDeploymentPage() {
+  deploymentCurrentPage.value = Math.min(
+    deploymentPageCount.value,
+    deploymentCurrentPage.value + 1,
+  );
 }
 
 function applyDeploymentEvent(event: DeploymentEvent) {
@@ -179,6 +215,12 @@ function applyDeploymentSnapshot(deployment: DeploymentSummary) {
 
 function selectDeployment(deploymentId: string) {
   selectedDeploymentId.value = deploymentId;
+  const deploymentIndex = availableDeployments.value.findIndex(
+    (deployment) => deployment.id === deploymentId,
+  );
+  if (deploymentIndex >= 0) {
+    deploymentCurrentPage.value = Math.floor(deploymentIndex / DEPLOYMENTS_PER_PAGE) + 1;
+  }
   streamLogs.value = [];
   stream.stop();
   logStream.stop();
@@ -188,30 +230,22 @@ function selectDeployment(deploymentId: string) {
   }
 }
 
-function deploymentServiceName(deployment: DeploymentSummary) {
-  return (
-    serviceData.value.find((service) => service.id === deployment.service_id)?.name ??
-    "Unknown service"
-  );
-}
+function selectDeploymentAndRevealLogs(deploymentId: string) {
+  selectDeployment(deploymentId);
+  if (!window.matchMedia("(max-width: 1023px)").matches) return;
 
-function deploymentStatusClass(status: DeploymentSummary["status"]) {
-  if (["healthy", "running"].includes(status)) return "text-[var(--status-healthy)]";
-  if (status === "failed") return "text-destructive";
-  if (["queued", "preparing", "stopping"].includes(status)) return "text-[var(--status-live)]";
-  return "text-muted-foreground";
-}
-
-function formatDeploymentTime(value: string) {
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(value));
+  void nextTick(() => {
+    const behavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches
+      ? "auto"
+      : "smooth";
+    deploymentLogsAnchor.value?.scrollIntoView({ behavior, block: "start" });
+  });
 }
 
 async function load(projectId: string) {
   const generation = ++projectLoadGeneration;
   deployments.clear();
+  deploymentCurrentPage.value = 1;
   renamingProject.value = false;
   serviceDialogOpen.value = false;
   await fetchProject(projectId);
@@ -684,71 +718,72 @@ onUnmounted(() => {
         </nav>
       </section>
 
-      <section v-else-if="activeTab === 'deployments'" class="mt-6 grid gap-6">
-        <ProjectDeploymentTimeline
-          :deployments="deploymentData"
-          :error="deploymentError"
-          :loading="deploymentLoading"
-          :services="serviceData"
-          :submitting="deploymentSubmitting"
-          @deploy="submitDeployment"
-          @stop="stopDeployment"
-          @retry="loadDeployments(data.id)"
-          @rollback="rollbackDeployment"
-        />
-        <section
-          v-if="availableDeployments.length"
-          class="app-surface"
-          aria-labelledby="deployment-output-heading"
-        >
-          <header
-            class="app-panel-header flex items-end justify-between gap-4 px-5 py-4 max-[560px]:items-start max-[560px]:flex-col"
+      <section
+        v-else-if="activeTab === 'deployments'"
+        class="mt-6 grid min-w-0 items-start gap-4"
+        :class="
+          selectedDeployment ? 'lg:grid-cols-[minmax(20rem,0.85fr)_minmax(0,1.4fr)]' : undefined
+        "
+      >
+        <div class="order-2 grid min-w-0 gap-3 lg:order-1">
+          <ProjectDeploymentTimeline
+            :deployments="visibleDeployments"
+            :error="deploymentError"
+            :loading="deploymentLoading"
+            :services="serviceData"
+            :submitting="deploymentSubmitting"
+            :selected-deployment-id="selectedDeploymentId"
+            @deploy="submitDeployment"
+            @stop="stopDeployment"
+            @retry="loadDeployments(data.id)"
+            @rollback="rollbackDeployment"
+            @select="selectDeploymentAndRevealLogs"
+          />
+          <nav
+            v-if="!deploymentLoading && deploymentPageCount > 1"
+            class="flex items-center justify-between gap-3 border-t border-border px-1 pt-3 max-[560px]:items-start max-[560px]:flex-col"
+            aria-label="Deployment history pagination"
           >
-            <div>
-              <p class="ui-label">Inspect output</p>
-              <h2 id="deployment-output-heading" class="mt-2 text-lg font-normal">
-                Deployment logs
-              </h2>
-            </div>
-            <p v-if="selectedDeployment" class="font-mono text-[11px] text-muted-foreground">
-              {{ deploymentServiceName(selectedDeployment) }} · g{{ selectedDeployment.generation }}
+            <p class="text-xs text-muted-foreground" aria-live="polite">
+              Showing {{ firstVisibleDeployment }}–{{ lastVisibleDeployment }} of
+              {{ deploymentCount }} deployments
             </p>
-          </header>
-          <div class="divide-y divide-border" aria-label="Select deployment logs">
-            <Button
-              variant="ghost"
-              v-for="deployment in availableDeployments"
-              :key="deployment.id"
-              class="grid w-full gap-2 px-5 py-3.5 text-left transition-colors hover:bg-muted/60 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-4"
-              :class="selectedDeploymentId === deployment.id ? 'bg-muted/70' : ''"
-              type="button"
-              :aria-pressed="selectedDeploymentId === deployment.id"
-              @click="selectDeployment(deployment.id)"
-            >
-              <span class="grid min-w-0 gap-1">
-                <span class="truncate text-sm font-medium">{{
-                  deploymentServiceName(deployment)
-                }}</span>
-                <span class="truncate font-mono text-[11px] text-muted-foreground">
-                  Generation g{{ deployment.generation }} ·
-                  {{ formatDeploymentTime(deployment.created_at) }}
-                </span>
-              </span>
-              <span
-                class="justify-self-start text-xs capitalize sm:justify-self-end"
-                :class="deploymentStatusClass(deployment.status)"
+            <div class="flex shrink-0 items-center gap-2">
+              <Button
+                size="icon-sm"
+                variant="outline"
+                :disabled="deploymentCurrentPage === 1"
+                aria-label="Previous deployment page"
+                @click="goToPreviousDeploymentPage"
               >
-                {{ deployment.status }}
+                <ChevronLeft class="size-4" :stroke-width="1.5" />
+              </Button>
+              <span class="min-w-20 text-center font-mono text-xs text-muted-foreground">
+                Page {{ deploymentCurrentPage }} of {{ deploymentPageCount }}
               </span>
-            </Button>
-          </div>
-        </section>
-        <DeploymentLogsPanel
+              <Button
+                size="icon-sm"
+                variant="outline"
+                :disabled="deploymentCurrentPage === deploymentPageCount"
+                aria-label="Next deployment page"
+                @click="goToNextDeploymentPage"
+              >
+                <ChevronRight class="size-4" :stroke-width="1.5" />
+              </Button>
+            </div>
+          </nav>
+        </div>
+        <div
           v-if="selectedDeployment"
-          :connected="stream.connected.value && logStream.connected.value"
-          :logs="streamLogs"
-          :stream-error="stream.error.value ?? logStream.error.value"
-        />
+          ref="deploymentLogsAnchor"
+          class="order-1 min-w-0 scroll-mt-4 lg:sticky lg:top-4 lg:order-2"
+        >
+          <DeploymentLogsPanel
+            :connected="stream.connected.value && logStream.connected.value"
+            :logs="streamLogs"
+            :stream-error="stream.error.value ?? logStream.error.value"
+          />
+        </div>
       </section>
 
       <ProjectActivityPanel

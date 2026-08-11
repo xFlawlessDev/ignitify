@@ -18,12 +18,14 @@ const props = defineProps<{
   loading: boolean;
   services: ServiceSummary[];
   submitting: boolean;
+  selectedDeploymentId?: string | null;
 }>();
 
 const emit = defineEmits<{
   deploy: [serviceId: string];
   stop: [serviceId: string];
   rollback: [deploymentId: string];
+  select: [deploymentId: string];
   retry: [];
 }>();
 
@@ -162,7 +164,13 @@ function formatTime(value: string) {
       <article
         v-for="(deployment, index) in deployments"
         :key="deployment.id"
-        class="relative grid min-w-0 gap-3 px-5 py-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-center"
+        class="relative grid min-w-0 cursor-pointer gap-3 px-5 py-4 transition-colors hover:bg-muted/35 focus-visible:bg-muted/50 focus-visible:outline-none md:grid-cols-[minmax(0,1fr)_auto] md:items-center"
+        :class="props.selectedDeploymentId === deployment.id ? 'bg-muted/55' : ''"
+        :aria-current="props.selectedDeploymentId === deployment.id ? 'true' : undefined"
+        tabindex="0"
+        @click="emit('select', deployment.id)"
+        @keydown.enter.prevent="emit('select', deployment.id)"
+        @keydown.space.prevent="emit('select', deployment.id)"
       >
         <span
           v-if="index < deployments.length - 1"

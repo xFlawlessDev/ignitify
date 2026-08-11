@@ -53,14 +53,14 @@ function askAboutVisibleLogs() {
     "
   >
     <div
-      class="flex items-center justify-between gap-4 border-b border-border py-4"
+      class="flex flex-col gap-4 border-b border-border py-4 sm:flex-row sm:items-end sm:justify-between"
       :class="props.embedded ? 'px-0' : 'px-5'"
     >
       <div>
         <p class="ui-label">Deployment output</p>
         <h2 class="mt-2 text-xl leading-none font-normal">Logs</h2>
       </div>
-      <div class="flex flex-wrap items-center justify-end gap-3">
+      <div class="flex w-full flex-wrap items-center justify-start gap-2 sm:w-auto sm:justify-end">
         <label class="relative block w-full sm:w-52">
           <span class="sr-only">{{ t("deploymentLogs.search") }}</span>
           <Search
