@@ -294,10 +294,10 @@ async fn security_headers(mut response: Response) -> Response {
 }
 
 fn content_security_policy(template_catalog_url: &str) -> HeaderValue {
-    const DEFAULT_POLICY: &str = "default-src 'self'; style-src 'self'; style-src-attr 'unsafe-inline'; connect-src 'self' wss:; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; object-src 'none'";
+    const DEFAULT_POLICY: &str = "default-src 'self'; style-src 'self'; style-src-attr 'unsafe-inline'; img-src 'self' data:; connect-src 'self' wss:; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; object-src 'none'";
 
     let policy = template_catalog_connect_origin(template_catalog_url)
-        .map(|origin| format!("default-src 'self'; style-src 'self'; style-src-attr 'unsafe-inline'; connect-src 'self' wss: {origin}; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; object-src 'none'"))
+        .map(|origin| format!("default-src 'self'; style-src 'self'; style-src-attr 'unsafe-inline'; img-src 'self' data: {origin}; connect-src 'self' wss: {origin}; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; object-src 'none'"))
         .unwrap_or_else(|| DEFAULT_POLICY.to_owned());
     policy
         .parse()
@@ -354,6 +354,7 @@ mod tests {
         let origin =
             template_catalog_connect_origin(crate::frontend::template_catalog_url()).unwrap();
         assert!(policy.contains(&format!("connect-src 'self' wss: {origin}")));
+        assert!(policy.contains(&format!("img-src 'self' data: {origin}")));
     }
 
     #[test]
@@ -374,5 +375,6 @@ mod tests {
         let header = content_security_policy("https://templates.example.com/api/templates");
         let policy = header.to_str().unwrap();
         assert!(policy.contains("connect-src 'self' wss: https://templates.example.com"));
+        assert!(policy.contains("img-src 'self' data: https://templates.example.com"));
     }
 }
