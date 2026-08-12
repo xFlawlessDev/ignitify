@@ -14,8 +14,57 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    name: Detect changed areas
+    runs-on: ubuntu-24.04
+    outputs:
+      frontend: ${{ steps.filter.outputs.frontend }}
+      rust: ${{ steps.filter.outputs.rust }}
+    env:
+      BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Classify changed files
+        id: filter
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          base="$BASE_SHA"
+          if [[ -z "$base" || "$base" =~ ^0+$ ]]; then
+            base="$(git rev-list --max-parents=0 HEAD | tail -n 1)"
+          fi
+
+          frontend=false
+          rust=false
+          while IFS= read -r path; do
+            if [[ "$path" == frontend/* || "$path" == .github/workflows/ci.yml ]]; then
+              frontend=true
+            fi
+            case "$path" in
+              crates/*|Cargo.toml|Cargo.lock|.cargo/*|rust-toolchain*|rustfmt.toml|clippy.toml|.github/workflows/ci.yml)
+                rust=true
+                ;;
+            esac
+          done < <(git diff --name-only "$base" "$GITHUB_SHA")
+
+          # Rust embeds the frontend bundle, so frontend changes also require
+          # the Rust quality gate.
+          if [[ "$frontend" == true ]]; then
+            rust=true
+          fi
+
+          echo "frontend=$frontend" >> "$GITHUB_OUTPUT"
+          echo "rust=$rust" >> "$GITHUB_OUTPUT"
+
   frontend:
     name: Frontend quality
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-24.04
     steps:
       - name: Check out source
@@ -58,17 +107,38 @@ jobs:
 
   rust:
     name: Rust quality
-    needs: frontend
+    needs:
+      - changes
+      - frontend
+    if: >-
+      always() && needs.changes.outputs.rust == 'true' &&
+      (needs.frontend.result == 'success' || needs.frontend.result == 'skipped')
     runs-on: ubuntu-24.04
     steps:
       - name: Check out source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Restore embedded frontend bundle
+        if: needs.frontend.result == 'success'
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: frontend-dist
           path: frontend/dist
+
+      - name: Set up Node.js for embedded frontend bundle
+        if: needs.frontend.result == 'skipped'
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+
+      - name: Build embedded frontend bundle
+        if: needs.frontend.result == 'skipped'
+        working-directory: frontend
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.18.0 --activate
+          pnpm install --frozen-lockfile
+          pnpm run build
 
       - name: Set up stable Rust
         run: |
