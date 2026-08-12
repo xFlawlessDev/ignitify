@@ -12,6 +12,7 @@
 <p align="center">
   <a href="https://github.com/xFlawlessDev/ignitify/actions/workflows/ci.yml?query=branch%3Amain"><img src="https://github.com/xFlawlessDev/ignitify/actions/workflows/ci.yml/badge.svg?branch=main" alt="Continuous integration status"></a>
   <a href="https://github.com/xFlawlessDev/ignitify/releases"><img src="https://img.shields.io/github/v/release/xFlawlessDev/ignitify?display_name=tag&sort=semver" alt="Latest release"></a>
+  <a href="https://github.com/xFlawlessDev/ignitify/releases"><img src="https://img.shields.io/github/downloads/xFlawlessDev/ignitify/total?label=total%20installs" alt="Total release downloads"></a>
   <a href="LICENSE-MIT"><img src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-2ea44f" alt="Dual MIT or Apache-2.0 license"></a>
   <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/backend-Rust%202024-dea584" alt="Rust 2024 backend"></a>
   <a href="https://vuejs.org/"><img src="https://img.shields.io/badge/frontend-Vue%203-42b883" alt="Vue 3 frontend"></a>
