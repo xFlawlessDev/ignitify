@@ -16,10 +16,9 @@ import {
   Upload,
   X,
 } from "@lucide/vue";
-import { computed, onMounted, onUnmounted, reactive, shallowRef, watch } from "vue";
-import { useI18n } from "vue-i18n";
-import { toast } from "vue-sonner";
+import { shallowRef, watch } from "vue";
 import { Button } from "@/components/ui/button";
+import RemoteServerSettingsForm from "@/components/remote-servers/RemoteServerSettingsForm.vue";
 import {
   Dialog,
   DialogClose,
@@ -31,99 +30,63 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
-import { Textarea } from "@/components/ui/textarea";
-import {
-  apiCheckRemoteServer,
-  apiCreateRemoteServer,
-  apiDeleteRemoteServer,
-  apiGetRemoteServerAccess,
-  apiInstallRemoteServerAgent,
-  apiListRemoteServers,
-  apiSetDefaultRemoteServer,
-  apiUpdateRemoteServer,
-  type RemoteServerInput,
-  type RemoteServerSummary,
-} from "@/lib/api";
+import { useRemoteServers } from "@/composables/useRemoteServers";
+import type { RemoteServerSummary } from "@/lib/api";
 
 interface FlowNodeData {
   label?: string;
   server?: RemoteServerSummary;
 }
 
-interface ConnectionCheckState {
-  serverId: string;
-  status: "success" | "error";
-  latencyMs?: number;
-  message: string;
-}
-
-interface RemoteServerAccessSetup {
-  server: RemoteServerSummary;
-  publicKey: string;
-}
-
-type SecretInputMode = "file" | "text";
-
-const { t } = useI18n();
-const servers = shallowRef<RemoteServerSummary[]>([]);
-const selectedServerId = shallowRef<string | null>(null);
-const loading = shallowRef(true);
-const saving = shallowRef(false);
-const removing = shallowRef(false);
-const requestError = shallowRef("");
-const dialogOpen = shallowRef(false);
-const accessDialogOpen = shallowRef(false);
-const deleteDialogOpen = shallowRef(false);
-const serverPendingDeletion = shallowRef<RemoteServerSummary | null>(null);
-const editingId = shallowRef<string | null>(null);
-const privateKeyFile = shallowRef<File | null>(null);
-const privateKeyInputKey = shallowRef(0);
-const privateKeyMode = shallowRef<SecretInputMode>("file");
-const publicKeyFile = shallowRef<File | null>(null);
-const publicKeyInputKey = shallowRef(0);
-const publicKeyMode = shallowRef<SecretInputMode>("file");
-const showValidation = shallowRef(false);
-const checkingServerId = shallowRef<string | null>(null);
-const installingAgentServerId = shallowRef<string | null>(null);
-const connectionCheck = shallowRef<ConnectionCheckState | null>(null);
-const copiedGuideCommand = shallowRef<string | null>(null);
-const accessSetup = shallowRef<RemoteServerAccessSetup | null>(null);
-const loadingAccessServerId = shallowRef<string | null>(null);
-
-const linuxGuideCommands = {
-  generate: 'ssh-keygen -t ed25519 -N "" -f ./ignitify_deploy -C "ignitify-deploy"',
-  install:
-    "ssh-copy-id -i ./ignitify_deploy.pub {user}@{host}\nchmod 700 ~/.ssh\nchmod 600 ~/.ssh/authorized_keys",
-  hostKey: "ssh-keyscan -t ed25519 {host}",
-};
-
-const form = reactive({
-  name: "",
-  host: "",
-  port: 22,
-  username: "ignitify",
-  deployPath: "/srv/ignitify",
-  privateKeyText: "",
-  publicKeyText: "",
-  knownHosts: "",
-  isDefault: true,
-});
-
-const selectedServer = computed(
-  () => servers.value.find((server) => server.id === selectedServerId.value) ?? null,
-);
-const selectedConnectionCheck = computed(() =>
-  connectionCheck.value?.serverId === selectedServerId.value ? connectionCheck.value : null,
-);
-const installPublicKeyCommand = computed(() => {
-  if (!accessSetup.value) return "";
-  const publicKey = accessSetup.value.publicKey.replaceAll("'", "'\\''");
-  return `mkdir -p ~/.ssh && chmod 700 ~/.ssh && printf '%s\\n' '${publicKey}' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys`;
-});
-const publicKeyProvided = computed(() =>
-  publicKeyMode.value === "text" ? !!form.publicKeyText.trim() : !!publicKeyFile.value,
-);
+const {
+  accessDialogOpen,
+  accessSetup,
+  addServer,
+  agentStatusClass,
+  agentStatusLabel,
+  checkConnection,
+  checkingServerId,
+  closeInspector,
+  copiedGuideCommand,
+  copyGuideCommand,
+  deleteDialogOpen,
+  dialogOpen,
+  editServer,
+  editingId,
+  form,
+  formError,
+  installAgent,
+  installPublicKeyCommand,
+  installingAgentServerId,
+  linuxGuideCommands,
+  loadServers,
+  loading,
+  loadingAccessServerId,
+  privateKeyFile,
+  privateKeyInputKey,
+  privateKeyMode,
+  publicKeyFile,
+  publicKeyInputKey,
+  publicKeyMode,
+  removeServer,
+  removing,
+  requestDelete,
+  saveServer,
+  saving,
+  selectedConnectionCheck,
+  selectedServer,
+  selectedServerId,
+  selectServer,
+  serverPendingDeletion,
+  servers,
+  setDefault,
+  showAccessSetup,
+  showValidation,
+  t,
+  updateDialog,
+  updatePrivateKey,
+  updatePublicKey,
+} = useRemoteServers();
 
 // Vue Flow measures and writes each node's dimensions after it mounts. Keep its
 // node model writable so that measurement cannot be lost to a readonly computed value.
@@ -172,343 +135,11 @@ function updateFlowTopology() {
 
 watch(servers, updateFlowTopology, { immediate: true });
 
-const formError = computed(() => {
-  if (!form.name.trim()) return "Server name is required.";
-  if (!form.host.trim() || /[\s/@:]/.test(form.host.trim())) {
-    return "Enter a hostname or IP address without a port.";
-  }
-  if (!Number.isInteger(Number(form.port)) || Number(form.port) < 1 || Number(form.port) > 65535) {
-    return "SSH port must be between 1 and 65535.";
-  }
-  if (!/^[a-z_][a-z0-9_-]{0,31}$/.test(form.username.trim())) {
-    return "Enter a valid Linux SSH username.";
-  }
-  if (!editingId.value) return "";
-  if (!form.deployPath.trim().startsWith("/")) {
-    return "Deployment path must start with /.";
-  }
-  if (
-    editingId.value &&
-    selectedServer.value &&
-    !selectedServer.value.public_key_configured &&
-    !publicKeyProvided.value
-  ) {
-    return "An SSH public key is required for this server.";
-  }
-  return "";
-});
-
-function resetForm() {
-  form.name = "";
-  form.host = "";
-  form.port = 22;
-  form.username = "ignitify";
-  form.deployPath = "/srv/ignitify";
-  form.privateKeyText = "";
-  form.publicKeyText = "";
-  form.knownHosts = "";
-  form.isDefault = servers.value.length === 0;
-  editingId.value = null;
-  privateKeyFile.value = null;
-  privateKeyInputKey.value += 1;
-  privateKeyMode.value = "file";
-  publicKeyFile.value = null;
-  publicKeyInputKey.value += 1;
-  publicKeyMode.value = "file";
-  showValidation.value = false;
-}
-
-function updateDialog(open: boolean) {
-  dialogOpen.value = open;
-  if (!open) resetForm();
-}
-
-function addServer() {
-  resetForm();
-  dialogOpen.value = true;
-}
-
-function editServer(server: RemoteServerSummary) {
-  form.name = server.name;
-  form.host = server.host;
-  form.port = server.port;
-  form.username = server.username;
-  form.deployPath = server.deploy_path;
-  form.privateKeyText = "";
-  form.publicKeyText = "";
-  form.knownHosts = "";
-  form.isDefault = server.is_default;
-  editingId.value = server.id;
-  privateKeyFile.value = null;
-  privateKeyInputKey.value += 1;
-  privateKeyMode.value = "file";
-  publicKeyFile.value = null;
-  publicKeyInputKey.value += 1;
-  publicKeyMode.value = "file";
-  showValidation.value = false;
-  dialogOpen.value = true;
-}
-
-function selectServer(serverId: string) {
-  if (selectedServerId.value !== serverId) connectionCheck.value = null;
-  selectedServerId.value = serverId;
-}
-
-function closeInspector() {
-  selectedServerId.value = null;
-  connectionCheck.value = null;
-}
-
 flow.onNodeClick(({ node }) => {
   if (node.type === "remote") selectServer(node.id);
 });
 
 flow.onPaneClick(closeInspector);
-
-async function checkConnection(server: RemoteServerSummary) {
-  checkingServerId.value = server.id;
-  connectionCheck.value = null;
-  try {
-    const result = await apiCheckRemoteServer(server.id);
-    if (result.success) {
-      connectionCheck.value = {
-        serverId: server.id,
-        status: "success",
-        latencyMs: result.data.latency_ms,
-        message: "SSH connection verified",
-      };
-      toast.success("SSH connection verified", {
-        description: `${server.name} responded in ${result.data.latency_ms} ms.`,
-      });
-      return;
-    }
-    connectionCheck.value = {
-      serverId: server.id,
-      status: "error",
-      message: result.error ?? "SSH connection failed",
-    };
-    toast.error("SSH connection failed", { description: connectionCheck.value.message });
-  } catch {
-    connectionCheck.value = {
-      serverId: server.id,
-      status: "error",
-      message: "SSH connection check failed",
-    };
-    toast.error("SSH connection check failed");
-  } finally {
-    checkingServerId.value = null;
-  }
-}
-
-async function installAgent(server: RemoteServerSummary) {
-  installingAgentServerId.value = server.id;
-  requestError.value = "";
-  const result = await apiInstallRemoteServerAgent(server.id);
-  if (!result.success) {
-    requestError.value = result.error ?? "Unable to install the monitoring agent.";
-    toast.error("Could not install monitoring agent", { description: requestError.value });
-  } else {
-    if (await loadServers()) {
-      toast.success("Monitoring agent installation started", { description: server.name });
-    }
-  }
-  installingAgentServerId.value = null;
-}
-
-function agentStatusLabel(server: RemoteServerSummary) {
-  if (!server.agent) return "Agent not installed";
-  if (server.agent.status === "online") return "Agent online";
-  if (server.agent.status === "pending") return "Agent provisioning";
-  return "Agent offline";
-}
-
-function agentStatusClass(server: RemoteServerSummary) {
-  if (server.agent?.status === "online") return "bg-metric-green";
-  if (server.agent?.status === "pending") return "bg-metric-amber";
-  return "bg-muted-foreground";
-}
-
-function updatePrivateKey(event: Event) {
-  privateKeyFile.value = (event.target as HTMLInputElement).files?.[0] ?? null;
-}
-
-function updatePublicKey(event: Event) {
-  publicKeyFile.value = (event.target as HTMLInputElement).files?.[0] ?? null;
-}
-
-async function copyGuideCommand(command: string) {
-  if (!navigator.clipboard) return;
-
-  try {
-    await navigator.clipboard.writeText(command);
-    copiedGuideCommand.value = command;
-    window.setTimeout(() => {
-      if (copiedGuideCommand.value === command) copiedGuideCommand.value = null;
-    }, 1600);
-    toast.success("Command copied");
-  } catch {
-    copiedGuideCommand.value = null;
-    toast.error("Could not copy command");
-  }
-}
-
-async function showAccessSetup(server: RemoteServerSummary) {
-  loadingAccessServerId.value = server.id;
-  const result = await apiGetRemoteServerAccess(server.id);
-  loadingAccessServerId.value = null;
-  if (!result.success) {
-    const message = result.error ?? t("remoteServerOnboarding.accessLoadError");
-    toast.error(t("remoteServerOnboarding.accessLoadFailed"), { description: message });
-    return;
-  }
-  accessSetup.value = { server, publicKey: result.data.public_key };
-  accessDialogOpen.value = true;
-}
-
-async function loadServers(showSuccess = false): Promise<boolean> {
-  loading.value = true;
-  requestError.value = "";
-  const result = await apiListRemoteServers();
-  if (result.success) {
-    servers.value = result.data;
-    if (!result.data.some((server) => server.id === selectedServerId.value)) {
-      selectedServerId.value = null;
-    }
-    loading.value = false;
-    if (showSuccess) toast.success("Remote servers refreshed");
-    return true;
-  }
-  requestError.value = result.error ?? "Unable to load remote servers.";
-  toast.error("Remote servers unavailable", { description: requestError.value });
-  loading.value = false;
-  return false;
-}
-
-async function refreshAgentStatuses() {
-  const result = await apiListRemoteServers();
-  if (result.success) servers.value = result.data;
-}
-
-async function saveServer() {
-  showValidation.value = true;
-  if (formError.value) return;
-
-  saving.value = true;
-  requestError.value = "";
-  const wasEditing = Boolean(editingId.value);
-  try {
-    if (!editingId.value) {
-      const result = await apiCreateRemoteServer({
-        name: form.name.trim(),
-        host: form.host.trim(),
-        port: Number(form.port),
-        username: form.username.trim(),
-      });
-      if (!result.success) {
-        requestError.value = result.error ?? t("remoteServerOnboarding.createError");
-        toast.error(t("remoteServerOnboarding.createFailed"), { description: requestError.value });
-        return;
-      }
-      const { public_key: publicKey, ...server } = result.data;
-      if (!(await loadServers())) return;
-      selectedServerId.value = server.id;
-      updateDialog(false);
-      accessSetup.value = { server, publicKey };
-      accessDialogOpen.value = true;
-      toast.success(t("remoteServerOnboarding.created"), { description: server.name });
-      return;
-    }
-    const privateKey =
-      privateKeyMode.value === "text"
-        ? form.privateKeyText.trim() || undefined
-        : privateKeyFile.value
-          ? await privateKeyFile.value.text()
-          : undefined;
-    const publicKey =
-      publicKeyMode.value === "text"
-        ? form.publicKeyText.trim() || undefined
-        : publicKeyFile.value
-          ? await publicKeyFile.value.text()
-          : undefined;
-    const input: RemoteServerInput = {
-      name: form.name.trim(),
-      host: form.host.trim(),
-      port: Number(form.port),
-      username: form.username.trim(),
-      deploy_path: form.deployPath.trim(),
-      private_key: privateKey,
-      public_key: publicKey,
-      known_hosts: form.knownHosts.trim() || undefined,
-      is_default: form.isDefault,
-    };
-    const result = await apiUpdateRemoteServer(editingId.value, input);
-    if (!result.success) {
-      requestError.value = result.error ?? "Unable to save remote server.";
-      toast.error("Could not save remote server", { description: requestError.value });
-      return;
-    }
-    if (!(await loadServers())) return;
-    updateDialog(false);
-    toast.success(wasEditing ? "Remote server updated" : "Remote server added", {
-      description: input.name,
-    });
-  } catch {
-    requestError.value = "Unable to read the SSH private key file.";
-    toast.error("Could not read SSH key", { description: requestError.value });
-  } finally {
-    saving.value = false;
-  }
-}
-
-async function setDefault(server: RemoteServerSummary) {
-  if (server.is_default) return;
-  requestError.value = "";
-  const result = await apiSetDefaultRemoteServer(server.id);
-  if (!result.success) {
-    requestError.value = result.error ?? "Unable to update the default destination.";
-    toast.error("Could not set default destination", { description: requestError.value });
-    return;
-  }
-  servers.value = servers.value.map((item) =>
-    item.id === result.data.id ? result.data : { ...item, is_default: false },
-  );
-  toast.success("Default destination updated", { description: server.name });
-}
-
-function requestDelete(server: RemoteServerSummary) {
-  serverPendingDeletion.value = server;
-  deleteDialogOpen.value = true;
-}
-
-async function removeServer() {
-  const server = serverPendingDeletion.value;
-  if (!server) return;
-  removing.value = true;
-  requestError.value = "";
-  const result = await apiDeleteRemoteServer(server.id);
-  removing.value = false;
-  if (!result.success) {
-    requestError.value = result.error ?? "Unable to remove remote server.";
-    toast.error("Could not remove remote server", { description: requestError.value });
-    return;
-  }
-  servers.value = servers.value.filter((item) => item.id !== server.id);
-  closeInspector();
-  serverPendingDeletion.value = null;
-  deleteDialogOpen.value = false;
-  toast.success("Remote server removed", { description: server.name });
-}
-
-let statusRefreshTimer: number | undefined;
-
-onMounted(() => {
-  void loadServers();
-  statusRefreshTimer = window.setInterval(() => void refreshAgentStatuses(), 30_000);
-});
-
-onUnmounted(() => {
-  if (statusRefreshTimer !== undefined) window.clearInterval(statusRefreshTimer);
-});
 </script>
 
 <template>
@@ -947,333 +578,27 @@ onUnmounted(() => {
           </DialogFooter>
         </form>
 
-        <details v-if="editingId" class="border-y border-border py-3 text-xs">
-          <summary class="cursor-pointer font-medium text-foreground">
-            Linux SSH setup guide
-          </summary>
-          <div
-            class="mt-3 grid max-h-[min(42vh,320px)] gap-3 overflow-y-auto pr-1 text-[11px] leading-5 text-muted-foreground"
-          >
-            <ol class="grid gap-3 pl-4">
-              <li>
-                <span class="font-medium text-foreground">Create a deploy key</span> on the Ignitify
-                host or your workstation. This creates the private key and matching
-                <code class="font-mono text-foreground">.pub</code> file. Keep the passphrase empty
-                because automated SSH checks cannot prompt for one.
-                <div class="mt-1.5 flex min-w-0 items-start gap-1.5">
-                  <pre
-                    class="min-w-0 flex-1 overflow-x-auto rounded-[4px] border border-border bg-muted/50 p-2 font-mono text-[10px] leading-4 text-foreground"
-                  ><code>{{ linuxGuideCommands.generate }}</code></pre>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    class="mt-0.5 size-7 shrink-0 rounded-[4px]"
-                    type="button"
-                    :aria-label="
-                      copiedGuideCommand === linuxGuideCommands.generate
-                        ? 'Copied'
-                        : 'Copy key generation command'
-                    "
-                    :title="
-                      copiedGuideCommand === linuxGuideCommands.generate ? 'Copied' : 'Copy command'
-                    "
-                    @click="copyGuideCommand(linuxGuideCommands.generate)"
-                  >
-                    <Check
-                      v-if="copiedGuideCommand === linuxGuideCommands.generate"
-                      class="size-3.5 text-metric-green"
-                      :stroke-width="1.8"
-                    />
-                    <Copy v-else class="size-3.5" :stroke-width="1.5" />
-                  </Button>
-                </div>
-              </li>
-              <li>
-                <span class="font-medium text-foreground">Install the public key</span> on the
-                remote Linux account that will run deployments.
-                <div class="mt-1.5 flex min-w-0 items-start gap-1.5">
-                  <pre
-                    class="min-w-0 flex-1 overflow-x-auto rounded-[4px] border border-border bg-muted/50 p-2 font-mono text-[10px] leading-4 text-foreground"
-                  ><code>{{ linuxGuideCommands.install }}</code></pre>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    class="mt-0.5 size-7 shrink-0 rounded-[4px]"
-                    type="button"
-                    :aria-label="
-                      copiedGuideCommand === linuxGuideCommands.install
-                        ? 'Copied'
-                        : 'Copy public key installation command'
-                    "
-                    :title="
-                      copiedGuideCommand === linuxGuideCommands.install ? 'Copied' : 'Copy command'
-                    "
-                    @click="copyGuideCommand(linuxGuideCommands.install)"
-                  >
-                    <Check
-                      v-if="copiedGuideCommand === linuxGuideCommands.install"
-                      class="size-3.5 text-metric-green"
-                      :stroke-width="1.8"
-                    />
-                    <Copy v-else class="size-3.5" :stroke-width="1.5" />
-                  </Button>
-                </div>
-              </li>
-              <li>
-                <span class="font-medium text-foreground">Pin the server host key</span> before
-                connecting. Verify the fingerprint with your provider, then paste this output in the
-                <code class="font-mono text-foreground">known_hosts</code> field.
-                <div class="mt-1.5 flex min-w-0 items-start gap-1.5">
-                  <pre
-                    class="min-w-0 flex-1 overflow-x-auto rounded-[4px] border border-border bg-muted/50 p-2 font-mono text-[10px] leading-4 text-foreground"
-                  ><code>{{ linuxGuideCommands.hostKey }}</code></pre>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    class="mt-0.5 size-7 shrink-0 rounded-[4px]"
-                    type="button"
-                    :aria-label="
-                      copiedGuideCommand === linuxGuideCommands.hostKey
-                        ? 'Copied'
-                        : 'Copy host key command'
-                    "
-                    :title="
-                      copiedGuideCommand === linuxGuideCommands.hostKey ? 'Copied' : 'Copy command'
-                    "
-                    @click="copyGuideCommand(linuxGuideCommands.hostKey)"
-                  >
-                    <Check
-                      v-if="copiedGuideCommand === linuxGuideCommands.hostKey"
-                      class="size-3.5 text-metric-green"
-                      :stroke-width="1.8"
-                    />
-                    <Copy v-else class="size-3.5" :stroke-width="1.5" />
-                  </Button>
-                </div>
-              </li>
-            </ol>
-            <div class="grid gap-1 border-l-2 border-border pl-3">
-              <p class="font-medium text-foreground">Field mapping</p>
-              <p>
-                <code class="font-mono text-foreground">Private key</code>: file without
-                <code class="font-mono text-foreground">.pub</code> or its full private-key text.
-                <code class="font-mono text-foreground">Public key</code>: matching
-                <code class="font-mono text-foreground">.pub</code> line.
-                <code class="font-mono text-foreground">known_hosts</code>: remote host key; it is
-                different from the client public key.
-              </p>
-            </div>
-          </div>
-        </details>
-
-        <form v-if="editingId" class="grid gap-4" @submit.prevent="saveServer">
-          <div class="grid gap-4 sm:grid-cols-2">
-            <div class="grid gap-2">
-              <Label for="remote-server-name" class="text-xs font-medium">Server name</Label>
-              <Input
-                id="remote-server-name"
-                v-model="form.name"
-                class="rounded-[3px]"
-                autocomplete="off"
-              />
-            </div>
-            <div class="grid gap-2">
-              <Label for="remote-server-host" class="text-xs font-medium">Hostname or IP</Label>
-              <Input
-                id="remote-server-host"
-                v-model="form.host"
-                class="rounded-[3px] font-mono text-xs"
-                placeholder="deploy.example.com"
-                autocomplete="off"
-              />
-            </div>
-          </div>
-
-          <div class="grid gap-4 sm:grid-cols-[110px_minmax(0,1fr)_minmax(0,1fr)]">
-            <div class="grid gap-2">
-              <Label for="remote-server-port" class="text-xs font-medium">SSH port</Label>
-              <Input
-                id="remote-server-port"
-                v-model.number="form.port"
-                class="rounded-[3px] font-mono text-xs"
-                type="number"
-                min="1"
-                max="65535"
-                inputmode="numeric"
-              />
-            </div>
-            <div class="grid gap-2">
-              <Label for="remote-server-user" class="text-xs font-medium">SSH user</Label>
-              <Input
-                id="remote-server-user"
-                v-model="form.username"
-                class="rounded-[3px] font-mono text-xs"
-                autocomplete="username"
-              />
-            </div>
-            <div class="grid gap-2">
-              <Label for="remote-server-path" class="text-xs font-medium">Deploy path</Label>
-              <Input
-                id="remote-server-path"
-                v-model="form.deployPath"
-                class="rounded-[3px] font-mono text-xs"
-                placeholder="/srv/ignitify"
-                autocomplete="off"
-              />
-            </div>
-          </div>
-
-          <div class="grid gap-4 border-t border-border pt-4 sm:grid-cols-2">
-            <div class="grid content-start gap-2">
-              <div class="flex items-center justify-between gap-3">
-                <Label class="text-xs font-medium">SSH private key</Label>
-                <div class="inline-flex rounded-[4px] border border-border p-0.5" role="tablist">
-                  <button
-                    class="rounded-[3px] px-2 py-1 font-mono text-[10px] text-muted-foreground transition-colors hover:bg-muted"
-                    :class="privateKeyMode === 'file' ? 'bg-muted text-foreground' : ''"
-                    type="button"
-                    role="tab"
-                    :aria-selected="privateKeyMode === 'file'"
-                    @click="privateKeyMode = 'file'"
-                  >
-                    File
-                  </button>
-                  <button
-                    class="rounded-[3px] px-2 py-1 font-mono text-[10px] text-muted-foreground transition-colors hover:bg-muted"
-                    :class="privateKeyMode === 'text' ? 'bg-muted text-foreground' : ''"
-                    type="button"
-                    role="tab"
-                    :aria-selected="privateKeyMode === 'text'"
-                    @click="privateKeyMode = 'text'"
-                  >
-                    Text
-                  </button>
-                </div>
-              </div>
-              <template v-if="privateKeyMode === 'file'">
-                <Label
-                  for="remote-server-key"
-                  class="flex h-9 cursor-pointer items-center gap-2 rounded-[3px] border border-input px-3 text-xs text-muted-foreground hover:bg-muted"
-                >
-                  <Upload class="size-4 shrink-0" :stroke-width="1.5" />
-                  <span class="truncate">{{
-                    privateKeyFile?.name ?? (editingId ? "Keep current key" : "Choose key file")
-                  }}</span>
-                </Label>
-                <input
-                  :key="privateKeyInputKey"
-                  id="remote-server-key"
-                  class="sr-only"
-                  type="file"
-                  accept="*/*"
-                  @change="updatePrivateKey"
-                />
-              </template>
-              <Textarea
-                v-else
-                v-model="form.privateKeyText"
-                class="min-h-[112px] rounded-[3px] font-mono text-[10px] leading-4"
-                placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
-                autocomplete="off"
-                spellcheck="false"
-              />
-            </div>
-            <div class="grid content-start gap-2">
-              <div class="flex items-center justify-between gap-3">
-                <Label class="text-xs font-medium">SSH public key</Label>
-                <div class="inline-flex rounded-[4px] border border-border p-0.5" role="tablist">
-                  <button
-                    class="rounded-[3px] px-2 py-1 font-mono text-[10px] text-muted-foreground transition-colors hover:bg-muted"
-                    :class="publicKeyMode === 'file' ? 'bg-muted text-foreground' : ''"
-                    type="button"
-                    role="tab"
-                    :aria-selected="publicKeyMode === 'file'"
-                    @click="publicKeyMode = 'file'"
-                  >
-                    File
-                  </button>
-                  <button
-                    class="rounded-[3px] px-2 py-1 font-mono text-[10px] text-muted-foreground transition-colors hover:bg-muted"
-                    :class="publicKeyMode === 'text' ? 'bg-muted text-foreground' : ''"
-                    type="button"
-                    role="tab"
-                    :aria-selected="publicKeyMode === 'text'"
-                    @click="publicKeyMode = 'text'"
-                  >
-                    Text
-                  </button>
-                </div>
-              </div>
-              <template v-if="publicKeyMode === 'file'">
-                <Label
-                  for="remote-server-public-key"
-                  class="flex h-9 cursor-pointer items-center gap-2 rounded-[3px] border border-input px-3 text-xs text-muted-foreground hover:bg-muted"
-                >
-                  <Upload class="size-4 shrink-0" :stroke-width="1.5" />
-                  <span class="truncate">{{
-                    publicKeyFile?.name ?? (editingId ? "Keep current key" : "Choose .pub file")
-                  }}</span>
-                </Label>
-                <input
-                  :key="publicKeyInputKey"
-                  id="remote-server-public-key"
-                  class="sr-only"
-                  type="file"
-                  accept=".pub,.txt"
-                  @change="updatePublicKey"
-                />
-              </template>
-              <Textarea
-                v-else
-                v-model="form.publicKeyText"
-                class="min-h-[112px] rounded-[3px] font-mono text-[10px] leading-4"
-                placeholder="ssh-ed25519 AAAAC3... user@host"
-                autocomplete="off"
-                spellcheck="false"
-              />
-            </div>
-            <div class="grid gap-2 sm:col-span-2">
-              <Label for="remote-server-known-hosts" class="text-xs font-medium"
-                >known_hosts (server host key)</Label
-              >
-              <Textarea
-                id="remote-server-known-hosts"
-                v-model="form.knownHosts"
-                class="min-h-[88px] rounded-[3px] font-mono text-[11px] leading-4"
-                :placeholder="
-                  editingId
-                    ? 'Keep current host trust record'
-                    : 'deploy.example.com ssh-ed25519 AAAA...'
-                "
-                autocomplete="off"
-              />
-            </div>
-          </div>
-
-          <div class="flex items-center justify-between gap-3 border-t border-border pt-4">
-            <div>
-              <p class="text-xs font-medium">Use as default destination</p>
-              <p class="mt-1 text-[11px] text-muted-foreground">
-                Marks the primary target when a remote runner is attached.
-              </p>
-            </div>
-            <Switch :model-value="form.isDefault" @update:model-value="form.isDefault = $event" />
-          </div>
-
-          <p v-if="showValidation && formError" class="text-[11px] text-destructive" role="alert">
-            {{ formError }}
-          </p>
-
-          <DialogFooter>
-            <DialogClose as-child
-              ><Button variant="outline" type="button">Cancel</Button></DialogClose
-            >
-            <Button type="submit" :disabled="saving">
-              <Server class="size-4" :stroke-width="1.5" />
-              {{ saving ? "Saving" : editingId ? "Save changes" : "Add server" }}
-            </Button>
-          </DialogFooter>
-        </form>
+        <RemoteServerSettingsForm
+          v-if="editingId"
+          :copied-guide-command="copiedGuideCommand"
+          :form="form"
+          :form-error="formError"
+          :linux-guide-commands="linuxGuideCommands"
+          :private-key-file="privateKeyFile"
+          :private-key-input-key="privateKeyInputKey"
+          :private-key-mode="privateKeyMode"
+          :public-key-file="publicKeyFile"
+          :public-key-input-key="publicKeyInputKey"
+          :public-key-mode="publicKeyMode"
+          :saving="saving"
+          :show-validation="showValidation"
+          @copy-guide-command="copyGuideCommand"
+          @save="saveServer"
+          @update-private-key="updatePrivateKey"
+          @update-private-key-mode="(mode) => (privateKeyMode = mode)"
+          @update-public-key="updatePublicKey"
+          @update-public-key-mode="(mode) => (publicKeyMode = mode)"
+        />
       </DialogContent>
     </Dialog>
 
