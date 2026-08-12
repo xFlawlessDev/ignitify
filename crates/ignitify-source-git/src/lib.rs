@@ -1,40 +1,35 @@
 //! Isolated Git checkout and image build adapter for application sources.
 
+mod build_support;
+mod checkout;
 mod command_failure;
 mod github_app;
+mod sensitive_file;
+mod source_spec;
 
 use std::{
     env,
     path::{Path, PathBuf},
     process::Stdio,
-    sync::{
-        Arc,
-        atomic::{AtomicUsize, Ordering},
-    },
-    time::Duration,
+    sync::Arc,
 };
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use ignitify_control_plane::{
     AgeCipher, DeploymentLogSink, Error as ControlError, SourceBuild, SourceBuildOutput,
 };
-use ignitify_db::{
-    Database, ProviderAuthMode, ProviderKind, ProviderRecord, RemoteBuilderConnection,
-};
-use ignitify_domain::{
-    ApplicationBuilder, ServiceSourceConfig, ServiceSpec, is_digest_image_reference,
-};
+use ignitify_db::{Database, RemoteBuilderConnection};
+use ignitify_domain::{ApplicationBuilder, ServiceSourceConfig, is_digest_image_reference};
 use serde::Deserialize;
-use thiserror::Error;
-#[cfg(unix)]
-use tokio::io::AsyncWriteExt;
 use tokio::{
     fs,
     io::{AsyncBufReadExt, BufReader},
     process::Command,
 };
-use url::Url;
-use yaml_rust2::YamlLoader;
+
+use build_support::{BuildError, BuildLimiter, source_build_error};
+use sensitive_file::write_sensitive_file;
+use source_spec::{is_local_image_id, relative_path, static_dockerfile};
 
 const DEFAULT_BUILD_ROOT: &str = "data/builds";
 const DEFAULT_COMMAND_TIMEOUT_SECONDS: u64 = 900;
@@ -42,8 +37,6 @@ const DEFAULT_STATIC_BUILD_IMAGE: &str = "node:22.23.1-alpine3.24@sha256:16e22a5
 const DEFAULT_CADDY_IMAGE: &str =
     "caddy:2.11.4-alpine@sha256:98eb57d882ccd5213d1688764db10c1ca2c58a1ca3a6717a3411ad798f7a423a";
 const DEFAULT_RAILPACK_FRONTEND_IMAGE: &str = "ghcr.io/railwayapp/railpack-frontend:latest@sha256:bc73534934e7929ab3dc41765fb7e25c8c69d9be98c43ef8792fea51f65317bd";
-const AUTO_EXPOSED_SERVICE: &str = "ignitify";
-const SOURCE_PLACEHOLDER_IMAGE: &str = "ignitify-source-placeholder@sha256:0000000000000000000000000000000000000000000000000000000000000000";
 
 #[derive(Clone)]
 pub struct GitSourceBuild {
@@ -162,44 +155,12 @@ impl GitSourceBuild {
         }))
     }
 
-    async fn checkout_source(
-        &self,
-        deployment: &ignitify_db::DeploymentRecord,
-        source: &ServiceSourceConfig,
-    ) -> Result<Checkout, BuildError> {
-        let provider_id = source
-            .provider_id
-            .as_deref()
-            .ok_or(BuildError::InvalidSource)?;
-        let repository = source
-            .repository
-            .as_deref()
-            .ok_or(BuildError::InvalidSource)?;
-        let branch = source.branch.as_deref().ok_or(BuildError::InvalidSource)?;
-        let provider = self
-            .database
-            .providers()
-            .get(provider_id)
-            .await?
-            .ok_or(BuildError::ProviderMissing)?;
-        let credentials = self.credentials(&provider, repository).await?;
-        self.checkout(
-            deployment.id.as_str(),
-            &provider,
-            &credentials,
-            repository,
-            branch,
-            deployment.source_revision.as_deref(),
-        )
-        .await
-    }
-
     async fn compose_spec(
         &self,
         deployment: &ignitify_db::DeploymentRecord,
         source: &ServiceSourceConfig,
         checkout: &Path,
-    ) -> Result<ServiceSpec, BuildError> {
+    ) -> Result<ignitify_domain::ServiceSpec, BuildError> {
         let compose_path = relative_path(
             source
                 .dockerfile_path
@@ -207,146 +168,7 @@ impl GitSourceBuild {
                 .unwrap_or("docker-compose.yml"),
         )?;
         let yaml = fs::read_to_string(checkout.join(compose_path)).await?;
-        compose_runtime_spec(&deployment.spec, yaml)
-    }
-
-    async fn credentials(
-        &self,
-        provider: &ProviderRecord,
-        repository: &str,
-    ) -> Result<GitCredentials, BuildError> {
-        if provider.auth_mode == ProviderAuthMode::GithubApp {
-            let plaintext = self
-                .cipher
-                .decrypt(&provider.credentials_ciphertext)
-                .map_err(|_| BuildError::CredentialsUnavailable)?;
-            let credentials = serde_json::from_slice::<StoredCredentials>(plaintext.as_slice())
-                .map_err(|_| BuildError::CredentialsUnavailable)?;
-            let private_key = credentials
-                .private_key
-                .as_deref()
-                .filter(|value| !value.trim().is_empty())
-                .ok_or(BuildError::CredentialsUnavailable)?;
-            let token =
-                github_app::installation_access_token(provider, private_key, repository).await?;
-            return Ok(GitCredentials {
-                username: "x-access-token".to_owned(),
-                token,
-            });
-        }
-        let plaintext = self
-            .cipher
-            .decrypt(&provider.credentials_ciphertext)
-            .map_err(|_| BuildError::CredentialsUnavailable)?;
-        let token = match serde_json::from_slice::<StoredCredentials>(plaintext.as_slice()) {
-            Ok(credentials) => credentials.token,
-            Err(_) => String::from_utf8(plaintext.to_vec()).ok(),
-        }
-        .filter(|token| !token.trim().is_empty())
-        .ok_or(BuildError::CredentialsUnavailable)?;
-        let username = provider
-            .username
-            .clone()
-            .unwrap_or_else(|| match provider.kind {
-                ProviderKind::Github => "x-access-token".to_owned(),
-                ProviderKind::Gitlab => "oauth2".to_owned(),
-                ProviderKind::Gitea | ProviderKind::Git => "git".to_owned(),
-            });
-        Ok(GitCredentials { username, token })
-    }
-
-    async fn checkout(
-        &self,
-        deployment_id: &str,
-        provider: &ProviderRecord,
-        credentials: &GitCredentials,
-        repository: &str,
-        branch: &str,
-        source_revision: Option<&str>,
-    ) -> Result<Checkout, BuildError> {
-        fs::create_dir_all(&self.root).await?;
-        let root = fs::canonicalize(&self.root).await?;
-        let path = root.join(deployment_id);
-        let credentials_path = root.join(format!("{deployment_id}.gitconfig"));
-        remove_dir_if_exists(&path).await?;
-        remove_file_if_exists(&credentials_path).await?;
-        let remote = repository_url(provider, repository)?;
-        write_credentials_config(&credentials_path, &git_config(credentials)).await?;
-        let clone_result = self
-            .run(
-                self.git_command(&credentials_path)
-                    .args([
-                        "clone",
-                        "--depth",
-                        "1",
-                        "--no-tags",
-                        "--single-branch",
-                        "--no-recurse-submodules",
-                        "--branch",
-                        branch,
-                    ])
-                    .arg(&remote)
-                    .arg(&path),
-                "git checkout",
-            )
-            .await;
-        if let Err(error) = clone_result {
-            let _ = fs::remove_file(&credentials_path).await;
-            return Err(error);
-        }
-        if let Some(revision) = source_revision {
-            if let Err(error) = self
-                .run(
-                    self.git_command(&credentials_path).args([
-                        "-C",
-                        path.to_string_lossy().as_ref(),
-                        "fetch",
-                        "--depth",
-                        "1",
-                        "origin",
-                        revision,
-                    ]),
-                    "git revision fetch",
-                )
-                .await
-            {
-                let _ = fs::remove_file(&credentials_path).await;
-                return Err(error);
-            }
-            if let Err(error) = self
-                .run(
-                    self.git_command(&credentials_path).args([
-                        "-C",
-                        path.to_string_lossy().as_ref(),
-                        "checkout",
-                        "--detach",
-                        "FETCH_HEAD",
-                    ]),
-                    "git revision checkout",
-                )
-                .await
-            {
-                let _ = fs::remove_file(&credentials_path).await;
-                return Err(error);
-            }
-        }
-        let revision = self
-            .output(
-                self.git_command(&credentials_path).args([
-                    "-C",
-                    path.to_string_lossy().as_ref(),
-                    "rev-parse",
-                    "HEAD",
-                ]),
-                "git revision",
-            )
-            .await;
-        let _ = fs::remove_file(&credentials_path).await;
-        let revision = revision?;
-        if !is_git_revision(&revision) {
-            return Err(BuildError::InvalidRevision);
-        }
-        Ok(Checkout { path, revision })
+        source_spec::compose_runtime_spec(&deployment.spec, yaml)
     }
 
     async fn build_image(
@@ -900,136 +722,6 @@ struct RemoteBuildContext<'a> {
     logs: &'a DeploymentLogSink,
 }
 
-#[derive(Default)]
-struct BuildLimiter {
-    active: AtomicUsize,
-    changed: tokio::sync::Notify,
-}
-
-impl BuildLimiter {
-    async fn acquire(self: &Arc<Self>, database: &Database) -> Result<BuildPermit, BuildError> {
-        loop {
-            let limit = usize::try_from(database.server_settings().get().await?.concurrent_builds)
-                .map_err(|_| BuildError::InvalidConcurrentBuildLimit)?;
-            let active = self.active.load(Ordering::Acquire);
-            if active < limit
-                && self
-                    .active
-                    .compare_exchange(active, active + 1, Ordering::AcqRel, Ordering::Acquire)
-                    .is_ok()
-            {
-                return Ok(BuildPermit {
-                    limiter: self.clone(),
-                });
-            }
-            tokio::select! {
-                _ = self.changed.notified() => {}
-                _ = tokio::time::sleep(Duration::from_millis(250)) => {}
-            }
-        }
-    }
-}
-
-struct BuildPermit {
-    limiter: Arc<BuildLimiter>,
-}
-
-impl Drop for BuildPermit {
-    fn drop(&mut self) {
-        self.limiter.active.fetch_sub(1, Ordering::Release);
-        self.limiter.changed.notify_waiters();
-    }
-}
-
-#[derive(Debug, Error)]
-enum BuildError {
-    #[error("application source is incomplete")]
-    InvalidSource,
-    #[error("SPA source builds are not supported")]
-    UnsupportedBuilder,
-    #[error("a remote builder is required because local Docker builds are disabled")]
-    LocalBuilderDisabled,
-    #[error("remote source deployments require a configured remote builder")]
-    RemoteBuilderRequired,
-    #[error("static source builds require internal port 80")]
-    StaticPort,
-    #[error("Git Compose source must define at least one valid Compose service")]
-    InvalidComposeSource,
-    #[error("source provider is missing")]
-    ProviderMissing,
-    #[error("provider credentials are unavailable")]
-    CredentialsUnavailable,
-    #[error("source repository URL is invalid")]
-    InvalidRepositoryUrl,
-    #[error("source path must stay inside the repository")]
-    UnsafePath,
-    #[error("source revision is invalid")]
-    InvalidRevision,
-    #[error("stored concurrent build limit is invalid")]
-    InvalidConcurrentBuildLimit,
-    #[error("built image ID is invalid")]
-    InvalidImageId,
-    #[error("remote builder did not return an image digest")]
-    RemoteImageMetadata,
-    #[error("IGNITIFY_STATIC_RUNTIME_IMAGE must be a digest-pinned image")]
-    InvalidStaticRuntimeImage,
-    #[error("{0} must be a digest-pinned image")]
-    InvalidImageSetting(&'static str),
-    #[error("{0} failed")]
-    CommandFailed(&'static str),
-    #[error("Git source checkout failed: {0}")]
-    GitCheckout(command_failure::GitCheckoutFailure),
-    #[error("{0} executable is unavailable")]
-    CommandUnavailable(&'static str),
-    #[error("{0} exceeded the configured build timeout")]
-    CommandTimedOut(&'static str),
-    #[error(transparent)]
-    GithubApp(#[from] github_app::Error),
-    #[error(transparent)]
-    Database(#[from] ignitify_db::DatabaseError),
-    #[error(transparent)]
-    Control(#[from] ControlError),
-    #[error(transparent)]
-    Io(#[from] std::io::Error),
-}
-
-fn source_build_error(error: BuildError) -> ControlError {
-    match error {
-        BuildError::RemoteBuilderRequired => ControlError::Policy(
-            "remote source deployments require a configured remote builder and registry",
-        ),
-        error => ControlError::SourceBuild(source_build_reason(&error)),
-    }
-}
-
-fn source_build_reason(error: &BuildError) -> String {
-    match error {
-        BuildError::CommandUnavailable(action) if action.contains("railpack") => {
-            "Railpack CLI is not installed on the control-plane host. Install it or set IGNITIFY_RAILPACK_BIN to its absolute path.".to_owned()
-        }
-        BuildError::CommandUnavailable(action) if action.contains("docker") => {
-            "Docker CLI is not installed on the control-plane host or is not available in PATH."
-                .to_owned()
-        }
-        BuildError::CommandUnavailable(action) if action.contains("git") => {
-            "Git CLI is not installed on the control-plane host or is not available in PATH."
-                .to_owned()
-        }
-        BuildError::CommandUnavailable(action) => {
-            format!("{action} could not start because its executable is unavailable.")
-        }
-        BuildError::CommandFailed(action) => {
-            format!("{action} failed. Check the source configuration and build tool prerequisites.")
-        }
-        BuildError::GitCheckout(error) => format!("Git source checkout failed: {error}"),
-        BuildError::CommandTimedOut(action) => {
-            format!("{action} exceeded the configured build timeout.")
-        }
-        BuildError::GithubApp(error) => format!("GitHub App authentication failed: {error}"),
-        error => error.to_string(),
-    }
-}
-
 fn env_value(name: &str) -> Option<String> {
     env::var(name).ok().filter(|value| !value.trim().is_empty())
 }
@@ -1049,6 +741,13 @@ fn configured_digest_image(name: &'static str, value: &str) -> Result<String, Bu
     Ok(value.to_owned())
 }
 
+fn git_config(credentials: &GitCredentials) -> String {
+    let authorization = STANDARD.encode(format!("{}:{}", credentials.username, credentials.token));
+    format!(
+        "[http]\n\textraHeader = Authorization: Basic {authorization}\n[credential]\n\thelper =\n"
+    )
+}
+
 fn default_railpack_bin() -> String {
     let binary = if cfg!(windows) {
         "railpack.exe"
@@ -1063,143 +762,8 @@ fn default_railpack_bin() -> String {
         .unwrap_or_else(|| binary.to_owned())
 }
 
-fn repository_url(provider: &ProviderRecord, repository: &str) -> Result<String, BuildError> {
-    let base = provider
-        .internal_url
-        .as_deref()
-        .unwrap_or(&provider.base_url)
-        .trim_end_matches('/');
-    let url = Url::parse(base).map_err(|_| BuildError::InvalidRepositoryUrl)?;
-    if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none() {
-        return Err(BuildError::InvalidRepositoryUrl);
-    }
-    if provider.kind == ProviderKind::Git && base.ends_with(".git") {
-        return Ok(base.to_owned());
-    }
-    let repository = repository.trim_matches('/');
-    if repository.is_empty()
-        || repository
-            .split('/')
-            .any(|part| part.is_empty() || part == "." || part == "..")
-    {
-        return Err(BuildError::InvalidRepositoryUrl);
-    }
-    Ok(format!("{base}/{repository}.git"))
-}
-
-fn git_config(credentials: &GitCredentials) -> String {
-    let authorization = STANDARD.encode(format!("{}:{}", credentials.username, credentials.token));
-    format!(
-        "[http]\n\textraHeader = Authorization: Basic {authorization}\n[credential]\n\thelper =\n"
-    )
-}
-
-fn relative_path(value: &str) -> Result<PathBuf, BuildError> {
-    let path = Path::new(value);
-    if path.is_absolute()
-        || value.is_empty()
-        || path.components().any(|component| {
-            matches!(
-                component,
-                std::path::Component::ParentDir
-                    | std::path::Component::RootDir
-                    | std::path::Component::Prefix(_)
-            )
-        })
-    {
-        return Err(BuildError::UnsafePath);
-    }
-    Ok(path.to_path_buf())
-}
-
-fn compose_runtime_spec(
-    deployment_spec: &ServiceSpec,
-    yaml: String,
-) -> Result<ServiceSpec, BuildError> {
-    let ServiceSpec::Compose {
-        exposed_service: configured_exposed_service,
-        internal_port,
-        ..
-    } = deployment_spec
-    else {
-        return Err(BuildError::InvalidComposeSource);
-    };
-    let exposed_service = if has_auto_exposed_service(deployment_spec) {
-        first_compose_service(&yaml)?
-    } else {
-        configured_exposed_service.to_owned()
-    };
-    ServiceSpec::compose(yaml, exposed_service, *internal_port)
-        .map_err(|_| BuildError::InvalidComposeSource)
-}
-
-fn has_auto_exposed_service(spec: &ServiceSpec) -> bool {
-    let ServiceSpec::Compose {
-        yaml,
-        exposed_service,
-        ..
-    } = spec
-    else {
-        return false;
-    };
-    exposed_service == AUTO_EXPOSED_SERVICE
-        && yaml
-            == &format!(
-                "services:\n  {AUTO_EXPOSED_SERVICE}:\n    image: {SOURCE_PLACEHOLDER_IMAGE}\n"
-            )
-}
-
-fn first_compose_service(yaml: &str) -> Result<String, BuildError> {
-    let documents =
-        YamlLoader::load_from_str(yaml).map_err(|_| BuildError::InvalidComposeSource)?;
-    let services = documents
-        .first()
-        .and_then(|document| document["services"].as_hash())
-        .ok_or(BuildError::InvalidComposeSource)?;
-    services
-        .keys()
-        .find_map(|name| name.as_str())
-        .map(str::to_owned)
-        .ok_or(BuildError::InvalidComposeSource)
-}
-
-fn static_dockerfile(
-    build_image: &str,
-    runtime_image: &str,
-    command: &str,
-    output: &Path,
-) -> String {
-    format!(
-        "FROM {build_image} AS build\nWORKDIR /app\nCOPY . .\nRUN /bin/sh -ec {}\nFROM {runtime_image}\nCOPY --from=build /app/{} /usr/share/caddy\n",
-        shell_quote(command),
-        output.display(),
-    )
-}
-
-fn shell_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "'\"'\"'"))
-}
-
-fn is_git_revision(value: &str) -> bool {
-    (40..=128).contains(&value.len()) && value.bytes().all(|byte| byte.is_ascii_hexdigit())
-}
-
-fn is_local_image_id(value: &str) -> bool {
-    value.strip_prefix("sha256:").is_some_and(|digest| {
-        digest.len() == 64 && digest.bytes().all(|byte| byte.is_ascii_hexdigit())
-    })
-}
-
 async fn remove_dir_if_exists(path: &Path) -> Result<(), std::io::Error> {
     match fs::remove_dir_all(path).await {
-        Ok(()) => Ok(()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(error),
-    }
-}
-
-async fn remove_file_if_exists(path: &Path) -> Result<(), std::io::Error> {
-    match fs::remove_file(path).await {
         Ok(()) => Ok(()),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(error),
@@ -1218,29 +782,6 @@ async fn remote_image_reference(image: &str, metadata: &Path) -> Result<String, 
     Ok(format!("{image}@{digest}"))
 }
 
-async fn write_credentials_config(path: &Path, contents: &str) -> Result<(), std::io::Error> {
-    write_sensitive_file(path, contents.as_bytes()).await
-}
-
-async fn write_sensitive_file(path: &Path, contents: &[u8]) -> Result<(), std::io::Error> {
-    #[cfg(unix)]
-    {
-        let mut file = fs::OpenOptions::new()
-            .create_new(true)
-            .write(true)
-            .mode(0o600)
-            .open(path)
-            .await?;
-        file.write_all(contents).await?;
-        file.flush().await?;
-    }
-    #[cfg(not(unix))]
-    {
-        fs::write(path, contents).await?;
-    }
-    Ok(())
-}
-
 async fn cleanup_checkout(checkout: &Checkout) {
     if let Err(error) = remove_dir_if_exists(&checkout.path).await {
         tracing::warn!(path = %checkout.path.display(), error = %error, "could not remove Git checkout");
@@ -1248,143 +789,5 @@ async fn cleanup_checkout(checkout: &Checkout) {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{
-        AUTO_EXPOSED_SERVICE, BuildError, BuildLimiter, SOURCE_PLACEHOLDER_IMAGE,
-        compose_runtime_spec, first_compose_service, is_git_revision, is_local_image_id,
-        relative_path, shell_quote, source_build_error, static_dockerfile,
-    };
-    use ignitify_db::{Database, DatabaseConfig};
-    use ignitify_domain::ServiceSpec;
-    use std::sync::Arc;
-
-    #[test]
-    fn static_build_uses_the_generated_dockerfile_not_the_host_shell() {
-        let dockerfile = static_dockerfile(
-            "node@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            "caddy@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-            "npm ci && npm run build",
-            std::path::Path::new("dist"),
-        );
-        assert!(dockerfile.contains("RUN /bin/sh -ec 'npm ci && npm run build'"));
-        assert!(dockerfile.contains("COPY --from=build /app/dist /usr/share/caddy"));
-    }
-
-    #[tokio::test]
-    async fn build_limiter_holds_the_configured_number_of_slots() {
-        let database = Database::connect(&DatabaseConfig {
-            url: "sqlite::memory:".to_owned(),
-        })
-        .await
-        .unwrap();
-        let limiter = Arc::new(BuildLimiter::default());
-        let first = limiter.acquire(&database).await.unwrap();
-        let second = limiter.acquire(&database).await.unwrap();
-        assert!(
-            tokio::time::timeout(
-                std::time::Duration::from_millis(20),
-                limiter.acquire(&database),
-            )
-            .await
-            .is_err()
-        );
-        drop(first);
-        let third = tokio::time::timeout(
-            std::time::Duration::from_millis(100),
-            limiter.acquire(&database),
-        )
-        .await
-        .unwrap()
-        .unwrap();
-        drop((second, third));
-    }
-
-    #[test]
-    fn source_paths_cannot_escape_the_checkout() {
-        assert!(relative_path("Dockerfile").is_ok());
-        assert!(relative_path("apps/web/dist").is_ok());
-        assert!(relative_path("../Dockerfile").is_err());
-        assert!(relative_path("/etc/passwd").is_err());
-    }
-
-    #[test]
-    fn git_compose_preserves_an_explicit_exposed_service() {
-        let configured = ServiceSpec::compose(
-            "services:\n  web:\n    image: nginx@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n",
-            "web",
-            Some(8080),
-        )
-        .unwrap();
-        let runtime = compose_runtime_spec(
-            &configured,
-            "services:\n  app:\n    image: caddy@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n"
-                .to_owned(),
-        )
-        .unwrap();
-        let ServiceSpec::Compose {
-            yaml,
-            exposed_service,
-            internal_port,
-        } = runtime
-        else {
-            panic!("expected Compose runtime specification");
-        };
-        assert!(yaml.contains("caddy@sha256:"));
-        assert_eq!(exposed_service, "web");
-        assert_eq!(internal_port, Some(8080));
-    }
-
-    #[test]
-    fn git_compose_auto_detects_the_first_service() {
-        let configured = ServiceSpec::compose(
-            format!(
-                "services:\n  {AUTO_EXPOSED_SERVICE}:\n    image: {SOURCE_PLACEHOLDER_IMAGE}\n"
-            ),
-            AUTO_EXPOSED_SERVICE,
-            Some(8080),
-        )
-        .unwrap();
-        let runtime = compose_runtime_spec(
-            &configured,
-            "services:\n  app:\n    image: caddy@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n"
-                .to_owned(),
-        )
-        .unwrap();
-        let ServiceSpec::Compose {
-            exposed_service, ..
-        } = runtime
-        else {
-            panic!("expected Compose runtime specification");
-        };
-        assert_eq!(exposed_service, "app");
-    }
-
-    #[test]
-    fn git_compose_source_requires_at_least_one_service() {
-        assert!(matches!(
-            first_compose_service("services: {}\n"),
-            Err(BuildError::InvalidComposeSource)
-        ));
-    }
-
-    #[test]
-    fn revision_and_local_image_ids_have_strict_grammars() {
-        assert!(is_git_revision(&"a".repeat(40)));
-        assert!(!is_git_revision("main"));
-        assert!(is_local_image_id(&format!("sha256:{}", "b".repeat(64))));
-        assert!(!is_local_image_id("sha256:short"));
-    }
-
-    #[test]
-    fn shell_quoting_keeps_user_command_inside_one_argument() {
-        assert_eq!(shell_quote("echo 'ok'"), "'echo '\"'\"'ok'\"'\"''");
-    }
-
-    #[test]
-    fn missing_railpack_explains_the_control_plane_prerequisite() {
-        assert_eq!(
-            source_build_error(BuildError::CommandUnavailable("railpack prepare")).to_string(),
-            "source build failed: Railpack CLI is not installed on the control-plane host. Install it or set IGNITIFY_RAILPACK_BIN to its absolute path."
-        );
-    }
-}
+#[path = "tests.rs"]
+mod tests;
