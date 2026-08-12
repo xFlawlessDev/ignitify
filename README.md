@@ -39,6 +39,16 @@ When configured, Ignitify performs real Docker, Docker Compose, SSH, Git, DNS,
 HTTP-monitoring, and S3-compatible storage operations. Install it only on
 hosts and infrastructure you administer.
 
+## Install Ignitify
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/xFlawlessDev/ignitify/main/install.sh | sh
+```
+
+For supported Linux `amd64` hosts. The installer downloads and verifies the
+latest release; see [Production installation](#production-installation) for
+requirements and version selection.
+
 ## Contents
 
 - [Capabilities](#capabilities)
