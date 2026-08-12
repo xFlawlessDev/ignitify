@@ -1,22 +1,5 @@
 <script setup lang="ts">
-import {
-  Box,
-  Boxes,
-  CircleAlert,
-  Container,
-  Copy,
-  Eye,
-  EyeOff,
-  FileCode2,
-  GitBranch,
-  Globe2,
-  Info,
-  LockKeyhole,
-  Plus,
-  Rocket,
-  Trash2,
-} from "@lucide/vue";
-import { computed, onMounted, reactive, shallowRef, watch, type Component } from "vue";
+import { Boxes, CircleAlert, Copy, Eye, EyeOff, Info, LockKeyhole } from "@lucide/vue";
 import { useI18n } from "vue-i18n";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
@@ -30,10 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
-import { Switch } from "@/components/ui/switch";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   Select,
   SelectContent,
@@ -44,18 +24,15 @@ import {
 import TemplateCatalogPicker from "@/components/templates/TemplateCatalogPicker.vue";
 import ComposePolicyGuide from "@/components/project/ComposePolicyGuide.vue";
 import YamlCodeEditor from "@/components/project/YamlCodeEditor.vue";
-import { useProviderRepositories } from "@/composables/useProviderRepositories";
-import { templateRuntimeDefaults, type TemplateApplication } from "@/lib/template-catalog";
+import ServiceEnvironmentEditor from "@/components/project/ServiceEnvironmentEditor.vue";
+import { useServiceConfiguration } from "@/composables/useServiceConfiguration";
 import { cn } from "@/lib/utils";
-import { apiListRemoteServers, type RemoteServerSummary } from "@/lib/api";
 import type {
-  ApplicationBuilder,
   ProjectEnvironmentVariable,
   ProviderSummary,
   ServiceInput,
   ServiceSource,
   ServiceSummary,
-  ServiceVariable,
 } from "@/lib/types";
 
 const props = defineProps<{
@@ -71,484 +48,67 @@ const emit = defineEmits<{
   save: [input: ServiceInput];
   rotateAutoDeploySecret: [];
 }>();
-
 const { t } = useI18n();
 
-const name = shallowRef("");
-const kind = shallowRef<"image" | "compose">("image");
-const source = shallowRef<ServiceSource>("template");
-const composeMode = shallowRef<"yaml" | "repository">("yaml");
-const template = shallowRef("static");
-const providerId = shallowRef("");
-const repository = shallowRef("");
-const branch = shallowRef("main");
-const builder = shallowRef<ApplicationBuilder>("static");
-const dockerfilePath = shallowRef("Dockerfile");
-const buildCommand = shallowRef("");
-const outputDirectory = shallowRef("dist");
-const autoDeploy = shallowRef(false);
-const imageReference = shallowRef("");
-const composeYaml = shallowRef("");
-const exposedService = shallowRef("");
-const internalPort = shallowRef("");
-const healthcheck = shallowRef("");
-const appliedTemplateName = shallowRef("");
-const validationError = shallowRef<string | null>(null);
-const activeEnvironmentKind = shallowRef<"variables" | "secrets">("variables");
-const showSecretValues = shallowRef(false);
-const showAutoDeploySecret = shallowRef(false);
-const deploymentDestinationId = shallowRef("local");
-const destinations = shallowRef<RemoteServerSummary[]>([]);
-
-interface ServiceVariableDraft extends ServiceVariable {
-  is_set?: boolean;
-}
-
-const variables = reactive<ServiceVariableDraft[]>([]);
-const sourceRepositories = useProviderRepositories();
-
-const builderOptions: Array<{
-  value: ApplicationBuilder;
-  label: string;
-  description: string;
-  icon: Component;
-}> = [
-  { value: "static", label: "Static", description: "Build and serve static assets", icon: Globe2 },
-  {
-    value: "dockerfile",
-    label: "Dockerfile",
-    description: "Use the repository Dockerfile",
-    icon: Container,
-  },
-  { value: "railpack", label: "Railpack", description: "Detect and build the app", icon: Rocket },
-];
-const sourceOptions = [
-  {
-    value: "template" as const,
-    label: "Template",
-    icon: Box,
-    description: "Catalog runtime",
-  },
-  {
-    value: "compose" as const,
-    label: "Compose",
-    icon: FileCode2,
-    description: "Managed YAML",
-  },
-  {
-    value: "application" as const,
-    label: "Application",
-    icon: GitBranch,
-    description: "Git build",
-  },
-];
-const availableProviders = computed(() =>
-  (props.providers ?? []).filter((provider) => provider.token_configured),
-);
-const selectedProvider = computed(
-  () => availableProviders.value.find((provider) => provider.id === providerId.value) ?? null,
-);
-const autoDeploySupported = computed(() =>
-  ["github", "gitlab", "gitea"].includes(selectedProvider.value?.kind ?? ""),
-);
-const autoDeployWebhookUrl = computed(
-  () => `${window.location.origin}/api/v1/webhooks/services/${props.service.id}`,
-);
-const repositoryOptions = computed(() => {
-  const current = repository.value;
-  if (current && !sourceRepositories.repositories.value.some((item) => item.path === current)) {
-    return [
-      { name: current, path: current, default_branch: branch.value || null },
-      ...sourceRepositories.repositories.value,
-    ];
-  }
-  return sourceRepositories.repositories.value;
-});
-const branchOptions = computed(() => {
-  const current = branch.value;
-  if (current && !sourceRepositories.branches.value.some((item) => item.name === current)) {
-    return [{ name: current }, ...sourceRepositories.branches.value];
-  }
-  return sourceRepositories.branches.value;
-});
-const sourceSummary = computed(() => {
-  if (source.value === "application") {
-    return repository.value.trim() || `${builder.value} build`;
-  }
-  if (source.value === "compose") {
-    return composeMode.value === "repository"
-      ? repository.value.trim() || "Repository Compose"
-      : "Inline Compose";
-  }
-  return appliedTemplateName.value || "Template runtime";
-});
-const validationMessage = computed(() => validationError.value ?? props.error ?? null);
-const supportsBuildCommand = computed(
-  () =>
-    source.value === "application" && (builder.value === "static" || builder.value === "railpack"),
-);
-const usesStaticOutput = computed(
-  () => source.value === "application" && builder.value === "static",
-);
-const isGitComposeSource = computed(
-  () => source.value === "compose" && composeMode.value === "repository",
-);
-const serviceVariableCount = computed(
-  () => variables.filter((variable) => !variable.is_secret).length,
-);
-const serviceSecretCount = computed(
-  () => variables.filter((variable) => variable.is_secret).length,
-);
-const activeServiceVariables = computed(() =>
-  variables
-    .map((variable, index) => ({ variable, index }))
-    .filter(({ variable }) =>
-      activeEnvironmentKind.value === "secrets" ? variable.is_secret : !variable.is_secret,
-    ),
-);
-const inheritedVariableCount = computed(
-  () => (props.inheritedVariables ?? []).filter((variable) => !variable.is_secret).length,
-);
-const inheritedSecretCount = computed(
-  () => (props.inheritedVariables ?? []).filter((variable) => variable.is_secret).length,
-);
-
-function isRepositorySource() {
-  return (
-    source.value === "application" ||
-    (source.value === "compose" && composeMode.value === "repository")
-  );
-}
-
-function sourceOptionClass(selected: boolean) {
-  return cn(
-    "grid h-auto min-h-[88px] w-full content-start justify-items-start gap-1 rounded-[6px] border px-3 py-3 text-left transition-colors",
-    selected
-      ? "border-[var(--status-live)] bg-muted/70"
-      : "border-border hover:bg-muted/60 focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[2px] focus-visible:outline-none",
-  );
-}
-
-function builderOptionClass(selected: boolean) {
-  return cn(
-    "grid h-auto min-h-[64px] w-full content-start justify-items-start gap-1 rounded-[5px] border px-3 py-2 text-left transition-colors",
-    selected
-      ? "border-[var(--status-live)] bg-background"
-      : "border-border hover:bg-muted/40 focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[2px] focus-visible:outline-none",
-  );
-}
-
-function composeModeClass(selected: boolean) {
-  return cn(
-    "h-auto min-h-9 w-full justify-start rounded-[5px] border px-3 py-2 text-left text-xs transition-colors",
-    selected
-      ? "border-[var(--status-live)] bg-muted/70"
-      : "border-border hover:bg-muted/60 focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[2px] focus-visible:outline-none",
-  );
-}
-
-function selectProvider(value: string) {
-  providerId.value = value;
-  repository.value = "";
-  branch.value = "";
-  void sourceRepositories.loadRepositories(value);
-}
-
-function selectRepository(value: string) {
-  repository.value = value;
-  const selected = sourceRepositories.repositories.value.find((item) => item.path === value);
-  branch.value = selected?.default_branch ?? "";
-  void sourceRepositories.loadBranches(providerId.value, value);
-}
-
-function selectSource(value: ServiceSource) {
-  const previousSource = source.value;
-  source.value = value;
-  kind.value = value === "compose" ? "compose" : "image";
-  validationError.value = null;
-  if (value === "template" && previousSource !== "template") {
-    composeYaml.value = "";
-    exposedService.value = "";
-    internalPort.value = "";
-    appliedTemplateName.value = "";
-  }
-  if (value !== "template") {
-    appliedTemplateName.value = "";
-  }
-  if (value === "compose" && dockerfilePath.value === "Dockerfile") {
-    dockerfilePath.value = "docker-compose.yml";
-  }
-  if (value === "application" && builder.value === "static") internalPort.value = "80";
-  if (!isRepositorySource()) {
-    sourceRepositories.reset();
-  }
-}
-
-function selectComposeMode(value: "yaml" | "repository") {
-  composeMode.value = value;
-  validationError.value = null;
-  if (value === "repository" && dockerfilePath.value === "Dockerfile") {
-    dockerfilePath.value = "docker-compose.yml";
-  }
-  if (value === "repository" && providerId.value) {
-    void sourceRepositories.loadRepositories(providerId.value);
-    return;
-  }
-  if (value === "yaml") sourceRepositories.reset();
-}
-
-function selectProviderEvent(value: string | undefined) {
-  selectProvider(value ?? "");
-}
-
-function selectRepositoryEvent(value: string | undefined) {
-  selectRepository(value ?? "");
-}
-
-function reset() {
-  sourceRepositories.reset();
-  name.value = props.service.name;
-  kind.value = props.service.kind;
-  source.value =
-    props.service.source_config?.source ?? (kind.value === "compose" ? "compose" : "template");
-  composeMode.value = props.service.source_config?.provider_id ? "repository" : "yaml";
-  template.value = props.service.source_config?.setup_required
-    ? "static"
-    : (props.service.source_config?.template ?? "static");
-  appliedTemplateName.value = props.service.source_config?.template ?? "";
-  providerId.value = props.service.source_config?.provider_id ?? "";
-  repository.value = props.service.source_config?.repository ?? "";
-  branch.value = props.service.source_config?.branch ?? "main";
-  builder.value =
-    props.service.source_config?.builder === "spa"
-      ? "static"
-      : (props.service.source_config?.builder ?? "static");
-  dockerfilePath.value =
-    props.service.source_config?.dockerfile_path ??
-    (props.service.source_config?.source === "compose" ? "docker-compose.yml" : "Dockerfile");
-  buildCommand.value = props.service.source_config?.build_command ?? "";
-  outputDirectory.value = props.service.source_config?.output_directory ?? "dist";
-  autoDeploy.value = props.service.source_config?.auto_deploy ?? false;
-  showAutoDeploySecret.value = false;
-  imageReference.value = props.service.image_reference ?? "";
-  composeYaml.value = props.service.compose_yaml ?? "";
-  exposedService.value = props.service.exposed_service ?? "";
-  internalPort.value =
-    source.value === "application" && builder.value === "static"
-      ? "80"
-      : (props.service.internal_port?.toString() ?? "");
-  healthcheck.value = props.service.healthcheck?.join("\n") ?? "";
-  deploymentDestinationId.value = props.service.deployment_destination_id ?? "local";
-  validationError.value = null;
-  variables.splice(
-    0,
-    variables.length,
-    ...props.service.variables.map((variable) => ({
-      key: variable.key,
-      value: variable.is_secret ? "" : (variable.value ?? ""),
-      is_secret: variable.is_secret,
-      is_set: variable.is_set,
-    })),
-  );
-  if (
-    !variables.some((variable) =>
-      activeEnvironmentKind.value === "secrets" ? variable.is_secret : !variable.is_secret,
-    )
-  ) {
-    activeEnvironmentKind.value = variables.some((variable) => variable.is_secret)
-      ? "secrets"
-      : "variables";
-  }
-  if (providerId.value && isRepositorySource()) {
-    void sourceRepositories.loadRepositories(providerId.value).then(() => {
-      if (repository.value)
-        void sourceRepositories.loadBranches(providerId.value, repository.value);
-    });
-  }
-}
-
-async function loadDestinations() {
-  try {
-    const result = await apiListRemoteServers();
-    if (result.success) destinations.value = result.data;
-  } catch {
-    destinations.value = [];
-  }
-}
-
-function addVariable(isSecret: boolean) {
-  activeEnvironmentKind.value = isSecret ? "secrets" : "variables";
-  variables.push({ key: "", value: "", is_secret: isSecret, is_set: false });
-}
-
-function selectBuilder(value: ApplicationBuilder) {
-  builder.value = value;
-  if (value === "static") internalPort.value = "80";
-}
-
-function removeVariable(index: number) {
-  variables.splice(index, 1);
-}
-
-function updateSecret(index: number, isSecret: boolean) {
-  const variable = variables[index];
-  if (!variable) return;
-  variable.is_secret = isSecret;
-  activeEnvironmentKind.value = isSecret ? "secrets" : "variables";
-}
-
-function copyAutoDeployValue(value: string) {
-  if (typeof navigator !== "undefined" && navigator.clipboard) {
-    void navigator.clipboard.writeText(value);
-  }
-}
-
-function normalizeComposeYaml(value: string) {
-  return value.replace(/\r\n/g, "\n").split(String.fromCharCode(0)).join("");
-}
-
-function applyTemplate(application: TemplateApplication) {
-  const defaults = templateRuntimeDefaults(application);
-  source.value = "template";
-  template.value = application.template.id;
-  appliedTemplateName.value = application.template.name;
-  kind.value = "compose";
-  composeMode.value = "yaml";
-  composeYaml.value = normalizeComposeYaml(application.composeYaml);
-  exposedService.value = defaults.exposedService;
-  internalPort.value = defaults.internalPort;
-  variables.splice(0, variables.length, ...defaults.variables);
-  activeEnvironmentKind.value = defaults.variables.some((variable) => variable.is_secret)
-    ? "secrets"
-    : "variables";
-  validationError.value = null;
-}
-
-function isDigestPinnedImage(value: string) {
-  return /^[^\s@]+@sha256:[a-fA-F0-9]{64}$/.test(value);
-}
-
-function submit() {
-  validationError.value = null;
-  const submittedComposeYaml = normalizeComposeYaml(composeYaml.value);
-  composeYaml.value = submittedComposeYaml;
-  if (source.value === "template" && !submittedComposeYaml.trim()) {
-    validationError.value = "Choose a template before saving changes.";
-    return;
-  }
-  if (
-    source.value !== "application" &&
-    source.value !== "template" &&
-    kind.value === "image" &&
-    !isDigestPinnedImage(imageReference.value.trim())
-  ) {
-    validationError.value = "Image reference must include an exact sha256 digest.";
-    return;
-  }
-  if (
-    kind.value === "compose" &&
-    !isGitComposeSource.value &&
-    (!exposedService.value.trim() || (composeMode.value === "yaml" && !submittedComposeYaml.trim()))
-  ) {
-    validationError.value = "Compose YAML and exposed service are required.";
-    return;
-  }
-  if (
-    source.value === "compose" &&
-    composeMode.value === "repository" &&
-    (!providerId.value || !repository.value.trim() || !branch.value.trim())
-  ) {
-    validationError.value = "Choose a provider, repository, and branch for the Compose file.";
-    return;
-  }
-  if (variables.some((variable) => variable.is_secret && !variable.is_set && !variable.value)) {
-    validationError.value = "Enter a value for every new service secret before saving.";
-    return;
-  }
-  if (
-    source.value === "application" &&
-    (!providerId.value || !repository.value.trim() || !branch.value.trim())
-  ) {
-    validationError.value = "Choose a provider, repository, and branch for the application.";
-    return;
-  }
-  const port = String(internalPort.value).trim();
-  const parsedPort = port ? Number(port) : null;
-  if (
-    parsedPort !== null &&
-    (!Number.isInteger(parsedPort) || parsedPort < 1 || parsedPort > 65535)
-  ) {
-    validationError.value = "Internal port must be between 1 and 65535.";
-    return;
-  }
-  const healthcheckArguments = healthcheck.value
-    .split("\n")
-    .map((argument) => argument.trim())
-    .filter(Boolean);
-  emit("save", {
-    name: name.value.trim(),
-    kind: kind.value,
-    ...(kind.value === "image"
-      ? {
-          ...(source.value === "application"
-            ? {}
-            : { image_reference: imageReference.value.trim() }),
-          healthcheck: healthcheckArguments.length ? healthcheckArguments : null,
-        }
-      : {
-          ...(isGitComposeSource.value ? {} : { compose_yaml: submittedComposeYaml }),
-          ...(isGitComposeSource.value ? {} : { exposed_service: exposedService.value.trim() }),
-          healthcheck: null,
-        }),
-    internal_port: parsedPort,
-    variables: variables.map(({ key, value, is_secret, is_set }) => ({
-      key: key.trim(),
-      value,
-      is_secret,
-      ...(is_secret && is_set && !value ? { preserve: true } : {}),
-    })),
-    source_config: {
-      source: source.value,
-      ...(source.value === "template" ? { template: template.value } : {}),
-      ...(source.value === "application"
-        ? {
-            provider_id: providerId.value,
-            repository: repository.value.trim(),
-            branch: branch.value.trim(),
-            builder: builder.value,
-            ...(builder.value === "dockerfile" && dockerfilePath.value.trim()
-              ? { dockerfile_path: dockerfilePath.value.trim() }
-              : {}),
-            ...(supportsBuildCommand.value && buildCommand.value.trim()
-              ? { build_command: buildCommand.value.trim() }
-              : {}),
-            ...(usesStaticOutput.value && outputDirectory.value.trim()
-              ? { output_directory: outputDirectory.value.trim() }
-              : {}),
-          }
-        : {}),
-      ...(source.value === "compose" && composeMode.value === "repository"
-        ? {
-            provider_id: providerId.value,
-            repository: repository.value.trim(),
-            branch: branch.value.trim(),
-            ...(dockerfilePath.value.trim()
-              ? { dockerfile_path: dockerfilePath.value.trim() }
-              : {}),
-          }
-        : {}),
-      ...(isRepositorySource() ? { auto_deploy: autoDeploy.value } : {}),
-    },
-    deployment_destination_id:
-      deploymentDestinationId.value === "local" ? null : deploymentDestinationId.value,
-  });
-}
-
-watch(() => props.service.id, reset, { immediate: true });
-watch(autoDeploySupported, (supported) => {
-  if (selectedProvider.value && !supported) autoDeploy.value = false;
-});
-onMounted(() => void loadDestinations());
+const {
+  activeEnvironmentKind,
+  activeServiceVariables,
+  addVariable,
+  appliedTemplateName,
+  applyTemplate,
+  autoDeploy,
+  autoDeploySupported,
+  autoDeployWebhookUrl,
+  availableProviders,
+  branch,
+  branchOptions,
+  buildCommand,
+  builder,
+  builderOptionClass,
+  builderOptions,
+  composeMode,
+  composeModeClass,
+  composeYaml,
+  copyAutoDeployValue,
+  deploymentDestinationId,
+  destinations,
+  dockerfilePath,
+  exposedService,
+  healthcheck,
+  imageReference,
+  inheritedSecretCount,
+  inheritedVariableCount,
+  internalPort,
+  isGitComposeSource,
+  isRepositorySource,
+  kind,
+  name,
+  outputDirectory,
+  providerId,
+  removeVariable,
+  repository,
+  repositoryOptions,
+  selectBuilder,
+  selectComposeMode,
+  selectedProvider,
+  selectProviderEvent,
+  selectRepositoryEvent,
+  selectSource,
+  serviceSecretCount,
+  serviceVariableCount,
+  showAutoDeploySecret,
+  showSecretValues,
+  source,
+  sourceOptionClass,
+  sourceOptions,
+  sourceRepositories,
+  sourceSummary,
+  submit,
+  supportsBuildCommand,
+  updateSecret,
+  usesStaticOutput,
+  validationMessage,
+} = useServiceConfiguration(props, emit);
 </script>
 
 <template>
@@ -1159,151 +719,18 @@ onMounted(() => void loadDestinations());
         </Badge>
       </div>
     </section>
-
-    <fieldset class="grid gap-3 border-t border-border pt-4">
-      <legend class="sr-only">Service environment</legend>
-      <div class="flex items-start justify-between gap-4 max-[560px]:flex-col">
-        <div>
-          <p class="text-sm font-medium">Service environment</p>
-          <p class="mt-1 text-xs leading-5 text-muted-foreground">
-            Service keys override project defaults during deployment.
-          </p>
-        </div>
-        <div class="grid shrink-0 gap-2 max-[560px]:w-full">
-          <Tabs
-            :model-value="activeEnvironmentKind"
-            class="max-[560px]:w-full"
-            @update:model-value="
-              (value) => (activeEnvironmentKind = value as 'variables' | 'secrets')
-            "
-          >
-            <TabsList class="h-8 w-full rounded-[4px] sm:w-auto">
-              <TabsTrigger value="variables" class="min-w-28 px-3 text-[11px]">
-                Variables
-                <span class="ml-1 font-mono text-[10px] text-muted-foreground">{{
-                  serviceVariableCount
-                }}</span>
-              </TabsTrigger>
-              <TabsTrigger value="secrets" class="min-w-28 px-3 text-[11px]">
-                <LockKeyhole class="size-3.5" :stroke-width="1.5" />
-                Secrets
-                <span class="ml-1 font-mono text-[10px] text-muted-foreground">{{
-                  serviceSecretCount
-                }}</span>
-              </TabsTrigger>
-            </TabsList>
-          </Tabs>
-          <Button
-            variant="ghost"
-            v-if="activeEnvironmentKind === 'secrets' && serviceSecretCount"
-            class="inline-flex items-center justify-end gap-1.5 py-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
-            type="button"
-            @click="showSecretValues = !showSecretValues"
-          >
-            <EyeOff v-if="showSecretValues" class="size-3.5" :stroke-width="1.5" />
-            <Eye v-else class="size-3.5" :stroke-width="1.5" />
-            {{ showSecretValues ? "Hide values" : "Reveal values" }}
-          </Button>
-        </div>
-      </div>
-
-      <div v-if="activeServiceVariables.length" class="grid gap-2">
-        <div
-          class="hidden grid-cols-[minmax(0,0.8fr)_minmax(0,1fr)_auto_auto] gap-2 py-1 text-[10px] uppercase text-muted-foreground sm:grid"
-        >
-          <span>Key</span>
-          <span>Value</span>
-          <span>Type</span>
-          <span class="sr-only">Actions</span>
-        </div>
-        <div
-          v-for="{ variable, index } in activeServiceVariables"
-          :key="index"
-          class="grid min-h-[58px] grid-cols-[minmax(0,0.8fr)_minmax(0,1fr)_auto_auto] items-end gap-2 border-b border-border py-2.5 last:border-b-0 max-[560px]:grid-cols-[minmax(0,1fr)_auto_auto]"
-        >
-          <Label class="grid min-w-0 gap-1.5 text-[11px] text-muted-foreground">
-            Key
-            <Input
-              v-model="variable.key"
-              class="h-8 font-mono text-xs uppercase"
-              autocomplete="off"
-              required
-            />
-          </Label>
-          <Label
-            class="grid min-w-0 gap-1.5 text-[11px] text-muted-foreground max-[560px]:col-span-3"
-          >
-            Value
-            <Input
-              v-model="variable.value"
-              class="h-8 font-mono text-xs"
-              :type="variable.is_secret && !showSecretValues ? 'password' : 'text'"
-              :placeholder="
-                variable.is_secret && variable.is_set
-                  ? 'Stored securely; leave blank to keep'
-                  : 'Enter value'
-              "
-              autocomplete="off"
-              :required="!variable.is_secret || !variable.is_set"
-            />
-          </Label>
-          <div class="grid gap-1.5 text-[11px] text-muted-foreground">
-            Secret
-            <Switch
-              :model-value="variable.is_secret"
-              :aria-label="'Mark ' + (variable.key || 'variable') + ' secret'"
-              @update:model-value="updateSecret(index, $event)"
-            />
-          </div>
-          <Tooltip>
-            <TooltipTrigger as-child>
-              <Button
-                size="icon"
-                type="button"
-                variant="outline"
-                :aria-label="'Remove ' + (variable.key || 'variable')"
-                @click="removeVariable(index)"
-              >
-                <Trash2 :stroke-width="1.5" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Remove variable</TooltipContent>
-          </Tooltip>
-        </div>
-      </div>
-      <div v-else class="grid gap-1.5 py-4">
-        <div class="flex items-center gap-2">
-          <LockKeyhole
-            v-if="activeEnvironmentKind === 'secrets'"
-            class="size-4 text-muted-foreground"
-            :stroke-width="1.5"
-          />
-          <p class="text-sm font-medium">
-            {{
-              activeEnvironmentKind === "secrets" ? "No service secrets" : "No service variables"
-            }}
-          </p>
-        </div>
-        <p class="max-w-[56ch] text-xs leading-5 text-muted-foreground">
-          {{
-            activeEnvironmentKind === "secrets"
-              ? "Service secrets override project secrets. Stored values stay masked; leave one blank to keep its current value."
-              : "Add a service-specific value when it needs to override a project variable."
-          }}
-        </p>
-      </div>
-      <div class="flex flex-wrap gap-2">
-        <Button size="sm" type="button" variant="outline" @click="addVariable(false)">
-          <Plus data-icon="inline-start" :stroke-width="1.5" />
-          Add variable
-        </Button>
-        <Button size="sm" type="button" variant="outline" @click="addVariable(true)">
-          <LockKeyhole data-icon="inline-start" :stroke-width="1.5" />
-          Add secret
-        </Button>
-      </div>
-    </fieldset>
-
+    <ServiceEnvironmentEditor
+      :active-environment-kind="activeEnvironmentKind"
+      :active-service-variables="activeServiceVariables"
+      :service-secret-count="serviceSecretCount"
+      :service-variable-count="serviceVariableCount"
+      :show-secret-values="showSecretValues"
+      @add-variable="addVariable"
+      @remove-variable="removeVariable"
+      @update-active-environment-kind="(value) => (activeEnvironmentKind = value)"
+      @update-secret="updateSecret"
+      @update-show-secret-values="(value) => (showSecretValues = value)"
+    />
     <Alert v-if="validationMessage" variant="destructive">
       <CircleAlert :stroke-width="1.5" />
       <AlertTitle>Configuration could not be saved</AlertTitle>
