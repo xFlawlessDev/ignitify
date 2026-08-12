@@ -7,7 +7,7 @@
 
 <h1 align="center">Ignitify</h1>
 
-<p align="center">Self-hosted deployment and operations control plane for infrastructure you administer.</p>
+<p align="center">A fast, lightweight Rust control plane for self-hosted deployments and operations.</p>
 
 <p align="center">
   <a href="https://github.com/xFlawlessDev/ignitify/actions/workflows/ci.yml?query=branch%3Amain"><img src="https://github.com/xFlawlessDev/ignitify/actions/workflows/ci.yml/badge.svg?branch=main" alt="Continuous integration status"></a>
@@ -35,6 +35,14 @@ connections, runtime inspection, and encrypted backup operations into one web
 application. It is designed for operators who need control over the machines,
 credentials, and services they run.
 
+Its Rust backend keeps the control plane lightweight and responsive while the
+worker reconciles deployments and infrastructure operations on the host.
+
+Ignitify is a self-hosted alternative to platforms such as Vercel, Railway,
+Coolify, and Dokploy for teams that want a deployment experience without
+giving up control of their servers, network, domains, and encrypted runtime
+data.
+
 When configured, Ignitify performs real Docker, Docker Compose, SSH, Git, DNS,
 HTTP-monitoring, and S3-compatible storage operations. Install it only on
 hosts and infrastructure you administer.
@@ -60,6 +68,7 @@ requirements and version selection.
 - [Architecture](#architecture)
 - [Production installation](#production-installation)
 - [First operator setup](#first-operator-setup)
+- [Domain routing](#domain-routing)
 - [Security and operations](#security-and-operations)
 - [API documentation](#api-documentation)
 - [Development](#development)
@@ -263,8 +272,12 @@ expose that port directly to the Internet.
    remains loopback-only on the remote host.
 3. Open Ignitify through the local host or active SSH tunnel and use that secret
    to create the first operator account.
-4. Create a DNS `A` record, and an `AAAA` record when applicable, for a separate
-   control-plane hostname such as `console.example.com` that points to this VPS.
+4. Point your domain at the VPS. For the simplest setup, create a wildcard DNS
+   record such as `*.yourdomain.com` with type `A` and the VPS public IPv4
+   address as its target. This lets Ignitify route every service hostname under
+   that suffix through its managed reverse proxy. Add an `AAAA` record when
+   applicable. If the control-plane hostname is outside that suffix, create a
+   separate record for it, for example `console.example.com`.
    Allow public TCP ports `80` and `443` through both the VPS and provider
    firewall.
 5. In **Infrastructure > Ingress & TLS**, set that control-plane hostname, the
@@ -292,6 +305,22 @@ only when placing a different external reverse proxy or tunnel in front of the
 application. Domain names, TLS certificates, ACME contact details, DNS
 credentials, Git tokens, SSH keys, and S3 credentials are not invented by the
 installer and must be provided by the operator.
+
+## Domain Routing
+
+Ignitify uses its bundled Traefik instance as the reverse proxy for the console
+and deployed services. Configure an application suffix such as
+`yourdomain.com`, then point `*.yourdomain.com` at the public IP address of the
+Ignitify host with an `A` record. Service hostnames such as
+`api.yourdomain.com` and `web.yourdomain.com` can then be routed without adding
+one DNS record per service.
+
+The wildcard record does not cover the apex `yourdomain.com`; create a separate
+apex record only when you intend to use it. DNS providers that offer a proxy
+mode may proxy the wildcard record only when their configuration passes HTTPS
+traffic through to Ignitify on ports `80` and `443`; use DNS-only mode while
+validating direct ACME certificates. Ignitify still owns the application routes
+and TLS configuration, and port `5656` must remain private.
 
 ## Security And Operations
 
