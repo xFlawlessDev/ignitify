@@ -16,7 +16,7 @@ import {
   Trash2,
   X,
 } from "@lucide/vue";
-import { computed, nextTick, onUnmounted, shallowRef, watch } from "vue";
+import { computed, onUnmounted, shallowRef, watch } from "vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
 import { toast } from "vue-sonner";
 import DeploymentLogsPanel from "@/components/project/DeploymentLogsPanel.vue";
@@ -41,20 +41,14 @@ import {
   AlertDialogTitle,
 } from "reka-ui";
 import { useProject } from "@/composables/useProject";
-import { useProjectActivity } from "@/composables/useProjectActivity";
 import ProjectDeploymentTimeline from "@/components/project/ProjectDeploymentTimeline.vue";
-import { useDeployment } from "@/composables/useDeployment";
-import { useDeploymentStream } from "@/composables/useDeploymentStream";
-import { useService } from "@/composables/useService";
+import { useProjectDeploymentActivity } from "@/composables/useProjectDeploymentActivity";
 import { useProjectEnvironment } from "@/composables/useProjectEnvironment";
-import type { DeploymentEvent, DeploymentLog, DeploymentSummary, ServiceInput } from "@/lib/types";
+import type { ServiceInput } from "@/lib/types";
 
 const route = useRoute();
 const router = useRouter();
 const { data, error, load: fetchProject, loading, remove: removeProject, update } = useProject();
-const services = useService();
-const deployments = useDeployment();
-const activity = useProjectActivity();
 const projectEnvironment = useProjectEnvironment();
 const projectTabs = [
   { value: "overview", label: "Overview", icon: Boxes },
@@ -64,70 +58,6 @@ const projectTabs = [
   { value: "environment", label: "Environment", icon: Settings2 },
 ] as const;
 type ProjectTab = (typeof projectTabs)[number]["value"];
-const selectedDeploymentId = shallowRef<string | null>(null);
-const deploymentLogsAnchor = shallowRef<HTMLElement | null>(null);
-const streamLogs = shallowRef<DeploymentLog[]>([]);
-const logStream = useDeploymentStream("", {
-  channel: "logs",
-  onLog: (log) => {
-    streamLogs.value = [...streamLogs.value, log].slice(-10_000);
-  },
-});
-const stream = useDeploymentStream("", {
-  onEvent: applyDeploymentEvent,
-  onSnapshot: applyDeploymentSnapshot,
-});
-const serviceData = services.data;
-const serviceError = services.error;
-const serviceLoading = services.loading;
-const SERVICES_PER_PAGE = 6;
-const DEPLOYMENTS_PER_PAGE = 5;
-const serviceCurrentPage = shallowRef(1);
-const serviceViewMode = shallowRef<"list" | "catalog">("catalog");
-const serviceCount = computed(() => serviceData.value.length);
-const servicePageCount = computed(() =>
-  Math.max(1, Math.ceil(serviceCount.value / SERVICES_PER_PAGE)),
-);
-const visibleServices = computed(() => {
-  const start = (serviceCurrentPage.value - 1) * SERVICES_PER_PAGE;
-  return serviceData.value.slice(start, start + SERVICES_PER_PAGE);
-});
-const firstVisibleService = computed(() =>
-  serviceCount.value === 0 ? 0 : (serviceCurrentPage.value - 1) * SERVICES_PER_PAGE + 1,
-);
-const lastVisibleService = computed(() =>
-  Math.min(serviceCurrentPage.value * SERVICES_PER_PAGE, serviceCount.value),
-);
-const activityData = activity.data;
-const activityError = activity.error;
-const activityLoading = activity.loading;
-const deploymentData = deployments.data;
-const deploymentError = deployments.error;
-const deploymentLoading = deployments.loading;
-const deploymentSubmitting = deployments.submitting;
-const availableDeployments = computed(() =>
-  [...deploymentData.value].sort(
-    (left, right) => new Date(right.created_at).getTime() - new Date(left.created_at).getTime(),
-  ),
-);
-const deploymentCurrentPage = shallowRef(1);
-const deploymentCount = computed(() => availableDeployments.value.length);
-const deploymentPageCount = computed(() =>
-  Math.max(1, Math.ceil(deploymentCount.value / DEPLOYMENTS_PER_PAGE)),
-);
-const visibleDeployments = computed(() => {
-  const start = (deploymentCurrentPage.value - 1) * DEPLOYMENTS_PER_PAGE;
-  return availableDeployments.value.slice(start, start + DEPLOYMENTS_PER_PAGE);
-});
-const firstVisibleDeployment = computed(() =>
-  deploymentCount.value === 0 ? 0 : (deploymentCurrentPage.value - 1) * DEPLOYMENTS_PER_PAGE + 1,
-);
-const lastVisibleDeployment = computed(() =>
-  Math.min(deploymentCurrentPage.value * DEPLOYMENTS_PER_PAGE, deploymentCount.value),
-);
-const selectedDeployment = computed(() =>
-  availableDeployments.value.find((deployment) => deployment.id === selectedDeploymentId.value),
-);
 const canManage = computed(() => data.value?.role === "owner" || data.value?.role === "editor");
 const projectVariableCount = computed(
   () => projectEnvironment.data.value.variables.filter((variable) => !variable.is_secret).length,
@@ -137,6 +67,49 @@ const projectSecretCount = computed(
 );
 const canDeleteProject = computed(() => data.value?.role === "owner");
 const activeTab = shallowRef<ProjectTab>("overview");
+const {
+  activity,
+  activityData,
+  activityError,
+  activityLoading,
+  deploymentCount,
+  deploymentCurrentPage,
+  deploymentData,
+  deploymentError,
+  deploymentLoading,
+  deploymentPageCount,
+  deploymentSubmitting,
+  firstVisibleDeployment,
+  firstVisibleService,
+  goToNextDeploymentPage,
+  goToNextServicePage,
+  goToPreviousDeploymentPage,
+  goToPreviousServicePage,
+  lastVisibleDeployment,
+  lastVisibleService,
+  loadProjectWorkloads,
+  logStream,
+  rollbackDeployment,
+  selectedDeployment,
+  selectedDeploymentId,
+  selectDeploymentAndRevealLogs,
+  serviceCount,
+  serviceCurrentPage,
+  serviceData,
+  serviceError,
+  serviceLoading,
+  servicePageCount,
+  serviceViewMode,
+  services,
+  setDeploymentLogsAnchor,
+  setServiceViewMode,
+  stopDeployment,
+  stream,
+  streamLogs,
+  submitDeployment,
+  visibleDeployments,
+  visibleServices,
+} = useProjectDeploymentActivity(activeTab);
 const editName = shallowRef("");
 const renamingProject = shallowRef(false);
 const serviceDialogOpen = shallowRef(false);
@@ -145,111 +118,17 @@ const deleteProjectOpen = shallowRef(false);
 const deleteProjectConfirmName = shallowRef("");
 const deletingProject = shallowRef(false);
 const copiedProjectName = shallowRef(false);
-let projectLoadGeneration = 0;
 let copyProjectNameTimer: number | undefined;
-
-watch(
-  servicePageCount,
-  (count) => {
-    if (serviceCurrentPage.value > count) serviceCurrentPage.value = count;
-  },
-  { immediate: true },
-);
-
-watch(
-  deploymentPageCount,
-  (count) => {
-    if (deploymentCurrentPage.value > count) deploymentCurrentPage.value = count;
-  },
-  { immediate: true },
-);
-
-function setServiceViewMode(mode: "list" | "catalog") {
-  serviceViewMode.value = mode;
-  serviceCurrentPage.value = 1;
-}
 
 function setActiveTab(value: string | number | undefined) {
   const tab = String(value) as ProjectTab;
   if (projectTabs.some((item) => item.value === tab)) activeTab.value = tab;
 }
 
-function goToPreviousServicePage() {
-  serviceCurrentPage.value = Math.max(1, serviceCurrentPage.value - 1);
-}
-
-function goToNextServicePage() {
-  serviceCurrentPage.value = Math.min(servicePageCount.value, serviceCurrentPage.value + 1);
-}
-
-function goToPreviousDeploymentPage() {
-  deploymentCurrentPage.value = Math.max(1, deploymentCurrentPage.value - 1);
-}
-
-function goToNextDeploymentPage() {
-  deploymentCurrentPage.value = Math.min(
-    deploymentPageCount.value,
-    deploymentCurrentPage.value + 1,
-  );
-}
-
-function applyDeploymentEvent(event: DeploymentEvent) {
-  deployments.data.value = deployments.data.value.map((deployment) =>
-    deployment.id === event.deployment_id && event.kind.startsWith("deployment.")
-      ? {
-          ...deployment,
-          status: event.kind.slice("deployment.".length) as DeploymentSummary["status"],
-          failure_reason:
-            (event.payload.failure_reason as string | null | undefined) ??
-            deployment.failure_reason,
-        }
-      : deployment,
-  );
-}
-
-function applyDeploymentSnapshot(deployment: DeploymentSummary) {
-  deployments.data.value = deployments.data.value.map((item) =>
-    item.id === deployment.id ? deployment : item,
-  );
-}
-
-function selectDeployment(deploymentId: string) {
-  selectedDeploymentId.value = deploymentId;
-  const deploymentIndex = availableDeployments.value.findIndex(
-    (deployment) => deployment.id === deploymentId,
-  );
-  if (deploymentIndex >= 0) {
-    deploymentCurrentPage.value = Math.floor(deploymentIndex / DEPLOYMENTS_PER_PAGE) + 1;
-  }
-  streamLogs.value = [];
-  stream.stop();
-  logStream.stop();
-  if (activeTab.value === "deployments") {
-    void stream.connect(deploymentId);
-    void logStream.connect(deploymentId);
-  }
-}
-
-function selectDeploymentAndRevealLogs(deploymentId: string) {
-  selectDeployment(deploymentId);
-  if (!window.matchMedia("(max-width: 1023px)").matches) return;
-
-  void nextTick(() => {
-    const behavior = window.matchMedia("(prefers-reduced-motion: reduce)").matches
-      ? "auto"
-      : "smooth";
-    deploymentLogsAnchor.value?.scrollIntoView({ behavior, block: "start" });
-  });
-}
-
 async function load(projectId: string) {
-  const generation = ++projectLoadGeneration;
-  deployments.clear();
-  deploymentCurrentPage.value = 1;
   renamingProject.value = false;
   serviceDialogOpen.value = false;
   await fetchProject(projectId);
-  if (generation !== projectLoadGeneration) return;
   if (!data.value) {
     toast.error("Project unavailable", {
       description: error.value ?? "Could not load project.",
@@ -259,8 +138,7 @@ async function load(projectId: string) {
   }
   editName.value = data.value.name;
   void projectEnvironment.load(data.value.id);
-  void loadDeployments(data.value.id, generation);
-  void activity.load(data.value.id);
+  void loadProjectWorkloads(data.value.id);
 }
 
 async function saveProjectEnvironment(variables: Parameters<typeof projectEnvironment.save>[1]) {
@@ -369,59 +247,8 @@ async function deleteProject() {
     return;
   }
   deleteProjectOpen.value = false;
-  stream.stop();
-  logStream.stop();
   toast.success("Project deleted", { description: current.name });
   await router.push({ name: "Projects" });
-}
-
-async function loadDeployments(projectId: string, generation = projectLoadGeneration) {
-  await services.load(projectId);
-  if (generation !== projectLoadGeneration) return;
-  if (services.error.value) {
-    toast.error("Services unavailable", { description: services.error.value });
-  }
-  await deployments.loadProject(projectId);
-  if (generation !== projectLoadGeneration) return;
-  if (deploymentError.value) {
-    toast.error("Deployments unavailable", { description: deploymentError.value });
-  }
-}
-
-async function submitDeployment(serviceId: string) {
-  const deployment = await deployments.deploy(serviceId);
-  if (!deployment) {
-    toast.error("Could not start deployment", {
-      description: deploymentError.value ?? "Try again in a moment.",
-    });
-    return;
-  }
-  selectDeployment(deployment.id);
-  toast.success("Deployment started");
-}
-
-async function stopDeployment(serviceId: string) {
-  const deployment = await deployments.stop(serviceId);
-  if (!deployment) {
-    toast.error("Could not stop deployment", {
-      description: deploymentError.value ?? "Try again in a moment.",
-    });
-    return;
-  }
-  selectDeployment(deployment.id);
-  toast.success("Stop requested");
-}
-
-async function rollbackDeployment(deploymentId: string) {
-  const deployment = await deployments.rollback(deploymentId);
-  if (!deployment) {
-    toast.error("Could not roll back deployment", {
-      description: deploymentError.value ?? "Try again in a moment.",
-    });
-    return;
-  }
-  selectDeployment(deployment.id);
-  toast.success("Rollback started");
 }
 
 async function saveService(input: ServiceInput) {
@@ -444,34 +271,7 @@ async function saveService(input: ServiceInput) {
 }
 
 watch(() => String(route.params.projectId), load, { immediate: true });
-watch(
-  availableDeployments,
-  (items) => {
-    if (!items.length) {
-      selectedDeploymentId.value = null;
-      streamLogs.value = [];
-      stream.stop();
-      logStream.stop();
-      return;
-    }
-    if (!items.some((deployment) => deployment.id === selectedDeploymentId.value)) {
-      selectDeployment(items[0].id);
-    }
-  },
-  { immediate: true },
-);
-watch(activeTab, (tab) => {
-  if (tab === "deployments" && selectedDeploymentId.value) {
-    void stream.connect(selectedDeploymentId.value);
-    void logStream.connect(selectedDeploymentId.value);
-  } else {
-    stream.stop();
-    logStream.stop();
-  }
-});
 onUnmounted(() => {
-  stream.stop();
-  logStream.stop();
   if (copyProjectNameTimer !== undefined) window.clearTimeout(copyProjectNameTimer);
 });
 </script>
@@ -625,7 +425,7 @@ onUnmounted(() => {
         :services="serviceData"
         :services-loading="serviceLoading"
         @retry-activity="activity.load(data.id)"
-        @retry-deployments="loadDeployments(data.id)"
+        @retry-deployments="loadProjectWorkloads(data.id)"
         @retry-services="services.load(data.id)"
       />
 
@@ -735,7 +535,7 @@ onUnmounted(() => {
             :selected-deployment-id="selectedDeploymentId"
             @deploy="submitDeployment"
             @stop="stopDeployment"
-            @retry="loadDeployments(data.id)"
+            @retry="loadProjectWorkloads(data.id)"
             @rollback="rollbackDeployment"
             @select="selectDeploymentAndRevealLogs"
           />
@@ -775,7 +575,7 @@ onUnmounted(() => {
         </div>
         <div
           v-if="selectedDeployment"
-          ref="deploymentLogsAnchor"
+          :ref="setDeploymentLogsAnchor"
           class="order-1 min-w-0 scroll-mt-4 lg:sticky lg:top-4 lg:order-2"
         >
           <DeploymentLogsPanel
