@@ -1,8 +1,11 @@
-use chrono::Utc;
+use chrono::{Duration, Utc};
 use sqlx::{FromRow, SqlitePool};
 use uuid::Uuid;
 
 use crate::Result;
+
+const AUTHENTICATION_FAILURE_WINDOW: Duration = Duration::minutes(15);
+const AUTHENTICATION_FAILURE_THRESHOLD: i64 = 3;
 
 #[derive(Debug, Clone)]
 pub struct RemoteServerAgentRecord {
@@ -35,6 +38,16 @@ pub struct RemoteServerAgentHeartbeat {
     pub docker_containers: Option<i64>,
     pub docker_running_containers: Option<i64>,
     pub reported_at: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct RemoteNotificationEventRecord {
+    pub id: String,
+    pub server_id: String,
+    pub server_name: String,
+    pub kind: String,
+    pub message: String,
+    pub created_at: String,
 }
 
 #[derive(Debug, Clone)]
@@ -204,6 +217,81 @@ impl RemoteServerAgentsRepository {
         Ok(())
     }
 
+    pub async fn record_authentication_failure(&self, server_id: &str) -> Result<()> {
+        let now = Utc::now();
+        let cutoff = (now - AUTHENTICATION_FAILURE_WINDOW).to_rfc3339();
+        let now = now.to_rfc3339();
+        let mut transaction = self.pool.begin().await?;
+        sqlx::query("DELETE FROM remote_server_authentication_failures WHERE created_at < ?")
+            .bind(&cutoff)
+            .execute(&mut *transaction)
+            .await?;
+        sqlx::query(
+            "INSERT INTO remote_server_authentication_failures (id, server_id, created_at)
+             VALUES (?, ?, ?)",
+        )
+        .bind(Uuid::new_v4().to_string())
+        .bind(server_id)
+        .bind(&now)
+        .execute(&mut *transaction)
+        .await?;
+        let failures = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM remote_server_authentication_failures
+             WHERE server_id = ? AND created_at >= ?",
+        )
+        .bind(server_id)
+        .bind(&cutoff)
+        .fetch_one(&mut *transaction)
+        .await?;
+        if failures == AUTHENTICATION_FAILURE_THRESHOLD {
+            insert_notification_event(
+                &mut transaction,
+                server_id,
+                "remote_server.authentication_failed",
+                "SSH authentication failed repeatedly",
+                &now,
+            )
+            .await?;
+        }
+        transaction.commit().await?;
+        Ok(())
+    }
+
+    pub async fn notification_events(
+        &self,
+        limit: i64,
+    ) -> Result<Vec<RemoteNotificationEventRecord>> {
+        let rows = sqlx::query_as::<_, RemoteNotificationEventRow>(
+            "SELECT events.id, events.server_id, servers.name AS server_name, events.kind,
+                    events.message, events.created_at
+             FROM remote_notification_events events
+             JOIN remote_servers servers ON servers.id = events.server_id
+             WHERE events.dispatched_at IS NULL
+             ORDER BY events.created_at, events.id
+             LIMIT ?",
+        )
+        .bind(limit.clamp(1, 100))
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(RemoteNotificationEventRow::into_record)
+            .collect())
+    }
+
+    pub async fn finish_notification_event(&self, event_id: &str) -> Result<()> {
+        sqlx::query(
+            "UPDATE remote_notification_events
+             SET dispatched_at = ?
+             WHERE id = ? AND dispatched_at IS NULL",
+        )
+        .bind(Utc::now().to_rfc3339())
+        .bind(event_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
     pub async fn mark_stale(&self, cutoff: &str) -> Result<()> {
         let mut transaction = self.pool.begin().await?;
         let rows = sqlx::query_as::<_, StaleAgentRow>(
@@ -232,6 +320,14 @@ impl RemoteServerAgentsRepository {
                 &now,
             )
             .await?;
+            insert_notification_event(
+                &mut transaction,
+                &row.server_id,
+                "remote_agent.offline",
+                "agent heartbeat timed out",
+                &now,
+            )
+            .await?;
         }
         transaction.commit().await?;
         Ok(())
@@ -247,6 +343,27 @@ async fn insert_event(
 ) -> Result<()> {
     sqlx::query(
         "INSERT INTO remote_server_agent_events (id, server_id, kind, message, created_at)
+         VALUES (?, ?, ?, ?, ?)",
+    )
+    .bind(Uuid::new_v4().to_string())
+    .bind(server_id)
+    .bind(kind)
+    .bind(message)
+    .bind(created_at)
+    .execute(&mut **transaction)
+    .await?;
+    Ok(())
+}
+
+async fn insert_notification_event(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    server_id: &str,
+    kind: &str,
+    message: &str,
+    created_at: &str,
+) -> Result<()> {
+    sqlx::query(
+        "INSERT INTO remote_notification_events (id, server_id, kind, message, created_at)
          VALUES (?, ?, ?, ?, ?)",
     )
     .bind(Uuid::new_v4().to_string())
@@ -303,4 +420,27 @@ impl RemoteServerAgentRow {
 #[derive(Debug, FromRow)]
 struct StaleAgentRow {
     server_id: String,
+}
+
+#[derive(Debug, FromRow)]
+struct RemoteNotificationEventRow {
+    id: String,
+    server_id: String,
+    server_name: String,
+    kind: String,
+    message: String,
+    created_at: String,
+}
+
+impl RemoteNotificationEventRow {
+    fn into_record(self) -> RemoteNotificationEventRecord {
+        RemoteNotificationEventRecord {
+            id: self.id,
+            server_id: self.server_id,
+            server_name: self.server_name,
+            kind: self.kind,
+            message: self.message,
+            created_at: self.created_at,
+        }
+    }
 }

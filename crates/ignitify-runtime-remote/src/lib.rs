@@ -138,6 +138,12 @@ impl SshRuntime {
                 .await
                 .map_err(|_| ControlError::Runtime)?
                 .map_err(|_| ControlError::Runtime)?;
+            if !output.status.success() && is_authentication_failure(&output.stderr) {
+                let _ = self
+                    .servers
+                    .record_authentication_failure(&secrets.connection.id)
+                    .await;
+            }
             Ok(RemoteOutput {
                 success: output.status.success(),
                 stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
@@ -582,6 +588,12 @@ fn yaml_quote(value: &str) -> String {
         .replace(['\n', '\r'], " ")
 }
 
+fn is_authentication_failure(stderr: &[u8]) -> bool {
+    String::from_utf8_lossy(stderr)
+        .to_ascii_lowercase()
+        .contains("permission denied")
+}
+
 fn parse_runtime_ref(value: &str) -> Option<(&str, &str, i64)> {
     let value = value.strip_prefix("ignitify-remote-")?;
     let (value, generation) = value.rsplit_once("-g")?;
@@ -660,7 +672,10 @@ fn parse_logs(stdout: &str, stderr: &str) -> Vec<RuntimeLog> {
 
 #[cfg(test)]
 mod tests {
-    use super::{SshRuntime, parse_observation, parse_runtime_ref, shell_quote, terminated_key};
+    use super::{
+        SshRuntime, is_authentication_failure, parse_observation, parse_runtime_ref, shell_quote,
+        terminated_key,
+    };
     use ignitify_control_plane::RuntimeDeployment;
     use ignitify_domain::{DeploymentId, ServiceId, ServiceSpec};
 
@@ -727,6 +742,12 @@ mod tests {
     fn private_key_termination_uses_a_zeroizing_buffer() {
         let value = terminated_key(b"private-key");
         assert_eq!(value.as_slice(), b"private-key\n");
+    }
+
+    #[test]
+    fn remote_authentication_failure_detection_is_safe() {
+        assert!(is_authentication_failure(b"Permission denied (publickey)."));
+        assert!(!is_authentication_failure(b"Host key verification failed."));
     }
 
     #[test]

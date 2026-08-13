@@ -148,9 +148,11 @@ export default {
       deploymentFailed: "Deployment failed",
       deploymentStopping: "Deployment stopping",
       deploymentStopped: "Deployment stopped",
-      deploymentSuperseded: "Deployment superseded",
       backupSucceeded: "Backup completed",
       backupFailed: "Backup failed",
+      remoteAgentOffline: "Remote agent offline",
+      remoteServerAuthenticationFailed: "Remote SSH authentication failing",
+      deploymentSuperseded: "Deployment superseded",
     },
   },
   deploymentLogs: {

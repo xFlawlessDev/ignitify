@@ -28,13 +28,13 @@ pub use repositories::{
     ProjectVariablesMutationOutcome, ProjectsRepository, ProviderAuthMode, ProviderKind,
     ProviderMutationOutcome, ProviderRecord, ProviderUpdate, ProvidersRepository,
     RefreshTokensRepository, RemoteAgentOperationsSummary, RemoteBuilderConnection,
-    RemoteBuilderRecord, RemoteBuilderUpdate, RemoteBuildersRepository, RemoteServerAgentHeartbeat,
-    RemoteServerAgentRecord, RemoteServerAgentsRepository, RemoteServerConnection,
-    RemoteServerRecord, RemoteServerUpdate, RemoteServersRepository, RetrySchedule, SequenceCursor,
-    ServerCertificateRecord, ServerSettingsRecord, ServerSettingsRepository, ServerSettingsUpdate,
-    ServiceActor, ServiceMutationOutcome, ServiceVariableRecord, ServicesRepository,
-    UptimeCheckUpdate, UptimeMonitorRecord, UptimeMonitorUpdate, UptimeMonitorsRepository,
-    UsersRepository,
+    RemoteBuilderRecord, RemoteBuilderUpdate, RemoteBuildersRepository,
+    RemoteNotificationEventRecord, RemoteServerAgentHeartbeat, RemoteServerAgentRecord,
+    RemoteServerAgentsRepository, RemoteServerConnection, RemoteServerRecord, RemoteServerUpdate,
+    RemoteServersRepository, RetrySchedule, SequenceCursor, ServerCertificateRecord,
+    ServerSettingsRecord, ServerSettingsRepository, ServerSettingsUpdate, ServiceActor,
+    ServiceMutationOutcome, ServiceVariableRecord, ServicesRepository, UptimeCheckUpdate,
+    UptimeMonitorRecord, UptimeMonitorUpdate, UptimeMonitorsRepository, UsersRepository,
 };
 
 #[cfg(test)]

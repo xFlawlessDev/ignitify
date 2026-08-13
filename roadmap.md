@@ -168,7 +168,7 @@ Target: days 31-60.
   certificate failures, remote-server connection failure, and backup recovery.
 - [x] Audit SSH and mTLS credential rotation, temporary file cleanup, known-host
   lifecycle, command timeout behavior, and failure redaction.
-- [ ] Notify operators when remote agents are offline or remote authentication
+- [x] Notify operators when remote agents are offline or remote authentication
   starts failing repeatedly.
 
 ### Definition Of Done

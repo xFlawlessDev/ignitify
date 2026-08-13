@@ -3,7 +3,7 @@
 use std::{net::IpAddr, str::FromStr, sync::Arc, time::Duration};
 
 use ignitify_control_plane::{AgeCipher, StreamPublisher, StreamRecord};
-use ignitify_db::{Database, NotificationChannelConnection};
+use ignitify_db::{Database, NotificationChannelConnection, RemoteNotificationEventRecord};
 use lettre::{
     AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor, message::Mailbox,
     transport::smtp::authentication::Credentials,
@@ -22,6 +22,7 @@ use tokio::sync::broadcast;
 use url::Url;
 
 const DELIVERY_TIMEOUT: Duration = Duration::from_secs(15);
+const REMOTE_EVENT_POLL_INTERVAL: Duration = Duration::from_secs(15);
 const USER_AGENT: &str = "Ignitify notifications";
 
 #[derive(Debug, Error)]
@@ -76,6 +77,46 @@ pub fn spawn_deployment_dispatcher(
     })
 }
 
+pub fn spawn_remote_event_dispatcher(
+    database: Database,
+    cipher: Arc<AgeCipher>,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(REMOTE_EVENT_POLL_INTERVAL);
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            ticker.tick().await;
+            match database
+                .remote_server_agents()
+                .notification_events(100)
+                .await
+            {
+                Ok(events) => {
+                    for event in events {
+                        match dispatch_remote_event(&database, cipher.as_ref(), &event).await {
+                            Ok(()) => {
+                                if let Err(error) = database
+                                    .remote_server_agents()
+                                    .finish_notification_event(&event.id)
+                                    .await
+                                {
+                                    tracing::warn!(error = %error, event_id = %event.id, "notification dispatcher could not finish a remote event");
+                                }
+                            }
+                            Err(error) => {
+                                tracing::warn!(error = %error, event_id = %event.id, "notification dispatcher could not prepare a remote event");
+                            }
+                        }
+                    }
+                }
+                Err(error) => {
+                    tracing::warn!(error = %error, "notification dispatcher could not load remote events")
+                }
+            }
+        }
+    })
+}
+
 pub async fn dispatch_backup(
     database: &Database,
     cipher: &AgeCipher,
@@ -105,6 +146,26 @@ pub async fn dispatch_backup(
             occurred_at: None,
             title,
             body,
+        },
+    )
+    .await
+}
+
+async fn dispatch_remote_event(
+    database: &Database,
+    cipher: &AgeCipher,
+    event: &RemoteNotificationEventRecord,
+) -> Result<()> {
+    dispatch(
+        database,
+        cipher,
+        NotificationEvent {
+            source_kind: "remote",
+            source_id: &event.id,
+            event_kind: &event.kind,
+            occurred_at: Some(&event.created_at),
+            title: remote_event_title(&event.kind),
+            body: remote_event_body(&event.server_name, &event.message),
         },
     )
     .await
@@ -407,13 +468,27 @@ fn deployment_body(deployment_id: &str, kind: &str) -> String {
     format!("Ignitify deployment {deployment_id} emitted {kind}.")
 }
 
+fn remote_event_title(kind: &str) -> &'static str {
+    match kind {
+        "remote_agent.offline" => "Remote agent offline",
+        "remote_server.authentication_failed" => "Remote SSH authentication failing",
+        _ => "Remote runtime event",
+    }
+}
+
+fn remote_event_body(server_name: &str, message: &str) -> String {
+    format!("Ignitify remote server {server_name}: {message}.")
+}
+
 fn bounded_message(value: &str) -> String {
     value.chars().take(4_000).collect()
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{bounded_message, deployment_body, deployment_title};
+    use super::{
+        bounded_message, deployment_body, deployment_title, remote_event_body, remote_event_title,
+    };
 
     #[test]
     fn deployment_notification_content_is_bounded_and_non_sensitive() {
@@ -423,5 +498,17 @@ mod tests {
             "Ignitify deployment deploy-123 emitted deployment.failed."
         );
         assert_eq!(bounded_message(&"x".repeat(5_000)).chars().count(), 4_000);
+    }
+
+    #[test]
+    fn remote_notification_content_is_bounded_and_non_sensitive() {
+        assert_eq!(
+            remote_event_title("remote_agent.offline"),
+            "Remote agent offline"
+        );
+        assert_eq!(
+            remote_event_body("Production VM", "agent heartbeat timed out"),
+            "Ignitify remote server Production VM: agent heartbeat timed out."
+        );
     }
 }

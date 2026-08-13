@@ -335,7 +335,15 @@ pub(crate) async fn check(
         })?
         .map_err(ssh_command_error)?;
         if !output.status.success() {
-            return Err(ssh_failure_error(&output.stderr));
+            let error = ssh_failure_error(&output.stderr);
+            if is_authentication_failure(&output.stderr) {
+                let _ = state
+                    .database
+                    .remote_server_agents()
+                    .record_authentication_failure(&server_id)
+                    .await;
+            }
+            return Err(error);
         }
         Ok(RemoteServerCheckResponse {
             connected: true,
@@ -740,6 +748,12 @@ fn ssh_failure_error(stderr: &[u8]) -> ApiError {
         "SSH connection failed. Verify the host, port, SSH user, key pair, and known_hosts."
     };
     ApiError::RemoteServerCheckFailedWithReason(message)
+}
+
+fn is_authentication_failure(stderr: &[u8]) -> bool {
+    String::from_utf8_lossy(stderr)
+        .to_ascii_lowercase()
+        .contains("permission denied")
 }
 
 fn optional_public_key(value: Option<String>) -> Result<Option<String>, ApiError> {
