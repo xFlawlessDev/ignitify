@@ -191,14 +191,15 @@ async function fetchWithAuth(
 
 function withAuthorization(url: string, options: RequestInit): RequestInit {
   const headers = new Headers(options.headers);
-  if (isSameOrigin(url) && !headers.has("X-Ignitify-Request-ID")) {
+  const sameOrigin = isSameOrigin(url);
+  if (sameOrigin && !headers.has("X-Ignitify-Request-ID")) {
     headers.set("X-Ignitify-Request-ID", crypto.randomUUID());
   }
-  if ((options.method ?? "GET").toUpperCase() !== "GET" && isSameOrigin(url)) {
+  if ((options.method ?? "GET").toUpperCase() !== "GET" && sameOrigin) {
     headers.set("X-Ignitify-Request", "1");
   }
   const token = getToken();
-  if (token) {
+  if (sameOrigin && token) {
     headers.set("Authorization", `Bearer ${token}`);
   } else {
     headers.delete("Authorization");
@@ -208,6 +209,9 @@ function withAuthorization(url: string, options: RequestInit): RequestInit {
 
 function resolveApiUrl(endpointOrUrl: string): string {
   if (/^https?:\/\//i.test(endpointOrUrl)) {
+    if (!isSameOrigin(endpointOrUrl)) {
+      throw new Error("API requests must target the current origin");
+    }
     return endpointOrUrl;
   }
   if (endpointOrUrl.startsWith(API_BASE)) {

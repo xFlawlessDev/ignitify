@@ -85,6 +85,10 @@ jobs:
         working-directory: frontend
         run: pnpm install --frozen-lockfile
 
+      - name: Audit frontend dependencies
+        working-directory: frontend
+        run: pnpm audit --prod
+
       - name: Check frontend
         working-directory: frontend
         run: pnpm run check
@@ -146,6 +150,17 @@ jobs:
           rustup default stable
           rustc --version
           cargo --version
+
+      - name: Install cargo-audit
+        run: cargo install --locked cargo-audit --version 0.22.2
+
+      - name: Audit Rust dependencies
+        # Cargo.lock retains SQLx's inactive MySQL/RSA optional dependency;
+        # RUSTSEC-2023-0071 has no upstream patch. Keep unmaintained warnings
+        # visible without making the audit non-blocking for that category.
+        run: >-
+          cargo audit
+          --ignore RUSTSEC-2023-0071
 
       - name: Check formatting
         run: cargo fmt --all -- --check

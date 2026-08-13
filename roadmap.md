@@ -15,15 +15,25 @@ delivery and security posture have a higher priority than new integrations.
   also made an unmocked request to `localhost:3000`.
 - Playwright commands exist, but the repository does not yet contain a
   Playwright configuration or an authored end-to-end test suite.
-- The CI workflow runs frontend checks/tests/builds and Rust format/check/test/
-  clippy gates. It does not yet enforce dependency vulnerability checks, SBOM
-  generation, or end-to-end coverage.
+- The CI workflow runs frontend production dependency audit, Rust dependency
+  audit, frontend checks/tests/builds, and Rust format/check/test/clippy gates.
+  SBOM generation and end-to-end coverage are not yet enforced.
 - The control-plane facade and production modules have been split by ownership:
   service configuration, deployment submission, streaming, encrypted snapshot
   handling, retry policy, worker scheduling, and reconciliation. The remaining
   reconciliation module is 790 LOC; its 768 LOC regression suite is isolated
   in a sibling test module. Workspace format, tests, and clippy pass after the
   refactor.
+
+### Notices
+
+- Rust reports a future-incompatibility warning for the build-time dependency
+  `proc-macro-error2 v2.0.1`. It is introduced by `age` (through
+  `i18n-embed-fl`) and `teloxide` (through `aquamarine`), and will become a
+  compiler blocker only in a future Rust release. Track upstream upgrades or
+  replacements before raising the minimum supported Rust version; do not patch
+  the cryptography or notification dependency paths locally without a reviewed
+  migration.
 
 ## Guiding Principles
 
@@ -73,7 +83,7 @@ Target: first 30 days, in parallel where capacity permits.
 
 ### Outcomes
 
-- [ ] Add automated dependency vulnerability review for Rust and Node dependencies.
+- [x] Add automated dependency vulnerability review for Rust and Node dependencies.
 - [ ] Add Dependabot or Renovate with review rules appropriate for infrastructure
   dependencies.
 - [ ] Generate a software bill of materials for each release archive and retain it
