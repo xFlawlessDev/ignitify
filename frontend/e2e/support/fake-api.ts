@@ -139,6 +139,52 @@ async function handleRequest(route: Route, state: FakeApiState) {
       deployments: state.deployments,
     });
   }
+  if (method === "GET" && path === "/operations/health-summary") {
+    return json(route, {
+      generated_at: now,
+      control_plane: { status: "ready" },
+      runtime: { status: "ready" },
+      worker: { status: "ready" },
+      ingress: { status: "ready" },
+      deployments: {
+        status: "healthy",
+        queued_count: 0,
+        active_count: 0,
+        failed_count: 0,
+        failed_retry_count: 0,
+        retry_count: 0,
+        average_duration_seconds: null,
+        latest_duration_seconds: null,
+      },
+      backup: {
+        status: "not_configured",
+        configured: false,
+        enabled: false,
+        schedule_interval_hours: null,
+        latest_status: null,
+        latest_started_at: null,
+        latest_completed_at: null,
+        latest_age_seconds: null,
+      },
+      domains: { status: "healthy", active_count: 0, pending_count: 0, failed_count: 0 },
+      certificates: {
+        status: "disabled",
+        https_enabled: false,
+        provider: "none",
+        custom_certificate_selected: false,
+        stored_certificate_count: 0,
+      },
+      remote_agents: {
+        status: "not_configured",
+        server_count: 0,
+        online_count: 0,
+        offline_count: 0,
+        pending_count: 0,
+        oldest_heartbeat_at: null,
+        oldest_heartbeat_age_seconds: null,
+      },
+    });
+  }
   if (method === "GET" && path === "/runtime/status") {
     return json(route, { database: "ready", runtime: "ready", worker: "ready", metrics: null });
   }

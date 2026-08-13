@@ -12,6 +12,7 @@ export * from "./services";
 export * from "./deployments";
 export * from "./domains";
 export * from "./notifications";
+export * from "./operations";
 export * from "./settings";
 export * from "./backup-destinations";
 export * from "./remote-builders";

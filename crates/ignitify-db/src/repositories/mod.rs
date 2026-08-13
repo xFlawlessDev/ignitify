@@ -6,6 +6,7 @@ mod deployments;
 mod domains;
 mod environments;
 mod notifications;
+mod operations;
 mod projects;
 mod providers;
 mod refresh_tokens;
@@ -42,6 +43,11 @@ pub use environments::EnvironmentsRepository;
 pub use notifications::{
     NewNotificationChannel, NotificationChannelConnection, NotificationChannelRecord,
     NotificationChannelsRepository,
+};
+pub use operations::{
+    BackupOperationsSummary, BackupRunSummary, CertificateOperationsSummary,
+    DeploymentOperationsSummary, DomainOperationsSummary, OperationsRepository, OperationsSummary,
+    RemoteAgentOperationsSummary,
 };
 pub use projects::{
     AuthorizedProjectVariables, NewProjectVariable, ProjectActor, ProjectRemoveOutcome,
