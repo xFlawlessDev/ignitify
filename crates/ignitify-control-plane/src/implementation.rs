@@ -418,6 +418,12 @@ where
             }
         }
     };
+    // Cancellation can race with runtime creation. Leave cleanup to the next
+    // reconciliation pass after the stopping state and runtime reference are
+    // durably recorded.
+    if deployments.cancel_requested(deployment.id.as_str()).await? {
+        return Ok(());
+    }
     let observation = match runtime.inspect(&runtime_deployment, &runtime_ref).await {
         Ok(observation) => observation,
         Err(error) => {
@@ -788,3 +794,7 @@ fn health_gate_expired(started_at: Option<&str>) -> bool {
 #[cfg(test)]
 #[path = "implementation_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "worker_resilience_tests.rs"]
+mod worker_resilience_tests;
