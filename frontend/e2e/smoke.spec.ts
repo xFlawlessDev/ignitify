@@ -60,6 +60,7 @@ test("validates and saves ingress configuration", async ({ page }) => {
   const state = await installFakeApi(page);
   await signIn(page);
   await page.getByRole("link", { name: "Settings" }).click();
+  await expect(page.getByRole("heading", { name: "Health summary" })).toBeVisible();
   await page.getByRole("tab", { name: "Ingress & TLS" }).click();
   const suffix = page.locator("#application-domain-suffix");
   await suffix.fill("https://invalid.example.test");
