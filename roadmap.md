@@ -118,13 +118,20 @@ The Rust warning remains open after review on 2026-08-13: `proc-macro-error2`
 upstream dependency updates; no local patch is justified for those
 security-sensitive dependency paths.
 
-The supported-artifact restore drill is blocked on an operational exercise, not
-an implementation gap. Before closing it, an operator must obtain a supported
-Linux AMD64 release archive with matching `SHA256SUMS` and SBOMs, execute
-`infra/operations/restore-drill.md` on an isolated Linux host, and retain the
-redacted record of the release identity, checksum, SQLite integrity, secret-file
-permissions, actual RPO, and actual RTO. Do not start the restored control plane
-or use a production data directory while collecting this evidence.
+The supported-artifact restore drill was exercised on 2026-08-13 in isolated
+WSL2 Linux AMD64 using release `v0.1.3` (`7fa5d955`): the release archive
+checksum was valid, a synthetic offline backup restored successfully, SQLite
+integrity returned `ok`, the restored secret file had mode `0600`, and prior
+target files were retained in the recovery directory. The synthetic backup age
+was 99 seconds (RPO), and end-to-end restore plus validation took 1,499 ms
+(RTO). The restored control plane was not started and no production data or
+runtime was used.
+
+The item remains open because `v0.1.3` was published before its release workflow
+generated and attached Rust/frontend SBOM assets. Close it only after repeating
+the drill with a release whose archive, `SHA256SUMS`, and SBOMs all match, then
+retain the redacted evidence. This is a release-evidence gap, not an
+implementation failure.
 
 ## Phase 3: Operational Observability
 
