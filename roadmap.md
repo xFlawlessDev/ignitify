@@ -76,14 +76,17 @@ Target: first 30 days.
 
 ### Definition Of Done
 
-- [ ] Confirm the full frontend suite passes repeatedly in CI with no open
+- [x] Confirm the full frontend suite passes repeatedly in CI with no open
   network connections.
 - [x] Playwright has a tracked configuration and locally validated smoke coverage.
 - [x] CI blocks a change when a smoke test, type check, unit test, or build fails.
 
-Local evidence: `pnpm run test` passed three consecutive times (32 files,
-89 tests per run) with the global unexpected-network guard enabled. Keep the
-first item open until the GitHub Actions frontend job completes successfully.
+Evidence: `pnpm run test` passed three consecutive times (32 files, 89 tests
+per run) with the global unexpected-network guard enabled. GitHub Actions
+also passed the complete frontend, Rust, and E2E gates on both the dependency
+integration PR (run `31690275096`) and the resulting `main` merge commit (run
+`31691099175`), with no unhandled network request reported by the frontend
+suite.
 
 ## Phase 2: Supply-Chain And Recovery Readiness
 
@@ -113,9 +116,15 @@ The Rust warning remains open after review on 2026-08-13: `proc-macro-error2`
 2.0.1 is the latest available release, and both `age` (via `i18n-embed-fl`) and
 `teloxide` (via `aquamarine`) still require it. Re-evaluate it when either
 upstream dependency updates; no local patch is justified for those
-security-sensitive dependency paths. The supported-artifact restore drill must
-be performed and its evidence recorded before its final definition-of-done item
-is checked.
+security-sensitive dependency paths.
+
+The supported-artifact restore drill is blocked on an operational exercise, not
+an implementation gap. Before closing it, an operator must obtain a supported
+Linux AMD64 release archive with matching `SHA256SUMS` and SBOMs, execute
+`infra/operations/restore-drill.md` on an isolated Linux host, and retain the
+redacted record of the release identity, checksum, SQLite integrity, secret-file
+permissions, actual RPO, and actual RTO. Do not start the restored control plane
+or use a production data directory while collecting this evidence.
 
 ## Phase 3: Operational Observability
 
