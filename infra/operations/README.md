@@ -53,3 +53,7 @@ material backup or release changes. It defines the 24-hour RPO and 60-minute
 RTO objectives, validates a supported release artifact in an isolated location,
 and records the required recovery evidence without starting a restored control
 plane.
+
+For deployment, rollback, certificate, remote-server, and backup incidents,
+follow the concise [operator failure runbooks](runbooks.md) before making
+runtime changes.
