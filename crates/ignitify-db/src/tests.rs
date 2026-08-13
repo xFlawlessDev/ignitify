@@ -622,6 +622,59 @@ async fn remote_server_agent_records_heartbeats_and_marks_stale_hosts_offline() 
 }
 
 #[tokio::test]
+async fn operations_summary_aggregates_safe_runtime_signals() {
+    let database = database().await;
+    let now = Utc::now();
+    sqlx::query(
+        "INSERT INTO backup_s3_destination
+            (id, endpoint, region, bucket, prefix, access_key_id_ciphertext,
+             secret_access_key_ciphertext, server_side_encryption, enabled,
+             schedule_interval_hours, created_at, updated_at)
+         VALUES (1, 'https://s3.example.test', 'us-east-1', 'backups', 'ignitify',
+                 'encrypted-access', 'encrypted-secret', 'AES256', 1, 24, ?, ?)",
+    )
+    .bind(now.to_rfc3339())
+    .bind(now.to_rfc3339())
+    .execute(&database.pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO backup_s3_run (id, trigger, status, started_at, completed_at)
+         VALUES ('scheduled-1', 'scheduled', 'succeeded', ?, ?)",
+    )
+    .bind((now - chrono::Duration::hours(1)).to_rfc3339())
+    .bind((now - chrono::Duration::hours(1)).to_rfc3339())
+    .execute(&database.pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO server_settings
+            (id, server_domain, https_enabled, automatically_provision_ssl,
+             certificate_provider, concurrent_builds, updated_at)
+         VALUES (1, '', 1, 1, 'lets-encrypt', 2, ?)
+         ON CONFLICT(id) DO UPDATE SET https_enabled = 1, certificate_provider = 'lets-encrypt'",
+    )
+    .bind(now.to_rfc3339())
+    .execute(&database.pool)
+    .await
+    .unwrap();
+
+    let summary = database.operations().summary().await.unwrap();
+    assert_eq!(summary.deployments.queued_count, 0);
+    assert_eq!(summary.backup.schedule_interval_hours, Some(24));
+    assert_eq!(
+        summary
+            .backup
+            .latest_scheduled_run
+            .as_ref()
+            .map(|run| run.status.as_str()),
+        Some("succeeded")
+    );
+    assert!(summary.certificates.https_enabled);
+    assert_eq!(summary.remote_agents.server_count, 0);
+}
+
+#[tokio::test]
 async fn provider_repository_stores_encrypted_metadata_and_handles_conflicts() {
     let database = database().await;
     let actor_id = user_id(&database, "owner").await;
@@ -1102,6 +1155,10 @@ async fn deployment_retry_backoff_and_cancellation_are_durable() {
     assert_eq!(queued.state, ignitify_domain::DeploymentState::Queued);
     assert_eq!(queued.attempt_count, 1);
     assert!(queued.retry_after.is_some());
+    let operations = database.operations().summary().await.unwrap();
+    assert_eq!(operations.deployments.queued_count, 1);
+    assert_eq!(operations.deployments.retry_count, 1);
+    assert_eq!(operations.deployments.failed_retry_count, 0);
 
     let cancelled = database
         .deployments()

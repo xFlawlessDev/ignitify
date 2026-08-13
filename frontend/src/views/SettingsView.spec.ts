@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   updateBackupControls: vi.fn(),
   deleteBackupDestination: vi.fn(),
   listBackupRuns: vi.fn(),
+  getOperationalHealth: vi.fn(),
 }));
 
 vi.mock("vue-sonner", () => ({
@@ -31,6 +32,7 @@ vi.mock("@/lib/api", () => ({
   apiDeleteBackupS3Destination: mocks.deleteBackupDestination,
   apiGetBackupS3Destination: mocks.getBackupDestination,
   apiListBackupS3Runs: mocks.listBackupRuns,
+  apiGetOperationalHealthSummary: mocks.getOperationalHealth,
   apiUpdateBackupS3Controls: mocks.updateBackupControls,
   apiUpdateBackupS3Destination: mocks.updateBackupDestination,
 }));
@@ -155,6 +157,53 @@ describe("SettingsView", () => {
         },
       ],
     });
+    mocks.getOperationalHealth.mockResolvedValue({
+      success: true,
+      data: {
+        generated_at: "2026-01-01T00:00:00Z",
+        control_plane: { status: "ready" },
+        runtime: { status: "ready" },
+        worker: { status: "ready" },
+        ingress: { status: "ready" },
+        deployments: {
+          status: "healthy",
+          queued_count: 0,
+          active_count: 0,
+          failed_count: 0,
+          failed_retry_count: 0,
+          retry_count: 0,
+          average_duration_seconds: null,
+          latest_duration_seconds: null,
+        },
+        backup: {
+          status: "not_configured",
+          configured: false,
+          enabled: false,
+          schedule_interval_hours: null,
+          latest_status: null,
+          latest_started_at: null,
+          latest_completed_at: null,
+          latest_age_seconds: null,
+        },
+        domains: { status: "healthy", active_count: 0, pending_count: 0, failed_count: 0 },
+        certificates: {
+          status: "healthy",
+          https_enabled: true,
+          provider: "lets-encrypt",
+          custom_certificate_selected: false,
+          stored_certificate_count: 0,
+        },
+        remote_agents: {
+          status: "not_configured",
+          server_count: 0,
+          online_count: 0,
+          offline_count: 0,
+          pending_count: 0,
+          oldest_heartbeat_at: null,
+          oldest_heartbeat_age_seconds: null,
+        },
+      },
+    });
   });
 
   it("loads infrastructure health and persists an application ingress policy", async () => {
@@ -169,6 +218,7 @@ describe("SettingsView", () => {
     expect(host.textContent).toContain("Traefik");
     expect(host.textContent).toContain("Application environment");
     expect(host.textContent).toContain("Build capacity");
+    expect(host.textContent).toContain("Health summary");
     expect(host.textContent).toContain("http://127.0.0.1:6565");
     await selectSection(host, "Ingress & TLS");
     const domain = host.querySelector("#application-domain-suffix") as HTMLInputElement;

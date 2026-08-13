@@ -11,7 +11,7 @@ use sqlx::{
 use crate::{
     ActivityRepository, AiSettingsRepository, BackupDestinationsRepository, DashboardRepository,
     DeploymentsRepository, DomainsRepository, EnvironmentsRepository,
-    NotificationChannelsRepository, ProjectsRepository, ProvidersRepository,
+    NotificationChannelsRepository, OperationsRepository, ProjectsRepository, ProvidersRepository,
     RefreshTokensRepository, RemoteBuildersRepository, RemoteServerAgentsRepository,
     RemoteServersRepository, Result, ServerSettingsRepository, ServicesRepository,
     UptimeMonitorsRepository, UsersRepository,
@@ -125,6 +125,10 @@ impl Database {
 
     pub fn notification_channels(&self) -> NotificationChannelsRepository {
         NotificationChannelsRepository::new(self.pool.clone())
+    }
+
+    pub fn operations(&self) -> OperationsRepository {
+        OperationsRepository::new(self.pool.clone())
     }
 
     pub fn services(&self) -> ServicesRepository {

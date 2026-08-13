@@ -137,6 +137,11 @@ protected_mutation!(auth_step_up_doc, post, "/api/v1/auth/step-up", "Auth");
 protected_get!(auth_me_doc, "/api/v1/auth/me", "Auth");
 
 protected_get!(dashboard_doc, "/api/v1/dashboard", "Dashboard");
+protected_get!(
+    operations_health_summary_doc,
+    "/api/v1/operations/health-summary",
+    "Operations"
+);
 
 protected_get!(providers_list_doc, "/api/v1/providers", "Providers");
 protected_mutation!(providers_create_doc, post, "/api/v1/providers", "Providers");
@@ -603,6 +608,7 @@ protected_get!(terminal_doc, "/api/v1/terminal", "Terminal");
         auth_step_up_doc,
         auth_me_doc,
         dashboard_doc,
+        operations_health_summary_doc,
         notifications::list,
         notifications::create,
         notifications::update,
@@ -709,6 +715,7 @@ protected_get!(terminal_doc, "/api/v1/terminal", "Terminal");
         (name = "Health", description = "Runtime readiness checks"),
         (name = "Auth", description = "Authentication and session lifecycle"),
         (name = "Dashboard", description = "Dashboard aggregates"),
+        (name = "Operations", description = "Operator health and operational metrics"),
         (name = "Notifications", description = "Operator notification channel management"),
         (name = "Providers", description = "Source-control provider connections"),
         (name = "AI", description = "OpenAI-compatible operations assistant configuration and chat"),

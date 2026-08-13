@@ -32,6 +32,10 @@ pub(crate) fn router(state: AppState) -> Router {
         .route("/api/v1/auth/me", get(handlers::auth::me))
         .route("/api/v1/dashboard", get(handlers::dashboard::get))
         .route(
+            "/api/v1/operations/health-summary",
+            get(handlers::operations::health_summary),
+        )
+        .route(
             "/api/v1/notifications",
             get(handlers::notifications::list).post(handlers::notifications::create),
         )

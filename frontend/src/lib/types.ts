@@ -281,6 +281,83 @@ export interface RuntimeStatus {
   metrics: RuntimeMetrics | null;
 }
 
+export type OperationalHealthStatus =
+  | "ready"
+  | "unavailable"
+  | "healthy"
+  | "active"
+  | "stalled"
+  | "failed"
+  | "running"
+  | "stale"
+  | "disabled"
+  | "not_configured"
+  | "warning";
+
+export interface OperationalComponentHealth {
+  status: "ready" | "unavailable";
+}
+
+export interface OperationalDeploymentHealth {
+  status: OperationalHealthStatus;
+  queued_count: number;
+  active_count: number;
+  failed_count: number;
+  failed_retry_count: number;
+  retry_count: number;
+  average_duration_seconds: number | null;
+  latest_duration_seconds: number | null;
+}
+
+export interface OperationalBackupHealth {
+  status: OperationalHealthStatus;
+  configured: boolean;
+  enabled: boolean;
+  schedule_interval_hours: number | null;
+  latest_status: "running" | "succeeded" | "failed" | null;
+  latest_started_at: string | null;
+  latest_completed_at: string | null;
+  latest_age_seconds: number | null;
+}
+
+export interface OperationalDomainHealth {
+  status: OperationalHealthStatus;
+  active_count: number;
+  pending_count: number;
+  failed_count: number;
+}
+
+export interface OperationalCertificateHealth {
+  status: OperationalHealthStatus;
+  https_enabled: boolean;
+  provider: "none" | "lets-encrypt" | "custom";
+  custom_certificate_selected: boolean;
+  stored_certificate_count: number;
+}
+
+export interface OperationalRemoteAgentHealth {
+  status: OperationalHealthStatus;
+  server_count: number;
+  online_count: number;
+  offline_count: number;
+  pending_count: number;
+  oldest_heartbeat_at: string | null;
+  oldest_heartbeat_age_seconds: number | null;
+}
+
+export interface OperationalHealthSummary {
+  generated_at: string;
+  control_plane: OperationalComponentHealth;
+  runtime: OperationalComponentHealth;
+  worker: OperationalComponentHealth;
+  ingress: OperationalComponentHealth;
+  deployments: OperationalDeploymentHealth;
+  backup: OperationalBackupHealth;
+  domains: OperationalDomainHealth;
+  certificates: OperationalCertificateHealth;
+  remote_agents: OperationalRemoteAgentHealth;
+}
+
 export interface SystemMetrics {
   cpu_usage_percentage: number;
   cpu_cores: number;

@@ -18,6 +18,7 @@ import CertificateManager from "@/components/settings/CertificateManager.vue";
 import ControlPlaneIngressSettings from "@/components/settings/ControlPlaneIngressSettings.vue";
 import IngressFallbackSettings from "@/components/settings/IngressFallbackSettings.vue";
 import InfrastructureHealth from "@/components/settings/InfrastructureHealth.vue";
+import OperationalHealthSummary from "@/components/settings/OperationalHealthSummary.vue";
 import type {
   CertificateProvider,
   CustomCertificateSummary,
@@ -512,6 +513,7 @@ onMounted(loadSettings);
           <InfrastructureHealth :health="infrastructureHealth" />
           <ApplicationEnvironment :environment="applicationEnvironment" />
         </div>
+        <OperationalHealthSummary />
         <BuildCapacitySettings
           :concurrent-builds="draft.concurrentBuilds"
           :error="isDirty ? buildCapacityError : ''"
