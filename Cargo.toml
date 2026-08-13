@@ -21,7 +21,7 @@ hmac = "0.12"
 portable-pty = "0.9"
 jsonwebtoken = "9.3"
 lettre = { version = "0.11", default-features = false, features = ["builder", "smtp-transport", "tokio1-rustls-tls"] }
-rand = "0.8"
+rand = "0.10"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
 resend-rs = { version = "0.29", default-features = false, features = ["rustls-tls"] }
 serde = { version = "1", features = ["derive"] }
