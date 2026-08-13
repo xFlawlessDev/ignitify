@@ -161,6 +161,30 @@ async fn notification_channels_encrypt_connection_configuration_and_deduplicate_
         .finish_delivery(&channel.id, "deployment", "42", "deployment.healthy", true)
         .await
         .unwrap();
+    let deliveries = database
+        .notification_channels()
+        .list_deliveries(100)
+        .await
+        .unwrap();
+    assert_eq!(deliveries.len(), 2);
+    let deployment = deliveries
+        .iter()
+        .find(|delivery| delivery.source_kind == "deployment")
+        .unwrap();
+    assert_eq!(deployment.channel_name, "Operations Telegram");
+    assert_eq!(deployment.status, "succeeded");
+    assert_eq!(deployment.attempt_count, 0);
+    assert_eq!(deployment.message.as_deref(), Some("Delivered"));
+    assert!(deployment.completed_at.is_some());
+    assert_eq!(
+        database
+            .notification_channels()
+            .list_deliveries(1)
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
     assert!(
         database
             .notification_channels()

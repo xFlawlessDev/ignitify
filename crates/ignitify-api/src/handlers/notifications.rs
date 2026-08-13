@@ -2,11 +2,13 @@ use std::{net::IpAddr, sync::Arc};
 
 use axum::{
     Json,
-    extract::{ConnectInfo, Extension, Path, State},
+    extract::{ConnectInfo, Extension, Path, Query, State},
     http::{HeaderMap, StatusCode},
 };
 use ignitify_control_plane::AgeCipher;
-use ignitify_db::{AuditOutcome, NewNotificationChannel, NotificationChannelRecord};
+use ignitify_db::{
+    AuditOutcome, NewNotificationChannel, NotificationChannelRecord, NotificationDeliveryRecord,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use url::{Host, Url};
@@ -58,6 +60,46 @@ pub(crate) struct NotificationChannelResponse {
     configuration_summary: Value,
     created_at: String,
     updated_at: String,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub(crate) struct NotificationDeliveryQuery {
+    limit: Option<i64>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub(crate) struct NotificationDeliveryResponse {
+    id: String,
+    channel_id: String,
+    channel_name: String,
+    channel_kind: String,
+    source_kind: String,
+    source_id: String,
+    event_kind: String,
+    status: String,
+    attempt_count: i64,
+    created_at: String,
+    completed_at: Option<String>,
+    message: Option<String>,
+}
+
+impl From<NotificationDeliveryRecord> for NotificationDeliveryResponse {
+    fn from(value: NotificationDeliveryRecord) -> Self {
+        Self {
+            id: value.id,
+            channel_id: value.channel_id,
+            channel_name: value.channel_name,
+            channel_kind: value.channel_kind,
+            source_kind: value.source_kind,
+            source_id: value.source_id,
+            event_kind: value.event_kind,
+            status: value.status,
+            attempt_count: value.attempt_count,
+            created_at: value.created_at,
+            completed_at: value.completed_at,
+            message: value.message,
+        }
+    }
 }
 
 impl From<NotificationChannelRecord> for NotificationChannelResponse {
@@ -148,6 +190,35 @@ pub(crate) async fn list(
         .map(NotificationChannelResponse::from)
         .collect();
     Ok(Json(channels))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/notifications/deliveries",
+    tag = "Notifications",
+    security(("bearerAuth" = [])),
+    params(("limit" = Option<i64>, Query, description = "Maximum records to return (1-100)")),
+    responses(
+        (status = 200, description = "Recent notification delivery history", body = [NotificationDeliveryResponse]),
+        (status = 401, description = "Authentication is required"),
+        (status = 403, description = "Platform operator access is required")
+    )
+)]
+pub(crate) async fn list_deliveries(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<NotificationDeliveryQuery>,
+) -> Result<Json<Vec<NotificationDeliveryResponse>>, ApiError> {
+    require_admin(&state, &headers).await?;
+    let deliveries = state
+        .database
+        .notification_channels()
+        .list_deliveries(query.limit.unwrap_or(50))
+        .await?
+        .into_iter()
+        .map(NotificationDeliveryResponse::from)
+        .collect();
+    Ok(Json(deliveries))
 }
 
 #[utoipa::path(

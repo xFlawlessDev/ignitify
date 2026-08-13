@@ -610,6 +610,7 @@ protected_get!(terminal_doc, "/api/v1/terminal", "Terminal");
         dashboard_doc,
         operations_health_summary_doc,
         notifications::list,
+        notifications::list_deliveries,
         notifications::create,
         notifications::update,
         notifications::remove,
@@ -708,7 +709,9 @@ protected_get!(terminal_doc, "/api/v1/terminal", "Terminal");
             backup_destinations::BackupS3ControlsRequest,
             backup_destinations::BackupS3RunResponse,
             notifications::NotificationChannelRequest,
-            notifications::NotificationChannelResponse
+            notifications::NotificationChannelResponse,
+            notifications::NotificationDeliveryQuery,
+            notifications::NotificationDeliveryResponse
         )
     ),
     tags(

@@ -22,6 +22,7 @@ use tokio::sync::broadcast;
 use url::Url;
 
 const DELIVERY_TIMEOUT: Duration = Duration::from_secs(15);
+const MAX_DELIVERY_ATTEMPTS: u8 = 3;
 const REMOTE_EVENT_POLL_INTERVAL: Duration = Duration::from_secs(15);
 const USER_AGENT: &str = "Ignitify notifications";
 
@@ -220,8 +221,25 @@ async fn dispatch_channel(
         return Ok(());
     }
 
-    let delivered = deliver(cipher, channel, event).await;
-    let succeeded = delivered.is_ok();
+    let mut succeeded = false;
+    for attempt in 0..MAX_DELIVERY_ATTEMPTS {
+        database
+            .notification_channels()
+            .increment_delivery_attempt(
+                &channel.channel.id,
+                event.source_kind,
+                event.source_id,
+                event.event_kind,
+            )
+            .await?;
+        if deliver(cipher, channel, event).await.is_ok() {
+            succeeded = true;
+            break;
+        }
+        if attempt + 1 < MAX_DELIVERY_ATTEMPTS {
+            tokio::time::sleep(Duration::from_millis(250 * 2u64.pow(attempt.into()))).await;
+        }
+    }
     database
         .notification_channels()
         .finish_delivery(

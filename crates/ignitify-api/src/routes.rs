@@ -40,6 +40,10 @@ pub(crate) fn router(state: AppState) -> Router {
             get(handlers::notifications::list).post(handlers::notifications::create),
         )
         .route(
+            "/api/v1/notifications/deliveries",
+            get(handlers::notifications::list_deliveries),
+        )
+        .route(
             "/api/v1/notifications/{notification_id}",
             axum::routing::delete(handlers::notifications::remove)
                 .put(handlers::notifications::update),

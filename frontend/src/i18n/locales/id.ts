@@ -130,6 +130,17 @@ export default {
     updated: "Kanal notifikasi diperbarui",
     removed: "Kanal notifikasi dihapus",
     refreshed: "Kanal notifikasi dimuat ulang",
+    deliveryHistory: "Riwayat pengiriman",
+    deliveryHistoryDescription: "Hasil notifikasi terbaru tanpa payload atau kredensial provider.",
+    refreshHistory: "Muat ulang riwayat pengiriman",
+    loadingHistory: "Memuat riwayat pengiriman",
+    emptyHistory: "Belum ada pengiriman notifikasi.",
+    deliveryAttempts: "({count} percobaan)",
+    deliveryStatus: {
+      running: "berjalan",
+      succeeded: "berhasil",
+      failed: "gagal",
+    },
     validation: {
       name: "Nama kanal wajib diisi.",
       events: "Pilih setidaknya satu event.",
