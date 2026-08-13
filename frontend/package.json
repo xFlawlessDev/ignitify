@@ -10,6 +10,8 @@
     "typecheck": "vue-tsc --noEmit",
     "test": "vp test",
     "test:e2e": "playwright test",
+    "test:e2e:install": "playwright install --with-deps chromium",
+    "test:e2e:server": "node e2e/serve.mjs",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:headed": "playwright test --headed",
     "test:e2e:report": "playwright show-report e2e-report"

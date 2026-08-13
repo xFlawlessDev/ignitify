@@ -18,7 +18,7 @@ import {
 } from "@lucide/vue";
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
-import { RouterLink, useRoute } from "vue-router";
+import { RouterLink, useRoute, useRouter } from "vue-router";
 import { toast } from "vue-sonner";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -34,6 +34,7 @@ interface Props {
 withDefaults(defineProps<Props>(), { collapsed: false });
 const emit = defineEmits<{ close: []; toggleCollapse: [] }>();
 const route = useRoute();
+const router = useRouter();
 const auth = useAuthStore();
 const { t } = useI18n();
 const { appVersion, checkForUpdate, isChecking } = useAppUpdate();
@@ -92,6 +93,11 @@ async function checkForUpdates() {
 
 function isNavigationItemActive(path: string) {
   return route.path === path || route.path.startsWith(`${path}/`);
+}
+
+async function signOut() {
+  auth.logout();
+  await router.replace({ name: "Login" });
 }
 </script>
 
@@ -301,7 +307,7 @@ function isNavigationItemActive(path: string) {
               variant="ghost"
               class="flex w-full items-center justify-start gap-2 rounded-sm px-3 py-2 text-sm text-destructive hover:bg-destructive/10 hover:text-destructive focus-visible:bg-destructive/10"
               type="button"
-              @click="auth.logout"
+              @click="signOut"
             >
               <LogOut class="size-4" :stroke-width="1.5" />
               {{ t("navigation.signOut") }}
@@ -337,7 +343,7 @@ function isNavigationItemActive(path: string) {
                 class="grid size-[26px] shrink-0 place-items-center text-[var(--sidebar-muted)] hover:text-[var(--sidebar-strong)]"
                 type="button"
                 :aria-label="t('navigation.signOut')"
-                @click="auth.logout"
+                @click="signOut"
               >
                 <LogOut :size="15" :stroke-width="1.5" />
               </Button>

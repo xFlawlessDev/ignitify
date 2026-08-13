@@ -5,6 +5,8 @@ node_modules/
 dist/
 dist-ssr/
 coverage/
+e2e-report/
+test-results/
 
 # TypeScript cache
 *.tsbuildinfo

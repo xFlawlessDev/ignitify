@@ -10,14 +10,16 @@ delivery and security posture have a higher priority than new integrations.
 - The Rust workspace and frontend have focused unit and integration coverage,
   and the standard Rust quality gates currently pass.
 - Frontend format, lint, type-check, and production build currently pass.
-- The full frontend test suite has one non-deterministic `SettingsView` test:
-  it times out in the complete suite but passes in isolation. The failing run
-  also made an unmocked request to `localhost:3000`.
-- Playwright commands exist, but the repository does not yet contain a
-  Playwright configuration or an authored end-to-end test suite.
+- The frontend test setup rejects unexpected `fetch` calls, and the full suite
+  passes with API calls mocked or injected. `SettingsView` now mocks its API
+  boundary directly and cleans up every mounted app between cases.
+- Playwright has a tracked Chromium configuration and a fixture-backed smoke
+  suite. Its fake API is in-memory, records unhandled calls, and cannot invoke
+  a real backend or runtime.
 - The CI workflow runs frontend production dependency audit, Rust dependency
-  audit, frontend checks/tests/builds, and Rust format/check/test/clippy gates.
-  SBOM generation and end-to-end coverage are not yet enforced.
+  audit, frontend checks/tests/builds, Rust format/check/test/clippy gates,
+  then the Playwright smoke suite against the frontend bundle after the
+  frontend and Rust gates pass. SBOM generation is not yet enforced.
 - The control-plane facade and production modules have been split by ownership:
   service configuration, deployment submission, streaming, encrypted snapshot
   handling, retry policy, worker scheduling, and reconciliation. The remaining
@@ -52,30 +54,34 @@ Target: first 30 days.
 
 ### Outcomes
 
-- [ ] Make the frontend test suite hermetic: every network request is mocked or
+- [x] Make the frontend test suite hermetic: every network request is mocked or
   injected, and test execution does not depend on localhost or the internet.
-- [ ] Diagnose and fix the `SettingsView` cross-suite flake without increasing the
+- [x] Diagnose and fix the `SettingsView` cross-suite flake without increasing the
   global test timeout.
-- [ ] Add a tracked Playwright configuration and a minimal end-to-end suite using
+- [x] Add a tracked Playwright configuration and a minimal end-to-end suite using
   a safe, non-production fixture environment.
-- [ ] Extend CI to run the E2E smoke suite after frontend and backend artifacts are
+- [x] Extend CI to run the E2E smoke suite after frontend and backend artifacts are
   ready.
 
 ### Initial E2E Coverage
 
-- [ ] Bootstrap first operator, log in, refresh a session, and log out.
-- [ ] Create a project and service, submit a deployment through a fake runtime,
+- [x] Bootstrap first operator, log in, refresh a session, and log out.
+- [x] Create a project and service, submit a deployment through a fake runtime,
    and observe deployment state and logs.
-- [ ] Update ingress settings, including validation failure and a successful save.
-- [ ] Verify unauthorized and non-operator users cannot access privileged routes.
-- [ ] Confirm backup destination configuration never returns credentials.
+- [x] Update ingress settings, including validation failure and a successful save.
+- [x] Verify unauthorized and non-operator users cannot access privileged routes.
+- [x] Confirm backup destination configuration never returns credentials.
 
 ### Definition Of Done
 
-- [ ] The full frontend suite passes repeatedly in CI with no open network
-  connections.
-- [ ] Playwright has a tracked configuration and reliable smoke coverage.
-- [ ] CI blocks a change when a smoke test, type check, unit test, or build fails.
+- [ ] Confirm the full frontend suite passes repeatedly in CI with no open
+  network connections.
+- [x] Playwright has a tracked configuration and locally validated smoke coverage.
+- [x] CI blocks a change when a smoke test, type check, unit test, or build fails.
+
+Local evidence: `pnpm run test` passed three consecutive times (32 files,
+89 tests per run) with the global unexpected-network guard enabled. Keep the
+first item open until the GitHub Actions frontend job completes successfully.
 
 ## Phase 2: Supply-Chain And Recovery Readiness
 

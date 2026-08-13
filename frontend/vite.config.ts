@@ -39,6 +39,7 @@ export default defineConfig({
   lint: { options: { typeAware: true, typeCheck: true } },
   test: {
     include: ["src/**/*.{test,spec}.{js,ts,jsx,tsx}"],
+    setupFiles: ["src/test/setup.ts"],
     testTimeout: 10_000,
     fileParallelism: false,
   },

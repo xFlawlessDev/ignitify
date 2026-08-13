@@ -3,7 +3,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp, nextTick } from "vue";
 import i18n from "@/i18n";
 
-const mocks = vi.hoisted(() => ({ toastSuccess: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  toastSuccess: vi.fn(),
+  getInfrastructure: vi.fn(),
+  updateInfrastructure: vi.fn(),
+  createCertificate: vi.fn(),
+  deleteCertificate: vi.fn(),
+  getBackupDestination: vi.fn(),
+  updateBackupDestination: vi.fn(),
+  updateBackupControls: vi.fn(),
+  deleteBackupDestination: vi.fn(),
+  listBackupRuns: vi.fn(),
+}));
 
 vi.mock("vue-sonner", () => ({
   toast: {
@@ -11,6 +22,20 @@ vi.mock("vue-sonner", () => ({
     success: mocks.toastSuccess,
   },
 }));
+
+vi.mock("@/lib/api", () => ({
+  apiCreateInfrastructureCertificate: mocks.createCertificate,
+  apiDeleteInfrastructureCertificate: mocks.deleteCertificate,
+  apiGetInfrastructureSettings: mocks.getInfrastructure,
+  apiUpdateInfrastructureSettings: mocks.updateInfrastructure,
+  apiDeleteBackupS3Destination: mocks.deleteBackupDestination,
+  apiGetBackupS3Destination: mocks.getBackupDestination,
+  apiListBackupS3Runs: mocks.listBackupRuns,
+  apiUpdateBackupS3Controls: mocks.updateBackupControls,
+  apiUpdateBackupS3Destination: mocks.updateBackupDestination,
+}));
+
+const mountedApps: Array<{ unmount: () => void }> = [];
 
 const initialSettings = {
   application: {
@@ -47,10 +72,6 @@ async function settle() {
   }
 }
 
-function requestUrl(input: RequestInfo | URL): string {
-  return typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
-}
-
 async function mountSettings() {
   const component = (await import("./SettingsView.vue")).default;
   const host = document.createElement("div");
@@ -58,6 +79,7 @@ async function mountSettings() {
   const app = createApp(component);
   app.use(i18n);
   app.mount(host);
+  mountedApps.push(app);
   await settle();
   return { app, host };
 }
@@ -76,119 +98,67 @@ async function selectSection(host: HTMLElement, label: string) {
 }
 
 afterEach(() => {
+  for (const app of mountedApps) app.unmount();
+  mountedApps.length = 0;
   document.body.replaceChildren();
-  vi.unstubAllGlobals();
-  vi.resetModules();
-  mocks.toastSuccess.mockReset();
+  for (const mock of Object.values(mocks)) mock.mockReset();
 });
 
 describe("SettingsView", () => {
-  let fetchCalls: Array<[RequestInfo | URL, RequestInit | undefined]> = [];
   let backupDestination: Record<string, unknown> | null = null;
 
   beforeEach(() => {
-    fetchCalls = [];
     backupDestination = null;
-    vi.stubGlobal(
-      "fetch",
-      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
-        fetchCalls.push([input, init]);
-        const url = requestUrl(input);
-        const method = init?.method ?? "GET";
-        if (url.endsWith("/settings/infrastructure") && method === "GET") {
-          return Promise.resolve(
-            new Response(JSON.stringify(initialSettings), {
-              status: 200,
-              headers: { "Content-Type": "application/json" },
-            }),
-          );
-        }
-        if (url.endsWith("/settings/infrastructure") && method === "PATCH") {
-          const body = JSON.parse(typeof init?.body === "string" ? init.body : "{}");
-          return Promise.resolve(
-            new Response(JSON.stringify({ ...initialSettings, ...body }), {
-              status: 200,
-              headers: { "Content-Type": "application/json" },
-            }),
-          );
-        }
-        if (url.endsWith("/settings/backup-destination/s3") && method === "GET") {
-          return Promise.resolve(
-            new Response(JSON.stringify(backupDestination), {
-              status: 200,
-              headers: { "Content-Type": "application/json" },
-            }),
-          );
-        }
-        if (url.endsWith("/settings/backup-destination/s3") && method === "PUT") {
-          const body = JSON.parse(typeof init?.body === "string" ? init.body : "{}");
-          backupDestination = {
-            ...body,
-            server_side_encryption: body.server_side_encryption,
-            created_at: "2026-01-01T00:00:00Z",
-            updated_at: "2026-01-01T00:00:00Z",
-          };
-          return Promise.resolve(
-            new Response(JSON.stringify(backupDestination), {
-              status: 200,
-              headers: { "Content-Type": "application/json" },
-            }),
-          );
-        }
-        if (url.endsWith("/settings/backup-destination/s3") && method === "PATCH") {
-          const body = JSON.parse(typeof init?.body === "string" ? init.body : "{}");
-          backupDestination = { ...backupDestination, ...body };
-          return Promise.resolve(
-            new Response(JSON.stringify(backupDestination), {
-              status: 200,
-              headers: { "Content-Type": "application/json" },
-            }),
-          );
-        }
-        if (url.endsWith("/settings/backup-destination/s3/runs") && method === "GET") {
-          return Promise.resolve(
-            new Response(
-              JSON.stringify([
-                {
-                  id: "backup-1",
-                  trigger: "scheduled",
-                  status: "succeeded",
-                  started_at: "2026-01-01T00:00:00Z",
-                  completed_at: "2026-01-01T00:03:00Z",
-                  message: "Backup completed",
-                },
-              ]),
-              { status: 200, headers: { "Content-Type": "application/json" } },
-            ),
-          );
-        }
-        if (url.endsWith("/settings/infrastructure/certificates") && method === "POST") {
-          return Promise.resolve(
-            new Response(
-              JSON.stringify({
-                id: "certificate-1",
-                name: "Production wildcard",
-                certificate_file_name: "production.crt",
-                private_key_file_name: "production.key",
-                created_at: "2026-01-01T00:00:00Z",
-                updated_at: "2026-01-01T00:00:00Z",
-              }),
-              { status: 201, headers: { "Content-Type": "application/json" } },
-            ),
-          );
-        }
-        if (url.includes("/settings/infrastructure/certificates/") && method === "DELETE") {
-          return Promise.resolve(new Response(null, { status: 204 }));
-        }
-        return Promise.resolve(
-          new Response(JSON.stringify({ error: "unexpected request" }), { status: 500 }),
-        );
-      }),
+    mocks.getInfrastructure.mockResolvedValue({ success: true, data: initialSettings });
+    mocks.updateInfrastructure.mockImplementation((...args) => {
+      const input = args[0] as Record<string, unknown>;
+      return Promise.resolve({ success: true, data: { ...initialSettings, ...input } });
+    });
+    mocks.createCertificate.mockResolvedValue({
+      success: true,
+      data: {
+        id: "certificate-1",
+        name: "Production wildcard",
+        certificate_file_name: "production.crt",
+        private_key_file_name: "production.key",
+        created_at: "2026-01-01T00:00:00Z",
+        updated_at: "2026-01-01T00:00:00Z",
+      },
+    });
+    mocks.deleteCertificate.mockResolvedValue({ success: true, data: null });
+    mocks.getBackupDestination.mockImplementation(() =>
+      Promise.resolve({ success: true, data: backupDestination }),
     );
+    mocks.updateBackupDestination.mockImplementation((...args) => {
+      backupDestination = {
+        ...(args[0] as Record<string, unknown>),
+        created_at: "2026-01-01T00:00:00Z",
+        updated_at: "2026-01-01T00:00:00Z",
+      };
+      return Promise.resolve({ success: true, data: backupDestination });
+    });
+    mocks.updateBackupControls.mockImplementation((...args) => {
+      backupDestination = { ...backupDestination, ...(args[0] as Record<string, unknown>) };
+      return Promise.resolve({ success: true, data: backupDestination });
+    });
+    mocks.deleteBackupDestination.mockResolvedValue({ success: true, data: null });
+    mocks.listBackupRuns.mockResolvedValue({
+      success: true,
+      data: [
+        {
+          id: "backup-1",
+          trigger: "scheduled",
+          status: "succeeded",
+          started_at: "2026-01-01T00:00:00Z",
+          completed_at: "2026-01-01T00:03:00Z",
+          message: "Backup completed",
+        },
+      ],
+    });
   });
 
   it("loads infrastructure health and persists an application ingress policy", async () => {
-    const { app, host } = await mountSettings();
+    const { host } = await mountSettings();
     const save = [...host.querySelectorAll("button")].find((button) =>
       button.textContent?.includes("Save changes"),
     ) as HTMLButtonElement;
@@ -219,18 +189,11 @@ describe("SettingsView", () => {
 
     expect(mocks.toastSuccess.mock.calls).toEqual([["Infrastructure settings saved"]]);
     expect(window.localStorage.length).toBe(0);
-    const calls = fetchCalls;
-    expect(
-      calls.some(
-        ([input, init]) =>
-          requestUrl(input).endsWith("/settings/infrastructure") && init?.method === "PATCH",
-      ),
-    ).toBe(true);
-    app.unmount();
+    expect(mocks.updateInfrastructure).toHaveBeenCalled();
   });
 
   it("rejects an invalid application domain suffix", async () => {
-    const { app, host } = await mountSettings();
+    const { host } = await mountSettings();
     await selectSection(host, "Ingress & TLS");
     const domain = host.querySelector("#application-domain-suffix") as HTMLInputElement;
     const save = [...host.querySelectorAll("button")].find((button) =>
@@ -243,11 +206,10 @@ describe("SettingsView", () => {
 
     expect(host.textContent).toContain("Use a valid hostname without a protocol or path.");
     expect(save.disabled).toBe(true);
-    app.unmount();
   });
 
   it("configures a separate HTTPS control-plane domain", async () => {
-    const { app, host } = await mountSettings();
+    const { host } = await mountSettings();
     await selectSection(host, "Ingress & TLS");
     const applicationDomain = host.querySelector("#application-domain-suffix") as HTMLInputElement;
     const controlPlaneDomain = host.querySelector("#control-plane-domain") as HTMLInputElement;
@@ -267,18 +229,14 @@ describe("SettingsView", () => {
     save.click();
     await settle();
 
-    const patch = fetchCalls.find(
-      ([input, init]) =>
-        requestUrl(input).endsWith("/settings/infrastructure") && init?.method === "PATCH",
-    );
-    const requestBody = patch?.[1]?.body;
-    if (typeof requestBody !== "string") throw new Error("Expected a JSON settings payload.");
-    expect(JSON.parse(requestBody).control_plane_domain).toBe("console.apps.example.com");
-    app.unmount();
+    const payload = mocks.updateInfrastructure.mock.calls[0]?.[0] as
+      | Record<string, unknown>
+      | undefined;
+    expect(payload?.control_plane_domain).toBe("console.apps.example.com");
   });
 
   it("persists a custom unmatched-hostname page", async () => {
-    const { app, host } = await mountSettings();
+    const { host } = await mountSettings();
     await selectSection(host, "Ingress & TLS");
     const domain = host.querySelector("#application-domain-suffix") as HTMLInputElement;
     const heading = host.querySelector("#fallback-page-heading") as HTMLInputElement;
@@ -299,20 +257,15 @@ describe("SettingsView", () => {
     save.click();
     await settle();
 
-    const patch = fetchCalls.find(
-      ([input, init]) =>
-        requestUrl(input).endsWith("/settings/infrastructure") && init?.method === "PATCH",
-    );
-    const requestBody = patch?.[1]?.body;
-    if (typeof requestBody !== "string") throw new Error("Expected a JSON settings payload.");
-    const body = JSON.parse(requestBody);
-    expect(body.fallback_page_heading).toBe("This site is not deployed");
-    expect(body.fallback_page_message).toBe("Check the domain name and try again.");
-    app.unmount();
+    const payload = mocks.updateInfrastructure.mock.calls[0]?.[0] as
+      | Record<string, unknown>
+      | undefined;
+    expect(payload?.fallback_page_heading).toBe("This site is not deployed");
+    expect(payload?.fallback_page_message).toBe("Check the domain name and try again.");
   });
 
   it("uploads a custom certificate pair through the server API", async () => {
-    const { app, host } = await mountSettings();
+    const { host } = await mountSettings();
     await selectSection(host, "Ingress & TLS");
     const addCertificate = [...host.querySelectorAll("button")].find((button) =>
       button.textContent?.includes("Add certificate"),
@@ -345,11 +298,10 @@ describe("SettingsView", () => {
     expect(host.textContent).toContain("Production wildcard");
     expect(host.textContent).toContain("production.crt");
     expect(host.textContent).toContain("production.key");
-    app.unmount();
   });
 
   it("stores a write-only S3 backup destination separately from infrastructure settings", async () => {
-    const { app, host } = await mountSettings();
+    const { host } = await mountSettings();
     await selectSection(host, "Backup");
     const endpoint = host.querySelector("#s3-backup-endpoint") as HTMLInputElement;
     const bucket = host.querySelector("#s3-backup-bucket") as HTMLInputElement;
@@ -378,13 +330,10 @@ describe("SettingsView", () => {
     form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
     await settle();
 
-    const request = fetchCalls.find(
-      ([input, init]) =>
-        requestUrl(input).endsWith("/settings/backup-destination/s3") && init?.method === "PUT",
-    );
-    const body = request?.[1]?.body;
-    if (typeof body !== "string") throw new Error("Expected a JSON S3 destination payload.");
-    expect(JSON.parse(body)).toMatchObject({
+    const payload = mocks.updateBackupDestination.mock.calls[0]?.[0] as
+      | Record<string, unknown>
+      | undefined;
+    expect(payload).toMatchObject({
       endpoint: "https://account.r2.cloudflarestorage.com",
       bucket: "ignitify-backups",
       access_key_id: "access-key-id",
@@ -399,18 +348,11 @@ describe("SettingsView", () => {
     backupEnabled.click();
     await settle();
 
-    const controlsRequest = fetchCalls.find(
-      ([input, init]) =>
-        requestUrl(input).endsWith("/settings/backup-destination/s3") && init?.method === "PATCH",
-    );
-    const controlsBody = controlsRequest?.[1]?.body;
-    if (typeof controlsBody !== "string")
-      throw new Error("Expected a JSON backup controls payload.");
-    expect(JSON.parse(controlsBody)).toEqual({
+    const controls = mocks.updateBackupControls.mock.calls[0]?.[0];
+    expect(controls).toEqual({
       enabled: true,
       schedule_interval_hours: 48,
     });
-    app.unmount();
   });
 
   it("disables an existing destination without requiring replacement credentials", async () => {
@@ -425,7 +367,7 @@ describe("SettingsView", () => {
       created_at: "2026-01-01T00:00:00Z",
       updated_at: "2026-01-01T00:00:00Z",
     };
-    const { app, host } = await mountSettings();
+    const { host } = await mountSettings();
     await selectSection(host, "Backup");
     const replaceCredentials = [...host.querySelectorAll("button")].find((button) =>
       button.textContent?.includes("Replace credentials"),
@@ -444,17 +386,11 @@ describe("SettingsView", () => {
     form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
     await settle();
 
-    const request = fetchCalls.find(
-      ([input, init]) =>
-        requestUrl(input).endsWith("/settings/backup-destination/s3") && init?.method === "PATCH",
-    );
-    const body = request?.[1]?.body;
-    if (typeof body !== "string") throw new Error("Expected a JSON backup controls payload.");
-    expect(JSON.parse(body)).toEqual({
+    const controls = mocks.updateBackupControls.mock.calls[0]?.[0];
+    expect(controls).toEqual({
       enabled: false,
       schedule_interval_hours: null,
     });
     expect(host.textContent).toContain("disabled");
-    app.unmount();
   });
 });
