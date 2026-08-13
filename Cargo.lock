@@ -2011,6 +2011,7 @@ dependencies = [
 name = "ignitify-notifications"
 version = "0.1.3"
 dependencies = [
+ "chrono",
  "ignitify-control-plane",
  "ignitify-db",
  "lettre",

@@ -36,6 +36,7 @@ const NOTIFICATION_EVENTS: &[&str] = &[
     "backup.failed",
     "remote_agent.offline",
     "remote_server.authentication_failed",
+    "operations.alert",
 ];
 
 #[derive(Debug, Deserialize, ToSchema)]

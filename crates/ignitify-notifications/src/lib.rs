@@ -1,5 +1,7 @@
 //! Outbound notification delivery adapters and event dispatching.
 
+mod operational_alerts;
+
 use std::{net::IpAddr, str::FromStr, sync::Arc, time::Duration};
 
 use ignitify_control_plane::{AgeCipher, StreamPublisher, StreamRecord};
@@ -20,6 +22,8 @@ use teloxide::{
 use thiserror::Error;
 use tokio::sync::broadcast;
 use url::Url;
+
+pub use operational_alerts::spawn_operational_alert_dispatcher;
 
 const DELIVERY_TIMEOUT: Duration = Duration::from_secs(15);
 const MAX_DELIVERY_ATTEMPTS: u8 = 3;
@@ -172,16 +176,16 @@ async fn dispatch_remote_event(
     .await
 }
 
-struct NotificationEvent<'a> {
-    source_kind: &'a str,
-    source_id: &'a str,
-    event_kind: &'a str,
-    occurred_at: Option<&'a str>,
-    title: &'a str,
-    body: String,
+pub(crate) struct NotificationEvent<'a> {
+    pub(crate) source_kind: &'a str,
+    pub(crate) source_id: &'a str,
+    pub(crate) event_kind: &'a str,
+    pub(crate) occurred_at: Option<&'a str>,
+    pub(crate) title: &'a str,
+    pub(crate) body: String,
 }
 
-async fn dispatch(
+pub(crate) async fn dispatch(
     database: &Database,
     cipher: &AgeCipher,
     event: NotificationEvent<'_>,

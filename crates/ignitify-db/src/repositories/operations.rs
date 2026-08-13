@@ -1,3 +1,4 @@
+use chrono::Utc;
 use sqlx::{FromRow, SqlitePool};
 
 use crate::Result;
@@ -17,6 +18,7 @@ pub struct DeploymentOperationsSummary {
     pub active_count: i64,
     pub failed_count: i64,
     pub failed_retry_count: i64,
+    pub recent_failed_retry_count: i64,
     pub retry_count: i64,
     pub average_duration_seconds: Option<f64>,
     pub latest_duration_seconds: Option<f64>,
@@ -61,6 +63,19 @@ pub struct RemoteAgentOperationsSummary {
     pub oldest_heartbeat_at: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OperationalAlertTransition {
+    Raised { generation: i64 },
+    Resolved { generation: i64 },
+}
+
+#[derive(Debug, Clone)]
+pub struct OperationalAlertEvent {
+    pub alert_key: String,
+    pub generation: i64,
+    pub kind: String,
+}
+
 #[derive(Debug, Clone)]
 pub struct OperationsRepository {
     pool: SqlitePool,
@@ -78,6 +93,9 @@ impl OperationsRepository {
                 COALESCE(SUM(CASE WHEN status IN ('queued', 'preparing', 'running', 'stopping') THEN 1 ELSE 0 END), 0) AS active_count,
                 COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0) AS failed_count,
                 COALESCE(SUM(CASE WHEN status = 'failed' AND attempt_count > 1 THEN 1 ELSE 0 END), 0) AS failed_retry_count,
+                COALESCE(SUM(CASE WHEN status = 'failed' AND attempt_count > 1
+                                       AND julianday(finished_at) >= julianday('now', '-30 minutes')
+                                  THEN 1 ELSE 0 END), 0) AS recent_failed_retry_count,
                 COALESCE(SUM(CASE WHEN attempt_count > 1 THEN attempt_count - 1 ELSE 0 END), 0)
                     + COALESCE(SUM(CASE WHEN retry_after IS NOT NULL THEN 1 ELSE 0 END), 0) AS retry_count,
                 (SELECT AVG((julianday(finished_at) - julianday(started_at)) * 86400.0)
@@ -161,6 +179,7 @@ impl OperationsRepository {
                 active_count: deployment.active_count,
                 failed_count: deployment.failed_count,
                 failed_retry_count: deployment.failed_retry_count,
+                recent_failed_retry_count: deployment.recent_failed_retry_count,
                 retry_count: deployment.retry_count,
                 average_duration_seconds: deployment.average_duration_seconds,
                 latest_duration_seconds,
@@ -192,6 +211,141 @@ impl OperationsRepository {
             },
         })
     }
+
+    /// Records only alert-state transitions so a periodic evaluator cannot
+    /// repeatedly notify while an operational condition remains active.
+    pub async fn transition_alert(
+        &self,
+        alert_key: &str,
+        active: bool,
+    ) -> Result<Option<OperationalAlertTransition>> {
+        let mut transaction = self.pool.begin().await?;
+        let current = sqlx::query_as::<_, OperationalAlertRow>(
+            "SELECT active, generation FROM operational_alerts WHERE alert_key = ?",
+        )
+        .bind(alert_key)
+        .fetch_optional(&mut *transaction)
+        .await?;
+        let now = Utc::now().to_rfc3339();
+        let transition = match (current, active) {
+            (None, false) => None,
+            (None, true) => {
+                sqlx::query(
+                    "INSERT INTO operational_alerts
+                     (alert_key, active, generation, activated_at, resolved_at, updated_at)
+                     VALUES (?, 1, 1, ?, NULL, ?)",
+                )
+                .bind(alert_key)
+                .bind(&now)
+                .bind(&now)
+                .execute(&mut *transaction)
+                .await?;
+                insert_alert_event(&mut transaction, alert_key, 1, "raised", &now).await?;
+                Some(OperationalAlertTransition::Raised { generation: 1 })
+            }
+            (Some(current), true) if current.active => None,
+            (Some(current), false) if !current.active => None,
+            (Some(current), true) => {
+                let generation = current.generation + 1;
+                sqlx::query(
+                    "UPDATE operational_alerts
+                     SET active = 1, generation = ?, activated_at = ?, resolved_at = NULL,
+                         updated_at = ?
+                     WHERE alert_key = ?",
+                )
+                .bind(generation)
+                .bind(&now)
+                .bind(&now)
+                .bind(alert_key)
+                .execute(&mut *transaction)
+                .await?;
+                insert_alert_event(&mut transaction, alert_key, generation, "raised", &now).await?;
+                Some(OperationalAlertTransition::Raised { generation })
+            }
+            (Some(current), false) => {
+                sqlx::query(
+                    "UPDATE operational_alerts
+                     SET active = 0, resolved_at = ?, updated_at = ?
+                     WHERE alert_key = ?",
+                )
+                .bind(&now)
+                .bind(&now)
+                .bind(alert_key)
+                .execute(&mut *transaction)
+                .await?;
+                insert_alert_event(
+                    &mut transaction,
+                    alert_key,
+                    current.generation,
+                    "resolved",
+                    &now,
+                )
+                .await?;
+                Some(OperationalAlertTransition::Resolved {
+                    generation: current.generation,
+                })
+            }
+        };
+        transaction.commit().await?;
+        Ok(transition)
+    }
+
+    pub async fn pending_alert_events(&self, limit: i64) -> Result<Vec<OperationalAlertEvent>> {
+        let rows = sqlx::query_as::<_, OperationalAlertEventRow>(
+            "SELECT alert_key, generation, kind
+             FROM operational_alert_events
+             WHERE dispatched_at IS NULL
+             ORDER BY created_at, alert_key, generation
+             LIMIT ?",
+        )
+        .bind(limit.clamp(1, 100))
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(OperationalAlertEventRow::into_event)
+            .collect())
+    }
+
+    pub async fn finish_alert_event(
+        &self,
+        alert_key: &str,
+        generation: i64,
+        kind: &str,
+    ) -> Result<()> {
+        sqlx::query(
+            "UPDATE operational_alert_events
+             SET dispatched_at = ?
+             WHERE alert_key = ? AND generation = ? AND kind = ? AND dispatched_at IS NULL",
+        )
+        .bind(Utc::now().to_rfc3339())
+        .bind(alert_key)
+        .bind(generation)
+        .bind(kind)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+}
+
+async fn insert_alert_event(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    alert_key: &str,
+    generation: i64,
+    kind: &str,
+    created_at: &str,
+) -> Result<()> {
+    sqlx::query(
+        "INSERT INTO operational_alert_events (alert_key, generation, kind, created_at)
+         VALUES (?, ?, ?, ?)",
+    )
+    .bind(alert_key)
+    .bind(generation)
+    .bind(kind)
+    .bind(created_at)
+    .execute(&mut **transaction)
+    .await?;
+    Ok(())
 }
 
 #[derive(Debug, FromRow)]
@@ -200,6 +354,7 @@ struct DeploymentOperationsRow {
     active_count: i64,
     failed_count: i64,
     failed_retry_count: i64,
+    recent_failed_retry_count: i64,
     retry_count: i64,
     average_duration_seconds: Option<f64>,
 }
@@ -249,4 +404,27 @@ struct RemoteAgentOperationsRow {
     offline_count: i64,
     pending_count: i64,
     oldest_heartbeat_at: Option<String>,
+}
+
+#[derive(Debug, FromRow)]
+struct OperationalAlertRow {
+    active: bool,
+    generation: i64,
+}
+
+#[derive(Debug, FromRow)]
+struct OperationalAlertEventRow {
+    alert_key: String,
+    generation: i64,
+    kind: String,
+}
+
+impl OperationalAlertEventRow {
+    fn into_event(self) -> OperationalAlertEvent {
+        OperationalAlertEvent {
+            alert_key: self.alert_key,
+            generation: self.generation,
+            kind: self.kind,
+        }
+    }
 }

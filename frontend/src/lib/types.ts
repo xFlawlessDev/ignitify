@@ -304,6 +304,7 @@ export interface OperationalDeploymentHealth {
   active_count: number;
   failed_count: number;
   failed_retry_count: number;
+  recent_failed_retry_count: number;
   retry_count: number;
   average_duration_seconds: number | null;
   latest_duration_seconds: number | null;

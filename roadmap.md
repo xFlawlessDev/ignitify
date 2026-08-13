@@ -142,7 +142,7 @@ Target: days 31-60.
 - [x] Expose bounded operational metrics for deployment queue depth, deployment
   duration, retry counts, worker health, backup freshness, certificate/domain
   state, and remote-agent heartbeat age.
-- [ ] Define alert thresholds and route alerts through existing notification
+- [x] Define alert thresholds and route alerts through existing notification
   channels.
 - [x] Add an operator-facing health summary that distinguishes control-plane,
   runtime, ingress, backup, and remote-host failure modes.
@@ -153,7 +153,7 @@ Target: days 31-60.
 
 - [x] An operator can identify a stalled worker, failed retry, stale backup, or
   offline remote agent without inspecting raw logs.
-- [ ] Alert conditions are tested and notification deduplication remains intact.
+- [x] Alert conditions are tested and notification deduplication remains intact.
 
 ## Phase 4: Deployment And Remote-Runtime Reliability
 

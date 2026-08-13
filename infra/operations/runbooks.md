@@ -14,9 +14,33 @@ investigating unless that action is part of the selected runbook.
 3. Review the deployment events and logs for the same deployment. Treat log
    text as diagnostic data; do not paste environment values, tokens, keys, or
    unredacted command output into an incident record.
-4. Check whether the worker is progressing. A queued deployment can be safely
+4. For an `operations.alert` notification, use its safe title and the health
+   summary to identify the affected subsystem. Alerts are transition-based:
+   one notification is sent when a condition is raised and one when it
+   resolves. Inspect delivery history before creating another channel.
+5. Check whether the worker is progressing. A queued deployment can be safely
    retried after the underlying dependency is restored; a running deployment
    must be inspected before submitting another deployment.
+
+### Alert Thresholds
+
+The operational dispatcher evaluates these bounded conditions every 30 seconds:
+
+- `deployment.worker_stalled`: the worker is unavailable while one or more
+  deployments remain active.
+- `deployment.retry_exhausted`: at least one deployment exhausted retries in
+  the previous 30 minutes.
+- `backup.stale`: scheduled backups are enabled but the latest run failed, is
+  missing, or is older than two configured intervals.
+- `remote_agent.offline`: at least one configured remote agent is offline after
+  the existing 90-second heartbeat cutoff.
+- `domain.verification_failed`: at least one domain is in failed state.
+- `certificate.needs_attention`: HTTPS is enabled with an incomplete custom
+  certificate configuration.
+
+Each condition sends one `operations.alert` notification when raised and one
+when resolved. Repeated evaluator cycles do not create additional deliveries;
+delivery history is the source of truth for retry diagnostics.
 
 ## Failed Deployment
 

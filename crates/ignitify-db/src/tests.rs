@@ -156,6 +156,30 @@ async fn notification_channels_encrypt_connection_configuration_and_deduplicate_
             .await
             .unwrap()
     );
+    assert!(
+        database
+            .notification_channels()
+            .claim_delivery(
+                &channel.id,
+                "operations",
+                "backup.stale:1:raised",
+                "operations.alert",
+            )
+            .await
+            .unwrap()
+    );
+    assert!(
+        !database
+            .notification_channels()
+            .claim_delivery(
+                &channel.id,
+                "operations",
+                "backup.stale:1:raised",
+                "operations.alert",
+            )
+            .await
+            .unwrap()
+    );
     database
         .notification_channels()
         .finish_delivery(&channel.id, "deployment", "42", "deployment.healthy", true)
@@ -166,7 +190,7 @@ async fn notification_channels_encrypt_connection_configuration_and_deduplicate_
         .list_deliveries(100)
         .await
         .unwrap();
-    assert_eq!(deliveries.len(), 2);
+    assert_eq!(deliveries.len(), 3);
     let deployment = deliveries
         .iter()
         .find(|delivery| delivery.source_kind == "deployment")
@@ -747,6 +771,67 @@ async fn operations_summary_aggregates_safe_runtime_signals() {
     );
     assert!(summary.certificates.https_enabled);
     assert_eq!(summary.remote_agents.server_count, 0);
+}
+
+#[tokio::test]
+async fn operational_alert_transitions_are_deduplicated_and_rearm_after_resolution() {
+    let database = database().await;
+    let operations = database.operations();
+
+    assert!(
+        operations
+            .transition_alert("backup.stale", false)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert!(matches!(
+        operations
+            .transition_alert("backup.stale", true)
+            .await
+            .unwrap(),
+        Some(crate::OperationalAlertTransition::Raised { generation: 1 })
+    ));
+    assert!(
+        operations
+            .transition_alert("backup.stale", true)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    let pending = operations.pending_alert_events(10).await.unwrap();
+    assert_eq!(pending.len(), 1);
+    assert_eq!(pending[0].kind, "raised");
+    operations
+        .finish_alert_event("backup.stale", 1, "raised")
+        .await
+        .unwrap();
+    assert!(
+        operations
+            .pending_alert_events(10)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+
+    assert!(matches!(
+        operations
+            .transition_alert("backup.stale", false)
+            .await
+            .unwrap(),
+        Some(crate::OperationalAlertTransition::Resolved { generation: 1 })
+    ));
+    assert!(matches!(
+        operations
+            .transition_alert("backup.stale", true)
+            .await
+            .unwrap(),
+        Some(crate::OperationalAlertTransition::Raised { generation: 2 })
+    ));
+    let pending = operations.pending_alert_events(10).await.unwrap();
+    assert_eq!(pending.len(), 2);
+    assert!(pending.iter().any(|event| event.kind == "resolved"));
+    assert!(pending.iter().any(|event| event.kind == "raised"));
 }
 
 #[tokio::test]
