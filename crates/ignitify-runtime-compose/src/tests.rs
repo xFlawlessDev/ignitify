@@ -218,7 +218,7 @@ async fn deploys_private_compose_service_with_generated_labels_when_opted_in() {
             local_image_id: None,
             deployment_destination_id: None,
         };
-    let network = super::PROXY_NETWORK;
+    let network = PROXY_NETWORK;
     let created_network = !tokio::process::Command::new(&docker)
         .args(["network", "inspect", network])
         .output()
