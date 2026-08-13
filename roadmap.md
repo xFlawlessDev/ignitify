@@ -139,19 +139,19 @@ Target: days 31-60.
 
 ### Outcomes
 
-- [ ] Expose bounded operational metrics for deployment queue depth, deployment
+- [x] Expose bounded operational metrics for deployment queue depth, deployment
   duration, retry counts, worker health, backup freshness, certificate/domain
   state, and remote-agent heartbeat age.
 - [ ] Define alert thresholds and route alerts through existing notification
   channels.
-- [ ] Add an operator-facing health summary that distinguishes control-plane,
+- [x] Add an operator-facing health summary that distinguishes control-plane,
   runtime, ingress, backup, and remote-host failure modes.
 - [ ] Add structured event identifiers and correlation between audit activity,
   deployment events, and notification delivery records.
 
 ### Definition Of Done
 
-- [ ] An operator can identify a stalled worker, failed retry, stale backup, or
+- [x] An operator can identify a stalled worker, failed retry, stale backup, or
   offline remote agent without inspecting raw logs.
 - [ ] Alert conditions are tested and notification deduplication remains intact.
 
