@@ -1,6 +1,6 @@
 use super::{
-    normalize_private_key, public_key_material, ssh_failure_error, ssh_keygen_failure_error,
-    validate_private_key,
+    is_authentication_failure, normalize_private_key, public_key_material, ssh_failure_error,
+    ssh_keygen_failure_error, validate_private_key,
 };
 use crate::error::ApiError;
 
@@ -36,6 +36,12 @@ fn maps_ssh_authentication_failure_without_exposing_stderr() {
             "SSH authentication failed. Install the matching public key in ~/.ssh/authorized_keys."
         )
     ));
+}
+
+#[test]
+fn identifies_only_ssh_authentication_failures_for_alerting() {
+    assert!(is_authentication_failure(b"Permission denied (publickey)."));
+    assert!(!is_authentication_failure(b"Host key verification failed."));
 }
 
 #[test]

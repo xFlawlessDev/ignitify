@@ -17,3 +17,4 @@ sha2.workspace = true
 tokio.workspace = true
 uuid.workspace = true
 yaml-rust2.workspace = true
+zeroize.workspace = true

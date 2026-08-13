@@ -225,6 +225,10 @@ async fn main() -> Result<()> {
         control.worker_cipher(),
         control.worker_publisher(),
     );
+    let _remote_notification_dispatcher = ignitify_notifications::spawn_remote_event_dispatcher(
+        database.clone(),
+        control.worker_cipher(),
+    );
     let image_runtime = DockerRuntime::from_environment().map_err(|_| CoreError::DockerRuntime)?;
     let compose_runtime = ComposeRuntime::from_environment()?;
     let metrics_runtime = image_runtime.clone();

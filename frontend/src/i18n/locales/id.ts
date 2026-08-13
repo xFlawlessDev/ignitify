@@ -148,9 +148,11 @@ export default {
       deploymentFailed: "Deployment gagal",
       deploymentStopping: "Deployment dihentikan",
       deploymentStopped: "Deployment berhenti",
-      deploymentSuperseded: "Deployment digantikan",
       backupSucceeded: "Backup selesai",
       backupFailed: "Backup gagal",
+      remoteAgentOffline: "Agen remote offline",
+      remoteServerAuthenticationFailed: "Autentikasi SSH remote gagal berulang",
+      deploymentSuperseded: "Deployment digantikan",
     },
   },
   deploymentLogs: {

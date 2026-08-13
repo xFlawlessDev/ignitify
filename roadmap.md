@@ -164,19 +164,19 @@ Target: days 31-60.
 - [x] Add regression coverage for worker restart during each deployment phase,
   cancellation during build and runtime startup, retry exhaustion, and ingress
   synchronization failures.
-- [ ] Publish concise operator runbooks for failed deployments, rollback,
+- [x] Publish concise operator runbooks for failed deployments, rollback,
   certificate failures, remote-server connection failure, and backup recovery.
-- [ ] Audit SSH and mTLS credential rotation, temporary file cleanup, known-host
+- [x] Audit SSH and mTLS credential rotation, temporary file cleanup, known-host
   lifecycle, command timeout behavior, and failure redaction.
-- [ ] Notify operators when remote agents are offline or remote authentication
+- [x] Notify operators when remote agents are offline or remote authentication
   starts failing repeatedly.
 
 ### Definition Of Done
 
 - [x] Critical deployment state transitions are restart-safe and tested.
-- [ ] Remote credentials remain encrypted, scoped, temporary on disk, and absent
+- [x] Remote credentials remain encrypted, scoped, temporary on disk, and absent
   from diagnostics.
-- [ ] Operators have documented recovery procedures for each critical failure mode.
+- [x] Operators have documented recovery procedures for each critical failure mode.
 
 ## Phase 5: Secure Delivery And Production Governance
 

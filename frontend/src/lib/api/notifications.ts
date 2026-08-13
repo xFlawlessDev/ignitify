@@ -13,7 +13,9 @@ export type NotificationEventKind =
   | "deployment.stopped"
   | "deployment.superseded"
   | "backup.succeeded"
-  | "backup.failed";
+  | "backup.failed"
+  | "remote_agent.offline"
+  | "remote_server.authentication_failed";
 
 export interface NotificationChannel {
   id: string;

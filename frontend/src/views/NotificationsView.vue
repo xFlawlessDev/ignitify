@@ -79,6 +79,11 @@ const events: { value: NotificationEventKind; labelKey: string }[] = [
   { value: "deployment.superseded", labelKey: "notifications.event.deploymentSuperseded" },
   { value: "backup.succeeded", labelKey: "notifications.event.backupSucceeded" },
   { value: "backup.failed", labelKey: "notifications.event.backupFailed" },
+  { value: "remote_agent.offline", labelKey: "notifications.event.remoteAgentOffline" },
+  {
+    value: "remote_server.authentication_failed",
+    labelKey: "notifications.event.remoteServerAuthenticationFailed",
+  },
 ];
 
 const kindIcons: Record<NotificationChannelKind, Component> = {

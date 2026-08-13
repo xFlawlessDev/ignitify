@@ -2,7 +2,7 @@ use chrono::Utc;
 use sqlx::{FromRow, SqlitePool};
 use uuid::Uuid;
 
-use crate::{DatabaseError, Result};
+use crate::{DatabaseError, RemoteServerAgentsRepository, Result};
 
 #[derive(Debug, Clone)]
 pub struct RemoteServerRecord {
@@ -238,6 +238,12 @@ impl RemoteServersRepository {
         .fetch_optional(&self.pool)
         .await?;
         Ok(row.map(RemoteServerConnectionRow::into_connection))
+    }
+
+    pub async fn record_authentication_failure(&self, id: &str) -> Result<()> {
+        RemoteServerAgentsRepository::new(self.pool.clone())
+            .record_authentication_failure(id)
+            .await
     }
 
     async fn get(&self, id: &str) -> Result<Option<RemoteServerRecord>> {

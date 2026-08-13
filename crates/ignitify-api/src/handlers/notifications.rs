@@ -32,6 +32,8 @@ const NOTIFICATION_EVENTS: &[&str] = &[
     "deployment.superseded",
     "backup.succeeded",
     "backup.failed",
+    "remote_agent.offline",
+    "remote_server.authentication_failed",
 ];
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -633,11 +635,19 @@ mod tests {
     fn accepts_selected_known_events_once() {
         let events = normalized_events(vec![
             "backup.failed".to_owned(),
+            "remote_agent.offline".to_owned(),
             "deployment.healthy".to_owned(),
             "backup.failed".to_owned(),
         ])
         .unwrap();
-        assert_eq!(events, ["backup.failed", "deployment.healthy"]);
+        assert_eq!(
+            events,
+            [
+                "backup.failed",
+                "deployment.healthy",
+                "remote_agent.offline"
+            ]
+        );
     }
 
     #[test]

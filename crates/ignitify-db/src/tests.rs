@@ -142,6 +142,20 @@ async fn notification_channels_encrypt_connection_configuration_and_deduplicate_
             .await
             .unwrap()
     );
+    assert!(
+        database
+            .notification_channels()
+            .claim_delivery(&channel.id, "remote", "event-1", "remote_agent.offline")
+            .await
+            .unwrap()
+    );
+    assert!(
+        !database
+            .notification_channels()
+            .claim_delivery(&channel.id, "remote", "event-1", "remote_agent.offline")
+            .await
+            .unwrap()
+    );
     database
         .notification_channels()
         .finish_delivery(&channel.id, "deployment", "42", "deployment.healthy", true)
@@ -619,6 +633,43 @@ async fn remote_server_agent_records_heartbeats_and_marks_stale_hosts_offline() 
         offline.last_error.as_deref(),
         Some("agent heartbeat timed out")
     );
+    let events = agents.notification_events(10).await.unwrap();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].server_id, server.id);
+    assert_eq!(events[0].kind, "remote_agent.offline");
+
+    agents
+        .record_authentication_failure(&server.id)
+        .await
+        .unwrap();
+    agents
+        .record_authentication_failure(&server.id)
+        .await
+        .unwrap();
+    assert_eq!(agents.notification_events(10).await.unwrap().len(), 1);
+    agents
+        .record_authentication_failure(&server.id)
+        .await
+        .unwrap();
+    let events = agents.notification_events(10).await.unwrap();
+    assert_eq!(events.len(), 2);
+    assert!(
+        events
+            .iter()
+            .any(|event| event.kind == "remote_server.authentication_failed")
+    );
+    agents
+        .record_authentication_failure(&server.id)
+        .await
+        .unwrap();
+    assert_eq!(agents.notification_events(10).await.unwrap().len(), 2);
+    agents
+        .finish_notification_event(&events[0].id)
+        .await
+        .unwrap();
+    let pending = agents.notification_events(10).await.unwrap();
+    assert_eq!(pending.len(), 1);
+    assert_ne!(pending[0].id, events[0].id);
 }
 
 #[tokio::test]

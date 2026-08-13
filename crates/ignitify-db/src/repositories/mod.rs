@@ -64,7 +64,8 @@ pub use remote_builders::{
     RemoteBuildersRepository,
 };
 pub use remote_server_agents::{
-    RemoteServerAgentHeartbeat, RemoteServerAgentRecord, RemoteServerAgentsRepository,
+    RemoteNotificationEventRecord, RemoteServerAgentHeartbeat, RemoteServerAgentRecord,
+    RemoteServerAgentsRepository,
 };
 pub use remote_servers::{
     NewRemoteServer, RemoteServerConnection, RemoteServerRecord, RemoteServerUpdate,
