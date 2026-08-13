@@ -255,6 +255,11 @@ async fn main() -> Result<()> {
     );
     let worker_health: Arc<dyn ignitify_control_plane::RuntimeHealth> =
         Arc::new(WorkerHealth(worker_ready));
+    let _operational_alert_dispatcher = ignitify_notifications::spawn_operational_alert_dispatcher(
+        database.clone(),
+        control.worker_cipher(),
+        worker_health.clone(),
+    );
     let (services, control, runtime_health, worker_health, ingress_health, docker_runtime): RuntimeCapabilities =
         (
             Some(services),

@@ -171,6 +171,7 @@ describe("SettingsView", () => {
           active_count: 0,
           failed_count: 0,
           failed_retry_count: 0,
+          recent_failed_retry_count: 0,
           retry_count: 0,
           average_duration_seconds: null,
           latest_duration_seconds: null,

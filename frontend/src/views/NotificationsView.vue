@@ -89,6 +89,7 @@ const events: { value: NotificationEventKind; labelKey: string }[] = [
     value: "remote_server.authentication_failed",
     labelKey: "notifications.event.remoteServerAuthenticationFailed",
   },
+  { value: "operations.alert", labelKey: "notifications.event.operationsAlert" },
 ];
 
 const kindIcons: Record<NotificationChannelKind, Component> = {

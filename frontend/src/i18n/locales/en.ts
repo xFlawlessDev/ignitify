@@ -165,6 +165,7 @@ export default {
       remoteAgentOffline: "Remote agent offline",
       remoteServerAuthenticationFailed: "Remote SSH authentication failing",
       deploymentSuperseded: "Deployment superseded",
+      operationsAlert: "Operational alert",
     },
   },
   deploymentLogs: {

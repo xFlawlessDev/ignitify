@@ -164,6 +164,7 @@ export default {
       remoteAgentOffline: "Agen remote offline",
       remoteServerAuthenticationFailed: "Autentikasi SSH remote gagal berulang",
       deploymentSuperseded: "Deployment digantikan",
+      operationsAlert: "Alert operasional",
     },
   },
   deploymentLogs: {

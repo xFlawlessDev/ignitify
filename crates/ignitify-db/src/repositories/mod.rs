@@ -46,7 +46,8 @@ pub use notifications::{
 };
 pub use operations::{
     BackupOperationsSummary, BackupRunSummary, CertificateOperationsSummary,
-    DeploymentOperationsSummary, DomainOperationsSummary, OperationsRepository, OperationsSummary,
+    DeploymentOperationsSummary, DomainOperationsSummary, OperationalAlertEvent,
+    OperationalAlertTransition, OperationsRepository, OperationsSummary,
     RemoteAgentOperationsSummary,
 };
 pub use projects::{
