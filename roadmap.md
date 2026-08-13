@@ -76,14 +76,17 @@ Target: first 30 days.
 
 ### Definition Of Done
 
-- [ ] Confirm the full frontend suite passes repeatedly in CI with no open
+- [x] Confirm the full frontend suite passes repeatedly in CI with no open
   network connections.
 - [x] Playwright has a tracked configuration and locally validated smoke coverage.
 - [x] CI blocks a change when a smoke test, type check, unit test, or build fails.
 
-Local evidence: `pnpm run test` passed three consecutive times (32 files,
-89 tests per run) with the global unexpected-network guard enabled. Keep the
-first item open until the GitHub Actions frontend job completes successfully.
+Evidence: `pnpm run test` passed three consecutive times (32 files, 89 tests
+per run) with the global unexpected-network guard enabled. GitHub Actions
+also passed the complete frontend, Rust, and E2E gates on both the dependency
+integration PR (run `31690275096`) and the resulting `main` merge commit (run
+`31691099175`), with no unhandled network request reported by the frontend
+suite.
 
 ## Phase 2: Supply-Chain And Recovery Readiness
 
@@ -113,9 +116,22 @@ The Rust warning remains open after review on 2026-08-13: `proc-macro-error2`
 2.0.1 is the latest available release, and both `age` (via `i18n-embed-fl`) and
 `teloxide` (via `aquamarine`) still require it. Re-evaluate it when either
 upstream dependency updates; no local patch is justified for those
-security-sensitive dependency paths. The supported-artifact restore drill must
-be performed and its evidence recorded before its final definition-of-done item
-is checked.
+security-sensitive dependency paths.
+
+The supported-artifact restore drill was exercised on 2026-08-13 in isolated
+WSL2 Linux AMD64 using release `v0.1.3` (`7fa5d955`): the release archive
+checksum was valid, a synthetic offline backup restored successfully, SQLite
+integrity returned `ok`, the restored secret file had mode `0600`, and prior
+target files were retained in the recovery directory. The synthetic backup age
+was 99 seconds (RPO), and end-to-end restore plus validation took 1,499 ms
+(RTO). The restored control plane was not started and no production data or
+runtime was used.
+
+The item remains open because `v0.1.3` was published before its release workflow
+generated and attached Rust/frontend SBOM assets. Close it only after repeating
+the drill with a release whose archive, `SHA256SUMS`, and SBOMs all match, then
+retain the redacted evidence. This is a release-evidence gap, not an
+implementation failure.
 
 ## Phase 3: Operational Observability
 
