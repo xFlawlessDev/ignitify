@@ -10,6 +10,27 @@ use ignitify_db::{Database, DatabaseConfig};
 use ignitify_domain::ServiceSpec;
 use std::sync::Arc;
 
+#[cfg(unix)]
+#[tokio::test]
+async fn remote_builder_certificate_directory_is_owner_only() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let directory =
+        std::env::temp_dir().join(format!("ignitify-source-test-{}", uuid::Uuid::new_v4()));
+    tokio::fs::create_dir(&directory).await.unwrap();
+    super::set_sensitive_directory_permissions(&directory)
+        .await
+        .unwrap();
+    let mode = tokio::fs::metadata(&directory)
+        .await
+        .unwrap()
+        .permissions()
+        .mode()
+        & 0o777;
+    let _ = tokio::fs::remove_dir_all(&directory).await;
+    assert_eq!(mode, 0o700);
+}
+
 #[test]
 fn static_build_uses_the_generated_dockerfile_not_the_host_shell() {
     let dockerfile = static_dockerfile(

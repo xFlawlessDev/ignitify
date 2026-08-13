@@ -2070,6 +2070,7 @@ dependencies = [
  "tokio",
  "uuid",
  "yaml-rust2",
+ "zeroize",
 ]
 
 [[package]]

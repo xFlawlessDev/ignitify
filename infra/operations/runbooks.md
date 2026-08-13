@@ -76,6 +76,24 @@ or Compose projects manually as a first response.
    and removed when the command or terminal ends; do not collect those files as
    diagnostics.
 
+## Remote Credential Rotation
+
+Rotate credentials by updating the corresponding Remote Servers or Remote
+Builders record with material verified out of band. A remote-server update can
+replace its private key, public key, and `known_hosts`; replace the host key
+only after independently verifying the remote host identity. A remote-builder
+update requires a complete CA certificate, client certificate, and client key,
+plus an optional verified TLS server name.
+
+The application encrypts both SSH and mTLS credential material at rest. During
+use, SSH commands have a 10-second connection timeout and a 45-second command
+timeout. Remote-builder commands have a bounded configurable timeout (15
+minutes by default). The build adapter creates a mode-`0700` per-deployment
+certificate directory, writes mTLS files at mode `0600`, removes them after
+builder cleanup, and removes them on setup failure. Deployment logs contain
+operation status rather than credential material. Do not rotate by editing the
+SQLite database or by recovering temporary files.
+
 ## Backup Recovery
 
 Use the [offline restore drill](restore-drill.md) for the complete procedure.

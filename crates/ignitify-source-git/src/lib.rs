@@ -14,6 +14,9 @@ use std::{
     sync::Arc,
 };
 
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
+
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use ignitify_control_plane::{
     AgeCipher, DeploymentLogSink, Error as ControlError, SourceBuild, SourceBuildOutput,
@@ -444,6 +447,7 @@ impl GitSourceBuild {
         let certificate_dir = self.root.join(format!("{deployment_id}.remote-builder"));
         remove_dir_if_exists(&certificate_dir).await?;
         fs::create_dir_all(&certificate_dir).await?;
+        set_sensitive_directory_permissions(&certificate_dir).await?;
         let ca_path = certificate_dir.join("ca.pem");
         let certificate_path = certificate_dir.join("client.pem");
         let key_path = certificate_dir.join("client-key.pem");
@@ -768,6 +772,16 @@ async fn remove_dir_if_exists(path: &Path) -> Result<(), std::io::Error> {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(error),
     }
+}
+
+async fn set_sensitive_directory_permissions(path: &Path) -> Result<(), std::io::Error> {
+    #[cfg(unix)]
+    {
+        fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)).await?;
+    }
+    #[cfg(not(unix))]
+    let _ = path;
+    Ok(())
 }
 
 async fn remote_image_reference(image: &str, metadata: &Path) -> Result<String, BuildError> {
