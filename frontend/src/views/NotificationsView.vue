@@ -15,6 +15,7 @@ import {
 import { computed, onMounted, reactive, shallowRef, type Component } from "vue";
 import { useI18n } from "vue-i18n";
 import { toast } from "vue-sonner";
+import NotificationDeliveryHistory from "@/components/notifications/NotificationDeliveryHistory.vue";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -40,17 +41,21 @@ import {
   apiCreateNotificationChannel,
   apiDeleteNotificationChannel,
   apiListNotificationChannels,
+  apiListNotificationDeliveries,
   apiUpdateNotificationChannel,
   type NotificationChannel,
   type NotificationChannelInput,
   type NotificationChannelKind,
+  type NotificationDelivery,
   type NotificationEventKind,
 } from "@/lib/api";
 
 const { t } = useI18n();
 
 const channels = shallowRef<NotificationChannel[]>([]);
+const deliveries = shallowRef<NotificationDelivery[]>([]);
 const loading = shallowRef(true);
+const deliveriesLoading = shallowRef(true);
 const saving = shallowRef(false);
 const removing = shallowRef(false);
 const requestError = shallowRef("");
@@ -268,6 +273,13 @@ async function loadChannels(showSuccess = false) {
   if (showSuccess) toast.success(t("notifications.refreshed"));
 }
 
+async function loadDeliveries() {
+  deliveriesLoading.value = true;
+  const result = await apiListNotificationDeliveries();
+  deliveriesLoading.value = false;
+  if (result.success) deliveries.value = result.data;
+}
+
 async function saveChannel() {
   showValidation.value = true;
   if (formError.value) return;
@@ -318,7 +330,9 @@ async function removeChannel() {
   toast.success(t("notifications.removed"), { description: channel.name });
 }
 
-onMounted(loadChannels);
+onMounted(async () => {
+  await Promise.all([loadChannels(), loadDeliveries()]);
+});
 </script>
 
 <template>
@@ -441,6 +455,12 @@ onMounted(loadChannels);
         </article>
       </div>
     </section>
+
+    <NotificationDeliveryHistory
+      :deliveries="deliveries"
+      :loading="deliveriesLoading"
+      @refresh="loadDeliveries"
+    />
 
     <Dialog :open="dialogOpen" @update:open="updateDialog">
       <DialogContent

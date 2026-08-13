@@ -34,6 +34,22 @@ pub struct NewNotificationChannel {
 }
 
 #[derive(Debug, Clone)]
+pub struct NotificationDeliveryRecord {
+    pub id: String,
+    pub channel_id: String,
+    pub channel_name: String,
+    pub channel_kind: String,
+    pub source_kind: String,
+    pub source_id: String,
+    pub event_kind: String,
+    pub status: String,
+    pub attempt_count: i64,
+    pub created_at: String,
+    pub completed_at: Option<String>,
+    pub message: Option<String>,
+}
+
+#[derive(Debug, Clone)]
 pub struct NotificationChannelsRepository {
     pool: SqlitePool,
 }
@@ -151,6 +167,27 @@ impl NotificationChannelsRepository {
         Ok(result.rows_affected() == 1)
     }
 
+    pub async fn list_deliveries(&self, limit: i64) -> Result<Vec<NotificationDeliveryRecord>> {
+        let rows = sqlx::query_as::<_, NotificationDeliveryRow>(
+            "SELECT deliveries.id, deliveries.channel_id, channels.name AS channel_name,
+                    channels.kind AS channel_kind, deliveries.source_kind,
+                    deliveries.source_id, deliveries.event_kind, deliveries.status,
+                    deliveries.attempt_count,
+                    deliveries.created_at, deliveries.completed_at, deliveries.message
+             FROM notification_deliveries deliveries
+             JOIN notification_channels channels ON channels.id = deliveries.channel_id
+             ORDER BY deliveries.created_at DESC, deliveries.id DESC
+             LIMIT ?",
+        )
+        .bind(limit.clamp(1, 100))
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(NotificationDeliveryRow::into_record)
+            .collect())
+    }
+
     pub async fn claim_delivery(
         &self,
         channel_id: &str,
@@ -198,6 +235,28 @@ impl NotificationChannelsRepository {
         .bind(status)
         .bind(Utc::now().to_rfc3339())
         .bind(message)
+        .bind(channel_id)
+        .bind(source_kind)
+        .bind(source_id)
+        .bind(event_kind)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn increment_delivery_attempt(
+        &self,
+        channel_id: &str,
+        source_kind: &str,
+        source_id: &str,
+        event_kind: &str,
+    ) -> Result<()> {
+        sqlx::query(
+            "UPDATE notification_deliveries
+             SET attempt_count = attempt_count + 1
+             WHERE channel_id = ? AND source_kind = ? AND source_id = ? AND event_kind = ?
+               AND status = 'running'",
+        )
         .bind(channel_id)
         .bind(source_kind)
         .bind(source_id)
@@ -259,6 +318,41 @@ struct NotificationChannelConnectionRow {
     configuration_ciphertext: String,
     created_at: String,
     updated_at: String,
+}
+
+#[derive(Debug, FromRow)]
+struct NotificationDeliveryRow {
+    id: String,
+    channel_id: String,
+    channel_name: String,
+    channel_kind: String,
+    source_kind: String,
+    source_id: String,
+    event_kind: String,
+    status: String,
+    attempt_count: i64,
+    created_at: String,
+    completed_at: Option<String>,
+    message: Option<String>,
+}
+
+impl NotificationDeliveryRow {
+    fn into_record(self) -> NotificationDeliveryRecord {
+        NotificationDeliveryRecord {
+            id: self.id,
+            channel_id: self.channel_id,
+            channel_name: self.channel_name,
+            channel_kind: self.channel_kind,
+            source_kind: self.source_kind,
+            source_id: self.source_id,
+            event_kind: self.event_kind,
+            status: self.status,
+            attempt_count: self.attempt_count,
+            created_at: self.created_at,
+            completed_at: self.completed_at,
+            message: self.message,
+        }
+    }
 }
 
 impl NotificationChannelConnectionRow {

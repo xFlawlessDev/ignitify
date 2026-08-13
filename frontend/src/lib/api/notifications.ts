@@ -36,10 +36,31 @@ export interface NotificationChannelInput {
   configuration: Record<string, string | number | boolean | null>;
 }
 
+export interface NotificationDelivery {
+  id: string;
+  channel_id: string;
+  channel_name: string;
+  channel_kind: NotificationChannelKind;
+  source_kind: string;
+  source_id: string;
+  event_kind: NotificationEventKind;
+  status: "running" | "succeeded" | "failed";
+  attempt_count: number;
+  created_at: string;
+  completed_at: string | null;
+  message: string | null;
+}
+
 const endpoint = "/notifications";
 
 export function apiListNotificationChannels(): Promise<ApiResult<NotificationChannel[]>> {
   return apiFetch<NotificationChannel[]>(endpoint);
+}
+
+export function apiListNotificationDeliveries(
+  limit = 50,
+): Promise<ApiResult<NotificationDelivery[]>> {
+  return apiFetch<NotificationDelivery[]>(`${endpoint}/deliveries?limit=${limit}`);
 }
 
 export function apiCreateNotificationChannel(

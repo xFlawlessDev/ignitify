@@ -934,6 +934,93 @@ async fn remote_agent_heartbeat_authenticates_and_persists_metrics() {
     assert_eq!(agent.memory_total_bytes, Some(20));
 }
 
+#[tokio::test]
+async fn notification_delivery_history_requires_operator_access_and_omits_credentials() {
+    let state = state().await;
+    let channel = state
+        .database
+        .notification_channels()
+        .create(ignitify_db::NewNotificationChannel {
+            name: "Secure webhook".to_owned(),
+            kind: "webhook".to_owned(),
+            enabled: true,
+            event_types: vec!["deployment.failed".to_owned()],
+            configuration_summary: serde_json::json!({ "host": "hooks.example.com" }),
+            configuration_ciphertext: "encrypted-webhook-credential".to_owned(),
+        })
+        .await
+        .unwrap();
+    state
+        .database
+        .notification_channels()
+        .claim_delivery(
+            &channel.id,
+            "deployment",
+            "deployment-1",
+            "deployment.failed",
+        )
+        .await
+        .unwrap();
+    state
+        .database
+        .notification_channels()
+        .increment_delivery_attempt(
+            &channel.id,
+            "deployment",
+            "deployment-1",
+            "deployment.failed",
+        )
+        .await
+        .unwrap();
+    state
+        .database
+        .notification_channels()
+        .finish_delivery(
+            &channel.id,
+            "deployment",
+            "deployment-1",
+            "deployment.failed",
+            false,
+        )
+        .await
+        .unwrap();
+    let app = crate::routes::router(state.clone());
+    let unauthorized = app
+        .clone()
+        .oneshot(request("GET", "/api/v1/notifications/deliveries", None, ""))
+        .await
+        .unwrap();
+    assert_eq!(unauthorized.status(), StatusCode::UNAUTHORIZED);
+
+    let token = session_token(&state).await;
+    let response = app
+        .oneshot(request(
+            "GET",
+            "/api/v1/notifications/deliveries?limit=1",
+            Some(&token),
+            "",
+        ))
+        .await
+        .unwrap();
+    let status = response.status();
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json[0]["channel_name"], "Secure webhook");
+    assert_eq!(json[0]["status"], "failed");
+    assert_eq!(json[0]["attempt_count"], 1);
+    assert_eq!(
+        json[0]["message"],
+        "Delivery failed; review the server logs"
+    );
+    assert!(json[0].get("configuration_ciphertext").is_none());
+    assert!(
+        !body
+            .windows(b"encrypted-webhook-credential".len())
+            .any(|window| window == b"encrypted-webhook-credential")
+    );
+}
+
 fn request(method: &str, uri: &str, token: Option<&str>, body: &str) -> Request<Body> {
     let mut request = Request::builder()
         .method(method)

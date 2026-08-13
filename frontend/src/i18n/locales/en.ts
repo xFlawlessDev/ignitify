@@ -130,6 +130,18 @@ export default {
     updated: "Notification channel updated",
     removed: "Notification channel removed",
     refreshed: "Notification channels refreshed",
+    deliveryHistory: "Delivery history",
+    deliveryHistoryDescription:
+      "Recent notification outcomes without provider payloads or credentials.",
+    refreshHistory: "Refresh delivery history",
+    loadingHistory: "Loading delivery history",
+    emptyHistory: "No notification deliveries recorded yet.",
+    deliveryAttempts: "({count} attempts)",
+    deliveryStatus: {
+      running: "running",
+      succeeded: "succeeded",
+      failed: "failed",
+    },
     validation: {
       name: "Channel name is required.",
       events: "Select at least one event.",

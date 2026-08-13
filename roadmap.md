@@ -189,7 +189,7 @@ Target: days 61-90.
   path before enforcing blocks.
 - [ ] Add explicit production promotion and approval workflow while retaining an
   immutable source commit and image digest in deployment history.
-- [ ] Add webhook delivery history and clear retry diagnostics without exposing
+- [x] Add webhook delivery history and clear retry diagnostics without exposing
   credentials or payloads.
 - [ ] Retain and visualize monitoring history using a bounded retention policy;
   define uptime and error-budget alerting.

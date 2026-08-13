@@ -42,7 +42,7 @@ pub use domains::{
 pub use environments::EnvironmentsRepository;
 pub use notifications::{
     NewNotificationChannel, NotificationChannelConnection, NotificationChannelRecord,
-    NotificationChannelsRepository,
+    NotificationChannelsRepository, NotificationDeliveryRecord,
 };
 pub use operations::{
     BackupOperationsSummary, BackupRunSummary, CertificateOperationsSummary,
