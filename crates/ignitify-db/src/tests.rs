@@ -1189,6 +1189,95 @@ async fn deployment_retry_backoff_and_cancellation_are_durable() {
 }
 
 #[tokio::test]
+async fn deployment_retry_exhaustion_persists_failure_and_clears_schedule() {
+    let database = database().await;
+    let actor_id = user_id(&database, "retry-exhaustion-owner").await;
+    let project = database
+        .projects()
+        .create(&actor_id, ProjectInput::new("Retry exhaustion").unwrap())
+        .await
+        .unwrap();
+    let service = database
+        .services()
+        .create(
+            ServiceActor {
+                id: &actor_id,
+                is_admin: false,
+            },
+            project.id.as_str(),
+            ServiceInput::image(
+                "web",
+                "nginx@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                Some(8080),
+                None,
+                vec![],
+            )
+            .unwrap()
+            .configuration,
+            vec![],
+            None,
+        )
+        .await
+        .unwrap();
+    let ServiceMutationOutcome::Created(service) = service else {
+        panic!("service must be created");
+    };
+    let actor = crate::DeploymentActor {
+        id: &actor_id,
+        is_admin: false,
+    };
+    let deployment = database
+        .deployments()
+        .create(
+            actor,
+            service.id.as_str(),
+            crate::NewDeployment {
+                idempotency_key: "retry-exhaustion".to_owned(),
+                requested_by_user_id: actor_id.clone(),
+                spec: service.spec,
+                source_config: None,
+                deployment_destination_id: None,
+                source_revision: None,
+                variables_ciphertext: "ciphertext".to_owned(),
+            },
+        )
+        .await
+        .unwrap();
+    let crate::CreateDeploymentOutcome::Created(deployment) = deployment else {
+        panic!("deployment must be created");
+    };
+
+    let claimed = database.deployments().claim_next().await.unwrap().unwrap();
+    let retry = database
+        .deployments()
+        .schedule_retry(claimed.id.as_str(), "runtime did not start", 1)
+        .await
+        .unwrap();
+    assert!(matches!(retry, crate::RetrySchedule::Exhausted));
+
+    let failed = database
+        .deployments()
+        .get(actor, deployment.id.as_str())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(failed.state, ignitify_domain::DeploymentState::Failed);
+    assert_eq!(failed.attempt_count, 1);
+    assert_eq!(failed.retry_after, None);
+    assert_eq!(
+        failed.failure_reason.as_deref(),
+        Some("runtime did not start after 1 attempts")
+    );
+    assert!(failed.finished_at.is_some());
+    let events = database
+        .deployments()
+        .events(deployment.id.as_str())
+        .await
+        .unwrap();
+    assert!(events.iter().any(|event| event.kind == "deployment.failed"));
+}
+
+#[tokio::test]
 async fn service_repository_persists_source_configuration_separately_from_runtime_spec() {
     let database = database().await;
     let actor_id = user_id(&database, "source-owner").await;

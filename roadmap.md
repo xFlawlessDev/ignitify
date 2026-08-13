@@ -161,7 +161,7 @@ Target: days 31-60.
 
 ### Outcomes
 
-- [ ] Add regression coverage for worker restart during each deployment phase,
+- [x] Add regression coverage for worker restart during each deployment phase,
   cancellation during build and runtime startup, retry exhaustion, and ingress
   synchronization failures.
 - [ ] Publish concise operator runbooks for failed deployments, rollback,
@@ -173,7 +173,7 @@ Target: days 31-60.
 
 ### Definition Of Done
 
-- [ ] Critical deployment state transitions are restart-safe and tested.
+- [x] Critical deployment state transitions are restart-safe and tested.
 - [ ] Remote credentials remain encrypted, scoped, temporary on disk, and absent
   from diagnostics.
 - [ ] Operators have documented recovery procedures for each critical failure mode.
