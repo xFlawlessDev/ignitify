@@ -19,7 +19,9 @@ delivery and security posture have a higher priority than new integrations.
 - The CI workflow runs frontend production dependency audit, Rust dependency
   audit, frontend checks/tests/builds, Rust format/check/test/clippy gates,
   then the Playwright smoke suite against the frontend bundle after the
-  frontend and Rust gates pass. SBOM generation is not yet enforced.
+  frontend and Rust gates pass. Release builds now audit dependencies, generate
+  CycloneDX SBOMs for Rust and frontend dependencies, and retain them beside
+  checksummed release assets.
 - The control-plane facade and production modules have been split by ownership:
   service configuration, deployment submission, streaming, encrypted snapshot
   handling, retry policy, worker scheduling, and reconciliation. The remaining
@@ -90,22 +92,30 @@ Target: first 30 days, in parallel where capacity permits.
 ### Outcomes
 
 - [x] Add automated dependency vulnerability review for Rust and Node dependencies.
-- [ ] Add Dependabot or Renovate with review rules appropriate for infrastructure
+- [x] Add Dependabot or Renovate with review rules appropriate for infrastructure
   dependencies.
-- [ ] Generate a software bill of materials for each release archive and retain it
+- [x] Generate a software bill of materials for each release archive and retain it
   with the release assets.
 - [ ] Review the current Rust future-incompatibility warning and upgrade or replace
   the affected dependency path before it becomes a compiler blocker.
-- [ ] Establish a documented restore drill: encrypted backup, offline restore to an
+- [x] Establish a documented restore drill: encrypted backup, offline restore to an
   isolated location, database/runtime-secret validation, and cleanup.
 
 ### Definition Of Done
 
-- [ ] Dependency and vulnerability checks are visible in pull requests and release
+- [x] Dependency and vulnerability checks are visible in pull requests and release
   builds.
-- [ ] Every release archive has a checksum and SBOM.
+- [x] Every release archive has a checksum and SBOM.
 - [ ] A restore drill has a documented RPO and RTO and succeeds on a supported
   release artifact.
+
+The Rust warning remains open after review on 2026-08-13: `proc-macro-error2`
+2.0.1 is the latest available release, and both `age` (via `i18n-embed-fl`) and
+`teloxide` (via `aquamarine`) still require it. Re-evaluate it when either
+upstream dependency updates; no local patch is justified for those
+security-sensitive dependency paths. The supported-artifact restore drill must
+be performed and its evidence recorded before its final definition-of-done item
+is checked.
 
 ## Phase 3: Operational Observability
 

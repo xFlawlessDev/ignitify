@@ -24,7 +24,7 @@ version metadata commit -> annotated vX.Y.Z tag -> push tag
                                       native amd64 build
                                                    |
                                                    v
-                              verify Railpack and archive checksums
+                         audit dependencies and generate an SBOM
                                                    |
                                                    v
                               production approval -> GitHub Release
@@ -113,8 +113,10 @@ matches it. The `build` job then runs on a native Linux amd64 runner. It:
 4. verifies Railpack against the reviewed SHA-256 checksum in
    `scripts/download-railpack.sh`;
 5. runs `scripts/build-release.sh --require-tag`;
-6. uploads its archive and architecture metadata as a temporary workflow
-   artifact.
+6. audits Rust and production frontend dependencies;
+7. generates CycloneDX SBOMs for the Rust crates and embedded frontend bundle;
+   and
+8. uploads its archive, metadata, and SBOM as a temporary workflow artifact.
 
 `build-release.sh` installs frontend dependencies, runs the frontend quality
 gate, builds the embedded frontend, runs the Rust quality gate, builds
@@ -129,6 +131,8 @@ files:
 ignitify-linux-amd64.tar.gz
 SHA256SUMS
 release-linux-amd64.json
+ignitify-rust-<crate>.cdx.json
+ignitify-frontend.cdx.json
 ```
 
 The first published release for a tag receives generated release notes. A
@@ -138,7 +142,9 @@ rerun after confirming that the tag still points to the intended commit.
 ## Verify The Published Release
 
 Before announcing a release, check the GitHub Release page for the expected
-tag, the amd64 archive, `SHA256SUMS`, and the amd64 metadata JSON file.
+tag, the amd64 archive, `SHA256SUMS`, the amd64 metadata JSON file, and the
+CycloneDX SBOM set (`ignitify-rust-<crate>.cdx.json` and
+`ignitify-frontend.cdx.json`).
 
 Download all release assets to an isolated directory and verify them:
 
@@ -146,9 +152,9 @@ Download all release assets to an isolated directory and verify them:
 sha256sum -c SHA256SUMS
 ```
 
-The command must report both archives as `OK`. Do not publish an archive that
-is missing from `SHA256SUMS` and do not replace the checksum file manually
-without re-verifying all archives.
+The command must report every release asset as `OK`. Do not publish an archive
+or SBOM that is missing from `SHA256SUMS` and do not replace the checksum file
+manually without re-verifying all release assets.
 
 The installer supports an explicit release selection:
 
@@ -168,21 +174,33 @@ native Linux `amd64` host. The source commit must have the exact `vX.Y.Z` tag.
 ```sh
 temporary_dir="$(mktemp -d)"
 bash scripts/download-railpack.sh --output "$temporary_dir/railpack"
-bash scripts/build-release.sh --require-tag --railpack "$temporary_dir/railpack"
+cd frontend
+pnpm install --frozen-lockfile
+pnpm audit --prod
+cd ..
+cargo install --locked cargo-audit --version 0.22.2
+cargo audit --ignore RUSTSEC-2023-0071
+cargo install --locked cargo-cyclonedx --version 0.5.9
+bash scripts/build-release.sh --require-tag --skip-install --railpack "$temporary_dir/railpack"
 ```
 
-Generate and verify the checksum file in `dist/vX.Y.Z/`:
+Generate the SBOM and checksum file in `dist/vX.Y.Z/`:
 
 ```sh
+command -v cargo-cyclonedx >/dev/null
+bash scripts/generate-release-sbom.sh dist/vX.Y.Z
 cd dist/vX.Y.Z
-sha256sum ignitify-linux-amd64.tar.gz > SHA256SUMS
+sha256sum ignitify-linux-amd64.tar.gz release-linux-amd64.json \
+  ignitify-frontend.cdx.json \
+  ignitify-rust-*.cdx.json > SHA256SUMS
 sha256sum -c SHA256SUMS
 ```
 
 Create a non-draft, non-prerelease GitHub Release using the same tag and upload
-the amd64 archive, `SHA256SUMS`, and `release-linux-amd64.json`. Never upload
-`.env` files, runtime data, databases, generated certificates, credentials, or
-source-build workspaces.
+the amd64 archive, `SHA256SUMS`, `release-linux-amd64.json`, and
+`ignitify-frontend.cdx.json`, plus every `ignitify-rust-<crate>.cdx.json` file.
+Never upload `.env` files, runtime data, databases, generated certificates,
+credentials, or source-build workspaces.
 
 ## Troubleshooting
 

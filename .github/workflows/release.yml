@@ -90,8 +90,33 @@ jobs:
       - name: Download verified native Railpack
         run: bash scripts/download-railpack.sh --output "$RUNNER_TEMP/railpack"
 
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Install supply-chain tools
+        run: |
+          cargo install --locked cargo-audit --version 0.22.2
+          cargo install --locked cargo-cyclonedx --version 0.5.9
+
+      - name: Audit release dependencies
+        run: |
+          set -Eeuo pipefail
+          (
+            cd frontend
+            pnpm audit --prod
+          )
+          # Cargo.lock retains SQLx's inactive MySQL/RSA optional dependency;
+          # RUSTSEC-2023-0071 has no upstream patch.
+          cargo audit --ignore RUSTSEC-2023-0071
+
       - name: Build and package release
-        run: bash scripts/build-release.sh --require-tag --railpack "$RUNNER_TEMP/railpack"
+        run: >-
+          bash scripts/build-release.sh --require-tag
+          --skip-install --railpack "$RUNNER_TEMP/railpack"
+
+      - name: Generate release SBOM
+        run: bash scripts/generate-release-sbom.sh "dist/${{ needs.validate.outputs.tag }}"
 
       - name: Upload release artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -100,6 +125,8 @@ jobs:
           path: |
             dist/${{ needs.validate.outputs.tag }}/ignitify-linux-amd64.tar.gz
             dist/${{ needs.validate.outputs.tag }}/release-linux-amd64.json
+            dist/${{ needs.validate.outputs.tag }}/ignitify-rust-*.cdx.json
+            dist/${{ needs.validate.outputs.tag }}/ignitify-frontend.cdx.json
           if-no-files-found: error
           retention-days: 7
 
@@ -137,7 +164,15 @@ jobs:
           test -f "$artifact_dir/release-linux-amd64.json"
           (
             cd "$artifact_dir"
-            sha256sum ignitify-linux-amd64.tar.gz > SHA256SUMS
+            shopt -s nullglob
+            sboms=(ignitify-rust-*.cdx.json)
+            (( ${#sboms[@]} > 0 ))
+            test -s ignitify-frontend.cdx.json
+            sha256sum \
+              ignitify-linux-amd64.tar.gz \
+              release-linux-amd64.json \
+              ignitify-frontend.cdx.json \
+              "${sboms[@]}" > SHA256SUMS
             sha256sum --check SHA256SUMS
           )
 
@@ -148,10 +183,15 @@ jobs:
         run: |
           set -Eeuo pipefail
           artifact_dir="dist/$RELEASE_TAG"
+          shopt -s nullglob
+          sbom_assets=("$artifact_dir"/ignitify-rust-*.cdx.json)
+          (( ${#sbom_assets[@]} > 0 ))
           assets=(
             "$artifact_dir/ignitify-linux-amd64.tar.gz"
             "$artifact_dir/SHA256SUMS"
             "$artifact_dir/release-linux-amd64.json"
+            "$artifact_dir/ignitify-frontend.cdx.json"
+            "${sbom_assets[@]}"
           )
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             gh release upload "$RELEASE_TAG" "${assets[@]}" --clobber

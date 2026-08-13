@@ -45,3 +45,11 @@ ignitify-core restore /srv/ignitify-backups/2026-08-09 --confirm-offline
 The command validates the SQLite snapshot and secret file, stages replacements beside the live files, moves the current database, WAL sidecars, and runtime secrets into `data/restore-recovery-<timestamp>`, then installs the backup. Start the service only after the command reports success.
 
 Do not restore through the web UI and do not run restore while another Ignitify process is using the database. Keep the recovery credential and its S3 endpoint details outside the Ignitify database, because a full host-loss recovery cannot read its previous S3 configuration first.
+
+## Restore Drill
+
+Perform the offline [restore drill](restore-drill.md) at least quarterly and after
+material backup or release changes. It defines the 24-hour RPO and 60-minute
+RTO objectives, validates a supported release artifact in an isolated location,
+and records the required recovery evidence without starting a restored control
+plane.

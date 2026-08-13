@@ -42,11 +42,11 @@ jobs:
           frontend=false
           rust=false
           while IFS= read -r path; do
-            if [[ "$path" == frontend/* || "$path" == .github/workflows/ci.yml ]]; then
+            if [[ "$path" == frontend/* || "$path" == .github/dependabot.yml || "$path" == .github/workflows/* ]]; then
               frontend=true
             fi
             case "$path" in
-              crates/*|Cargo.toml|Cargo.lock|.cargo/*|rust-toolchain*|rustfmt.toml|clippy.toml|.github/workflows/ci.yml)
+              crates/*|Cargo.toml|Cargo.lock|.cargo/*|rust-toolchain*|rustfmt.toml|clippy.toml|.github/dependabot.yml|.github/workflows/*)
                 rust=true
                 ;;
             esac
