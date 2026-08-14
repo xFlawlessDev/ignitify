@@ -204,6 +204,25 @@ export default {
     lineCount: "{shown} of {total} lines",
     noMatches: "No matching deployment log lines.",
   },
+  uptimeHistory: {
+    title: "24-hour history",
+    retention: "Detailed checks retained for {days} days",
+    availability: "Availability",
+    budgetConsumed: "Error budget used",
+    checks: "Successful checks",
+    timeline: "Check timeline",
+    window: "Last {hours} hours",
+    windowSelector: "History time range",
+    noData: "No completed checks in this window.",
+    view: "View history",
+    hide: "Hide history",
+    status: {
+      healthy: "Healthy",
+      warning: "Budget warning",
+      exhausted: "Budget exhausted",
+      insufficient_data: "Awaiting data",
+    },
+  },
   ai: {
     actions: {
       ask: "Ask AI",

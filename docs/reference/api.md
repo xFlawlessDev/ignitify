@@ -120,6 +120,21 @@ Project environments use this shape. To keep an existing secret, send `value: nu
 
 Deployment submission requires an idempotency key header according to the client contract. Production requests return an `approval` object and remain pending until a project owner or platform operator approves them. Responses expose immutable source/image evidence under `source_identity` when it is known. To resume SSE, send `Last-Event-ID` or the `after=<sequence>` query parameter. Streams send a `snapshot` event when the cursor is older than the retained data, a heartbeat about every 15 seconds, and `log` events on the log stream.
 
+## Uptime monitoring
+
+| Method            | Path                                            | Description                                  |
+| ----------------- | ----------------------------------------------- | -------------------------------------------- |
+| `GET`, `POST`     | `/api/v1/uptime-monitors`                      | List or create monitors owned by the actor.  |
+| `PATCH`, `DELETE` | `/api/v1/uptime-monitors/{monitor_id}`         | Update or remove an owned monitor.           |
+| `GET`             | `/api/v1/uptime-monitors/{monitor_id}/history` | Read bounded check history and availability. |
+
+History accepts `hours=1..720` and `limit=1..500`; it returns no more than 30
+days or 1,000 retained checks per monitor. The availability summary covers the
+full selected window even when the returned chart points are capped. A monitor
+with at least three checks raises the transition-deduplicated `operations.alert`
+when failures consume more than the 1% 24-hour error budget; a resolved alert
+is delivered when it recovers.
+
 ## Contract sources
 
 The routes above come from `ignitify/crates/ignitify-api/src/routes.rs`. Response DTOs and specific validation live in `handlers/` and `ignitify-domain`. When changing a contract, update the route, typed dashboard client, tests, and this page in one change.

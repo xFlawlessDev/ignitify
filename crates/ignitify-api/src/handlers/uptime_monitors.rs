@@ -2,10 +2,13 @@ use std::net::IpAddr;
 
 use axum::{
     Json,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
 };
-use ignitify_db::{NewUptimeMonitor, UptimeMonitorRecord, UptimeMonitorUpdate};
+use ignitify_db::{
+    NewUptimeMonitor, UPTIME_HISTORY_RETENTION_DAYS, UptimeMonitorHistory, UptimeMonitorRecord,
+    UptimeMonitorUpdate,
+};
 use serde::{Deserialize, Serialize};
 use url::{Host, Url};
 
@@ -19,6 +22,8 @@ const MAX_NAME_LENGTH: usize = 120;
 const MAX_TARGET_LENGTH: usize = 2_048;
 const MIN_INTERVAL_SECONDS: u32 = 30;
 const MAX_INTERVAL_SECONDS: u32 = 86_400;
+const DEFAULT_HISTORY_WINDOW_HOURS: u32 = 24;
+const MAX_HISTORY_RESPONSE_ROWS: u32 = 500;
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -47,6 +52,40 @@ pub(crate) struct UptimeMonitorResponse {
     updated_at: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub(crate) struct UptimeHistoryQuery {
+    hours: Option<u32>,
+    limit: Option<u32>,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct UptimeMonitorHistoryResponse {
+    monitor_id: String,
+    retention_days: i64,
+    checks: Vec<UptimeCheckResponse>,
+    summary: UptimeAvailabilityResponse,
+}
+
+#[derive(Debug, Serialize)]
+struct UptimeCheckResponse {
+    status: String,
+    latency_ms: Option<i64>,
+    error: Option<String>,
+    checked_at: String,
+}
+
+#[derive(Debug, Serialize)]
+struct UptimeAvailabilityResponse {
+    window_hours: u32,
+    total_checks: i64,
+    successful_checks: i64,
+    failed_checks: i64,
+    availability_percentage: Option<f64>,
+    error_budget_percentage: Option<f64>,
+    budget_consumed_percentage: Option<f64>,
+    status: String,
+}
+
 impl From<UptimeMonitorRecord> for UptimeMonitorResponse {
     fn from(record: UptimeMonitorRecord) -> Self {
         Self {
@@ -63,6 +102,35 @@ impl From<UptimeMonitorRecord> for UptimeMonitorResponse {
             last_error: record.last_error,
             created_at: record.created_at,
             updated_at: record.updated_at,
+        }
+    }
+}
+
+impl UptimeMonitorHistoryResponse {
+    fn from_history(monitor_id: String, history: UptimeMonitorHistory) -> Self {
+        Self {
+            monitor_id,
+            retention_days: UPTIME_HISTORY_RETENTION_DAYS,
+            checks: history
+                .checks
+                .into_iter()
+                .map(|check| UptimeCheckResponse {
+                    status: check.status,
+                    latency_ms: check.latency_ms,
+                    error: check.error,
+                    checked_at: check.checked_at,
+                })
+                .collect(),
+            summary: UptimeAvailabilityResponse {
+                window_hours: history.summary.window_hours,
+                total_checks: history.summary.total_checks,
+                successful_checks: history.summary.successful_checks,
+                failed_checks: history.summary.failed_checks,
+                availability_percentage: history.summary.availability_percentage,
+                error_budget_percentage: history.summary.error_budget_percentage,
+                budget_consumed_percentage: history.summary.budget_consumed_percentage,
+                status: history.summary.status,
+            },
         }
     }
 }
@@ -104,6 +172,32 @@ pub(crate) async fn create(
         })
         .await?;
     Ok((StatusCode::CREATED, Json(record.into())))
+}
+
+pub(crate) async fn history(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(monitor_id): Path<String>,
+    Query(query): Query<UptimeHistoryQuery>,
+) -> Result<Json<UptimeMonitorHistoryResponse>, ApiError> {
+    let actor = require_actor(&state, &headers).await?;
+    let hours = query.hours.unwrap_or(DEFAULT_HISTORY_WINDOW_HOURS);
+    if hours == 0 || hours > (UPTIME_HISTORY_RETENTION_DAYS * 24) as u32 {
+        return Err(ApiError::BadRequest("monitor history window is invalid"));
+    }
+    let limit = query.limit.unwrap_or(100);
+    if limit == 0 || limit > MAX_HISTORY_RESPONSE_ROWS {
+        return Err(ApiError::BadRequest("monitor history limit is invalid"));
+    }
+    let history = state
+        .database
+        .uptime_monitors()
+        .history_for_user(&actor.id, &monitor_id, hours, limit)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+    Ok(Json(UptimeMonitorHistoryResponse::from_history(
+        monitor_id, history,
+    )))
 }
 
 pub(crate) async fn update(

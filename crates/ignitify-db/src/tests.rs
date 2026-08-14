@@ -1,4 +1,4 @@
-use chrono::Utc;
+use chrono::{Duration, Utc};
 use ignitify_domain::{
     ApplicationBuilder, DnsRecord, DnsRecordType, DnsVerificationStatus, DomainName, ProjectInput,
     ProjectMemberRole, ServiceInput, ServiceSourceConfig, ServiceSpec, ServiceVariableInput,
@@ -11,7 +11,7 @@ use crate::{
     NewNotificationChannel, NewProvider, NewRemoteBuilder, NewRemoteServer, NewServerCertificate,
     NewServiceVariable, NewUptimeMonitor, ProjectActor, ProjectRemoveOutcome, ProjectUpdateOutcome,
     ProviderAuthMode, ProviderKind, RemoteServerAgentHeartbeat, ServerSettingsUpdate, ServiceActor,
-    ServiceMutationOutcome, UptimeCheckUpdate, UptimeMonitorUpdate,
+    ServiceMutationOutcome, UPTIME_HISTORY_MAX_ROWS, UptimeCheckUpdate, UptimeMonitorUpdate,
 };
 
 async fn database() -> Database {
@@ -83,6 +83,13 @@ async fn migrations_create_auth_storage() {
         .unwrap();
         assert_eq!(count, 1, "deployments must retain {column}");
     }
+    let count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'uptime_monitor_checks'",
+    )
+    .fetch_one(&database.pool)
+    .await
+    .unwrap();
+    assert_eq!(count, 1, "uptime check history must be durable");
 }
 
 #[tokio::test]
@@ -352,6 +359,104 @@ async fn uptime_monitors_are_scoped_and_record_check_history() {
     assert_eq!(checked[0].status, "up");
     assert_eq!(checked[0].latency_ms, Some(42));
     assert_eq!(checked[0].history.last().map(String::as_str), Some("up"));
+
+    let mut expected_updated_at = checked[0].updated_at.clone();
+    for (index, status) in ["up", "up", "up", "down"].into_iter().enumerate() {
+        let checked_at = (Utc::now() - Duration::minutes(i64::from(4 - index as i32))).to_rfc3339();
+        assert!(
+            database
+                .uptime_monitors()
+                .record_check(
+                    &created.id,
+                    &expected_updated_at,
+                    UptimeCheckUpdate {
+                        status: status.to_owned(),
+                        latency_ms: Some(20),
+                        last_error: (status == "down").then(|| "connection failed".to_owned()),
+                        checked_at: checked_at.clone(),
+                    },
+                )
+                .await
+                .unwrap()
+        );
+        expected_updated_at = checked_at;
+    }
+    let history = database
+        .uptime_monitors()
+        .history_for_user(&owner_id, &created.id, 24, 100)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(history.checks.len(), 5);
+    assert_eq!(history.summary.failed_checks, 1);
+    assert_eq!(history.summary.status, "exhausted");
+    assert_eq!(
+        database
+            .uptime_monitors()
+            .budget_breached_count()
+            .await
+            .unwrap(),
+        1
+    );
+
+    let old_check_id = Uuid::new_v4().to_string();
+    let now = Utc::now();
+    let mut transaction = database.pool.begin().await.unwrap();
+    sqlx::query(
+        "INSERT INTO uptime_monitor_checks
+         (id, monitor_id, status, latency_ms, error, checked_at)
+         VALUES (?, ?, 'down', NULL, 'connection failed', ?)",
+    )
+    .bind(&old_check_id)
+    .bind(&created.id)
+    .bind((now - Duration::days(UPTIME_HISTORY_MAX_ROWS / 30)).to_rfc3339())
+    .execute(&mut *transaction)
+    .await
+    .unwrap();
+    for index in 0..=UPTIME_HISTORY_MAX_ROWS {
+        sqlx::query(
+            "INSERT INTO uptime_monitor_checks
+             (id, monitor_id, status, latency_ms, error, checked_at)
+             VALUES (?, ?, 'up', 20, NULL, ?)",
+        )
+        .bind(Uuid::new_v4().to_string())
+        .bind(&created.id)
+        .bind((now - Duration::seconds(index)).to_rfc3339())
+        .execute(&mut *transaction)
+        .await
+        .unwrap();
+    }
+    transaction.commit().await.unwrap();
+    assert!(
+        database
+            .uptime_monitors()
+            .record_check(
+                &created.id,
+                &expected_updated_at,
+                UptimeCheckUpdate {
+                    status: "up".to_owned(),
+                    latency_ms: Some(20),
+                    last_error: None,
+                    checked_at: Utc::now().to_rfc3339(),
+                },
+            )
+            .await
+            .unwrap()
+    );
+    let retained_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM uptime_monitor_checks WHERE monitor_id = ?")
+            .bind(&created.id)
+            .fetch_one(&database.pool)
+            .await
+            .unwrap();
+    assert_eq!(retained_count, UPTIME_HISTORY_MAX_ROWS);
+    let old_check_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM uptime_monitor_checks WHERE id = ?")
+            .bind(&old_check_id)
+            .fetch_one(&database.pool)
+            .await
+            .unwrap();
+    assert_eq!(old_check_count, 0);
 
     assert!(
         database

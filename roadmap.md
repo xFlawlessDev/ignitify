@@ -203,7 +203,7 @@ Target: days 61-90.
   immutable source commit and image digest in deployment history.
 - [x] Add webhook delivery history and clear retry diagnostics without exposing
   credentials or payloads.
-- [ ] Retain and visualize monitoring history using a bounded retention policy;
+- [x] Retain and visualize monitoring history using a bounded retention policy;
   define uptime and error-budget alerting.
 
 ### Definition Of Done
@@ -212,7 +212,7 @@ Target: days 61-90.
   approval trail.
 - [ ] Supply-chain signals are visible before deployment and can be governed by
   policy.
-- [ ] Historical monitoring provides enough context to investigate regressions and
+- [x] Historical monitoring provides enough context to investigate regressions and
   alert fatigue.
 
 Evidence: migration `0036_deployment_supply_chain_reports.sql` stores an
@@ -232,6 +232,15 @@ records use the deployment correlation ID. The API and deployment UI expose the
 approval trail and immutable source/image identity when it is known; database,
 control-plane, API, and frontend regression coverage verifies that pending work
 is never executed.
+
+Evidence: migration `0038_uptime_check_history.sql` records timestamped safe
+uptime check outcomes separately from the bounded 30-check status strip. It
+retains at most 30 days and 1,000 checks for each monitor, while the owner-scoped
+history API caps chart responses at 500 points and calculates availability from
+the complete selected window. The uptime UI exposes 24-hour, 7-day, and 30-day
+views. A monitor with at least three checks sends a transition-deduplicated
+operational alert after it consumes the 1% 24-hour error budget, and sends a
+resolved notification when it recovers.
 
 ## Deferred Until The Foundations Are Complete
 

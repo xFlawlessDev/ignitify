@@ -58,4 +58,10 @@ Repository menerima actor dan mengevaluasi akses sebelum menghasilkan data. Hand
 
 `GET /health` adalah probe dasar tanpa autentikasi. `GET /api/v1/runtime/status` memeriksa database, runtime, worker, ingress, dan metric host sebagai status `ready` atau `unavailable`. Metric sistem detail ada pada `GET /api/v1/runtime/metrics`; inventaris Docker tersedia melalui endpoint runtime.
 
+Check monitor uptime disimpan terpisah dari konfigurasi monitor dengan batas 30
+hari dan 1.000 check untuk setiap monitor. History per owner menampilkan status,
+latency, dan error aman bertimestamp untuk inspeksi 24 jam, 7 hari, atau 30 hari.
+Target availability 99% dalam 24 jam terakhir hanya mengirim alert operasional
+yang terdeduplikasi setelah setidaknya tiga check tersedia.
+
 Event dan log deployment menggunakan SSE. Stream dapat melakukan replay dari cursor yang disimpan (`Last-Event-ID` atau `after`) dan mengirim snapshot jika cursor client lebih tua dari retensi event.

@@ -121,6 +121,21 @@ Environment project memakai bentuk berikut. Untuk mempertahankan secret yang sud
 
 Submit deployment membutuhkan header idempotency key sesuai kontrak client. Request produksi mengembalikan objek `approval` dan tetap pending sampai owner project atau operator platform menyetujuinya. Respons menampilkan bukti source/image immutable di `source_identity` saat sudah diketahui. Untuk melanjutkan SSE, kirim `Last-Event-ID` atau parameter query `after=<sequence>`. Stream mengirim event `snapshot` jika cursor lebih lama dari data yang masih tersedia, heartbeat sekitar 15 detik, dan event `log` untuk stream log.
 
+## Monitoring uptime
+
+| Method            | Path                                            | Keterangan                                     |
+| ----------------- | ----------------------------------------------- | ---------------------------------------------- |
+| `GET`, `POST`     | `/api/v1/uptime-monitors`                      | List atau buat monitor milik actor.            |
+| `PATCH`, `DELETE` | `/api/v1/uptime-monitors/{monitor_id}`         | Ubah atau hapus monitor milik actor.           |
+| `GET`             | `/api/v1/uptime-monitors/{monitor_id}/history` | Baca riwayat check terbatas dan availability.  |
+
+History menerima `hours=1..720` dan `limit=1..500`; hasilnya tidak lebih dari
+30 hari atau 1.000 check tersimpan per monitor. Ringkasan availability mencakup
+seluruh window yang dipilih walaupun titik grafik dibatasi. Monitor dengan
+minimal tiga check akan mengirim `operations.alert` yang terdeduplikasi saat
+gagal memakai lebih dari error budget 1% dalam 24 jam; alert resolved dikirim
+setelah pulih.
+
 ## Sumber kontrak
 
 Daftar route di atas berasal dari `ignitify/crates/ignitify-api/src/routes.rs`. DTO respons dan validasi spesifik berada pada `handlers/` dan `ignitify-domain`. Saat mengubah kontrak, perbarui route, typed client dashboard, test, dan halaman ini dalam satu perubahan.

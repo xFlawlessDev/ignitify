@@ -82,7 +82,8 @@ pub use settings::{
     ServerSettingsUpdate,
 };
 pub use uptime_monitors::{
-    NewUptimeMonitor, UptimeCheckUpdate, UptimeMonitorRecord, UptimeMonitorUpdate,
-    UptimeMonitorsRepository,
+    NewUptimeMonitor, UPTIME_HISTORY_MAX_ROWS, UPTIME_HISTORY_RETENTION_DAYS,
+    UptimeAvailabilitySummary, UptimeCheckRecord, UptimeCheckUpdate, UptimeMonitorHistory,
+    UptimeMonitorRecord, UptimeMonitorUpdate, UptimeMonitorsRepository,
 };
 pub use users::{AuditContext, AuditOutcome, UsersRepository};

@@ -17,6 +17,7 @@ enum OperationalAlert {
     RemoteAgentOffline,
     DomainVerificationFailed,
     CertificateNeedsAttention,
+    UptimeErrorBudgetExhausted,
 }
 
 const ALERTS: &[OperationalAlert] = &[
@@ -26,6 +27,7 @@ const ALERTS: &[OperationalAlert] = &[
     OperationalAlert::RemoteAgentOffline,
     OperationalAlert::DomainVerificationFailed,
     OperationalAlert::CertificateNeedsAttention,
+    OperationalAlert::UptimeErrorBudgetExhausted,
 ];
 
 impl OperationalAlert {
@@ -37,6 +39,7 @@ impl OperationalAlert {
             Self::RemoteAgentOffline => "remote_agent.offline",
             Self::DomainVerificationFailed => "domain.verification_failed",
             Self::CertificateNeedsAttention => "certificate.needs_attention",
+            Self::UptimeErrorBudgetExhausted => "uptime.error_budget_exhausted",
         }
     }
 
@@ -44,7 +47,13 @@ impl OperationalAlert {
         ALERTS.iter().copied().find(|alert| alert.key() == value)
     }
 
-    fn active(self, summary: &OperationsSummary, worker_ready: bool, now: DateTime<Utc>) -> bool {
+    fn active(
+        self,
+        summary: &OperationsSummary,
+        worker_ready: bool,
+        now: DateTime<Utc>,
+        uptime_budget_breached_count: i64,
+    ) -> bool {
         match self {
             Self::WorkerStalled => !worker_ready && summary.deployments.active_count > 0,
             Self::RetryExhausted => summary.deployments.recent_failed_retry_count > 0,
@@ -58,6 +67,7 @@ impl OperationalAlert {
                         && (!certificate.custom_certificate_selected
                             || certificate.stored_certificate_count == 0))
             }
+            Self::UptimeErrorBudgetExhausted => uptime_budget_breached_count > 0,
         }
     }
 
@@ -69,6 +79,7 @@ impl OperationalAlert {
             Self::RemoteAgentOffline => "Remote agent offline",
             Self::DomainVerificationFailed => "Domain verification failed",
             Self::CertificateNeedsAttention => "HTTPS certificate needs attention",
+            Self::UptimeErrorBudgetExhausted => "Uptime error budget exhausted",
         }
     }
 
@@ -97,6 +108,10 @@ impl OperationalAlert {
             ),
             Self::CertificateNeedsAttention => {
                 "HTTPS is enabled, but the configured custom certificate is missing or incomplete."
+                    .to_owned()
+            }
+            Self::UptimeErrorBudgetExhausted => {
+                "One or more uptime monitors exceeded the 1% failure budget over the last 24 hours."
                     .to_owned()
             }
         }
@@ -128,13 +143,22 @@ async fn evaluate_and_dispatch(
     worker_health: &dyn RuntimeHealth,
 ) -> Result<()> {
     let operations = database.operations();
-    let (summary, worker_ready) = tokio::join!(operations.summary(), worker_health.ready());
+    let monitors = database.uptime_monitors();
+    let (summary, worker_ready, uptime_budget_breached_count) = tokio::join!(
+        operations.summary(),
+        worker_health.ready(),
+        monitors.budget_breached_count(),
+    );
     let summary = summary?;
+    let uptime_budget_breached_count = uptime_budget_breached_count?;
     let now = Utc::now();
 
     for alert in ALERTS {
         let _ = operations
-            .transition_alert(alert.key(), alert.active(&summary, worker_ready, now))
+            .transition_alert(
+                alert.key(),
+                alert.active(&summary, worker_ready, now, uptime_budget_breached_count),
+            )
             .await?;
     }
 
@@ -269,11 +293,11 @@ mod tests {
         let now = Utc::now();
         let mut value = summary();
         value.deployments.active_count = 1;
-        assert!(OperationalAlert::WorkerStalled.active(&value, false, now));
-        assert!(!OperationalAlert::WorkerStalled.active(&value, true, now));
+        assert!(OperationalAlert::WorkerStalled.active(&value, false, now, 0));
+        assert!(!OperationalAlert::WorkerStalled.active(&value, true, now, 0));
 
         value.deployments.recent_failed_retry_count = 1;
-        assert!(OperationalAlert::RetryExhausted.active(&value, true, now));
+        assert!(OperationalAlert::RetryExhausted.active(&value, true, now, 0));
 
         value.backup = BackupOperationsSummary {
             configured: true,
@@ -285,11 +309,12 @@ mod tests {
                 completed_at: Some((now - Duration::hours(3)).to_rfc3339()),
             }),
         };
-        assert!(OperationalAlert::BackupStale.active(&value, true, now));
+        assert!(OperationalAlert::BackupStale.active(&value, true, now, 0));
 
         value.remote_agents.offline_count = 1;
-        assert!(OperationalAlert::RemoteAgentOffline.active(&value, true, now));
+        assert!(OperationalAlert::RemoteAgentOffline.active(&value, true, now, 0));
         value.domains.failed_count = 1;
-        assert!(OperationalAlert::DomainVerificationFailed.active(&value, true, now));
+        assert!(OperationalAlert::DomainVerificationFailed.active(&value, true, now, 0));
+        assert!(OperationalAlert::UptimeErrorBudgetExhausted.active(&value, true, now, 1));
     }
 }

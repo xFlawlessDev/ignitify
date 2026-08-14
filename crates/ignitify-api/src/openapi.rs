@@ -396,6 +396,12 @@ protected_mutation_param!(
     "Monitoring",
     "monitor_id"
 );
+protected_get_param!(
+    uptime_monitor_history_doc,
+    "/api/v1/uptime-monitors/{monitor_id}/history",
+    "Monitoring",
+    "monitor_id"
+);
 
 protected_get!(projects_doc, "/api/v1/projects", "Projects");
 protected_mutation!(create_project_doc, post, "/api/v1/projects", "Projects");
@@ -672,6 +678,7 @@ protected_get!(terminal_doc, "/api/v1/terminal", "Terminal");
         create_uptime_monitor_doc,
         remove_uptime_monitor_doc,
         update_uptime_monitor_doc,
+        uptime_monitor_history_doc,
         projects_doc,
         create_project_doc,
         get_project_doc,
