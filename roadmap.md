@@ -109,7 +109,7 @@ Target: first 30 days, in parallel where capacity permits.
 - [x] Dependency and vulnerability checks are visible in pull requests and release
   builds.
 - [x] Every release archive has a checksum and SBOM.
-- [ ] A restore drill has a documented RPO and RTO and succeeds on a supported
+- [x] A restore drill has a documented RPO and RTO and succeeds on a supported
   release artifact.
 
 The Rust warning remains open after review on 2026-08-13: `proc-macro-error2`
@@ -118,20 +118,15 @@ The Rust warning remains open after review on 2026-08-13: `proc-macro-error2`
 upstream dependency updates; no local patch is justified for those
 security-sensitive dependency paths.
 
-The supported-artifact restore drill was exercised on 2026-08-13 in isolated
-WSL2 Linux AMD64 using release `v0.1.3` (`7fa5d955`): the release archive
-checksum was valid, a synthetic offline backup restored successfully, SQLite
-integrity returned `ok`, the restored secret file had mode `0600`, and prior
-target files were retained in the recovery directory. The synthetic backup age
-was 99 seconds (RPO), and end-to-end restore plus validation took 1,499 ms
-(RTO). The restored control plane was not started and no production data or
-runtime was used.
-
-The item remains open because `v0.1.3` was published before its release workflow
-generated and attached Rust/frontend SBOM assets. Close it only after repeating
-the drill with a release whose archive, `SHA256SUMS`, and SBOMs all match, then
-retain the redacted evidence. This is a release-evidence gap, not an
-implementation failure.
+The supported-artifact restore drill was exercised on 2026-08-15 in isolated
+WSL2 Linux AMD64 using release `v0.2.0`
+(`2fb8131afa0f39e8df281b930b8418b996ed2ffb`). `SHA256SUMS` validated the
+archive, release metadata, and 17 SBOMs, and the metadata commit matched the
+release tag. A synthetic offline backup restored successfully, SQLite integrity
+returned `ok`, the restored secret file had mode `0600`, and prior target files
+were retained in the recovery directory. The synthetic backup age was 1 second
+(RPO), and end-to-end restore plus validation took 15 ms (RTO). The restored
+control plane was not started and no production data or runtime was used.
 
 ## Phase 3: Operational Observability
 
