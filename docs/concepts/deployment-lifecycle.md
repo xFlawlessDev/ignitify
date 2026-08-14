@@ -61,3 +61,13 @@ Traefik only discovers containers with the `com.ignitify.managed=true` label. Se
 - `POST /api/v1/deployments/{deployment_id}/rollback` queues a deployment from an earlier deployment snapshot/revision.
 
 The worker redacts logs that could contain snapshot values. Do not use build or application output as a channel for exposing secrets.
+
+## Incident correlation
+
+Each accepted deployment receives an opaque correlation ID that remains stable
+across idempotent retries. Deployment events expose a structured event ID and
+the same correlation ID; worker logs, deployment audit activity, and related
+notification delivery history carry that ID as metadata. Start incident
+tracing with the correlation ID from activity or delivery history, then inspect
+the bounded events and logs. The ID is safe to display, but it is not an access
+token and does not include deployment secrets or provider payloads.

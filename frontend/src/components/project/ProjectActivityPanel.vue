@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Activity, ChevronLeft, ChevronRight, CircleAlert, RefreshCw } from "@lucide/vue";
 import { computed, shallowRef, watch } from "vue";
+import { useI18n } from "vue-i18n";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { ActivitySummary } from "@/lib/types";
@@ -14,6 +15,7 @@ const props = defineProps<{
 defineEmits<{ retry: [] }>();
 
 const ACTIVITY_PER_PAGE = 10;
+const { t } = useI18n();
 const currentPage = shallowRef(1);
 const activityCount = computed(() => props.activity.length);
 const pageCount = computed(() => Math.max(1, Math.ceil(activityCount.value / ACTIVITY_PER_PAGE)));
@@ -107,6 +109,13 @@ function formatTime(value: string) {
           <p class="mt-1 font-mono text-[11px] text-muted-foreground">
             {{ item.resource_type || "workspace"
             }}<span v-if="item.resource_id"> · {{ item.resource_id }}</span>
+          </p>
+          <p
+            v-if="item.correlation_id"
+            class="mt-1 truncate font-mono text-[10px] text-muted-foreground"
+            :title="item.correlation_id"
+          >
+            {{ t("activity.correlationId") }} · {{ item.correlation_id }}
           </p>
         </div>
         <time class="font-mono text-[10px] text-muted-foreground" :datetime="item.created_at">

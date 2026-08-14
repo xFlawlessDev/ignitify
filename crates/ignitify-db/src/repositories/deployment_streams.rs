@@ -26,13 +26,19 @@ impl DeploymentsRepository {
         }
         let now = Utc::now().to_rfc3339();
         let mut tx = self.pool.begin().await?;
+        let correlation_id: String =
+            sqlx::query_scalar("SELECT correlation_id FROM deployments WHERE id = ?")
+                .bind(deployment_id)
+                .fetch_one(&mut *tx)
+                .await?;
         let mut inserted = Vec::with_capacity(logs.len());
         for log in logs {
             let line = bound_log_line(&log.line);
             let sequence: i64 = sqlx::query_scalar(
-                "INSERT INTO deployment_logs (deployment_id, stream, line, created_at)\n                 VALUES (?, ?, ?, ?) RETURNING sequence",
+                "INSERT INTO deployment_logs (deployment_id, correlation_id, stream, line, created_at)\n                 VALUES (?, ?, ?, ?, ?) RETURNING sequence",
             )
             .bind(deployment_id)
+            .bind(&correlation_id)
             .bind(&log.stream)
             .bind(&line)
             .bind(&now)
@@ -42,6 +48,7 @@ impl DeploymentsRepository {
                 sequence,
                 deployment_id: DeploymentId::new(deployment_id)
                     .map_err(|_| sqlx::Error::Protocol("stored deployment id is invalid".into()))?,
+                correlation_id: correlation_id.clone(),
                 stream: log.stream.clone(),
                 line,
                 created_at: now.clone(),
@@ -88,7 +95,7 @@ impl DeploymentsRepository {
         through: i64,
     ) -> Result<Vec<DeploymentEventRecord>> {
         let rows = sqlx::query_as::<_, EventRow>(
-            "SELECT sequence, deployment_id, kind, payload_json, created_at\n             FROM deployment_events\n             WHERE deployment_id = ? AND sequence > ? AND sequence <= ?\n             ORDER BY sequence",
+            "SELECT sequence, deployment_id, correlation_id, kind, payload_json, created_at\n             FROM deployment_events\n             WHERE deployment_id = ? AND sequence > ? AND sequence <= ?\n             ORDER BY sequence",
         )
         .bind(deployment_id)
         .bind(after)
@@ -99,9 +106,11 @@ impl DeploymentsRepository {
             .map(|row| {
                 Ok(DeploymentEventRecord {
                     sequence: row.sequence,
+                    event_id: event_id(&row.deployment_id, row.sequence),
                     deployment_id: DeploymentId::new(row.deployment_id).map_err(|_| {
                         sqlx::Error::Protocol("stored deployment id is invalid".into())
                     })?,
+                    correlation_id: row.correlation_id,
                     kind: row.kind,
                     payload_json: row.payload_json,
                     created_at: row.created_at,
@@ -121,7 +130,7 @@ impl DeploymentsRepository {
         through: i64,
     ) -> Result<Vec<DeploymentLogRecord>> {
         let rows = sqlx::query_as::<_, LogRow>(
-            "SELECT sequence, deployment_id, stream, line, created_at\n             FROM deployment_logs\n             WHERE deployment_id = ? AND sequence > ? AND sequence <= ?\n             ORDER BY sequence",
+            "SELECT sequence, deployment_id, correlation_id, stream, line, created_at\n             FROM deployment_logs\n             WHERE deployment_id = ? AND sequence > ? AND sequence <= ?\n             ORDER BY sequence",
         )
         .bind(deployment_id)
         .bind(after)
@@ -135,6 +144,7 @@ impl DeploymentsRepository {
                     deployment_id: DeploymentId::new(row.deployment_id).map_err(|_| {
                         sqlx::Error::Protocol("stored deployment id is invalid".into())
                     })?,
+                    correlation_id: row.correlation_id,
                     stream: row.stream,
                     line: row.line,
                     created_at: row.created_at,
@@ -156,6 +166,10 @@ fn bound_log_line(line: &str) -> String {
     line[..end].to_owned()
 }
 
+fn event_id(deployment_id: &str, sequence: i64) -> String {
+    format!("deployment/{deployment_id}/event/{sequence}")
+}
+
 async fn cursor(pool: &SqlitePool, table: &str, deployment_id: &str) -> Result<SequenceCursor> {
     let query = format!("SELECT MIN(sequence), MAX(sequence) FROM {table} WHERE deployment_id = ?");
     let (oldest, newest): (Option<i64>, Option<i64>) = sqlx::query_as(&query)
@@ -169,6 +183,7 @@ async fn cursor(pool: &SqlitePool, table: &str, deployment_id: &str) -> Result<S
 struct EventRow {
     sequence: i64,
     deployment_id: String,
+    correlation_id: String,
     kind: String,
     payload_json: String,
     created_at: String,
@@ -178,6 +193,7 @@ struct EventRow {
 struct LogRow {
     sequence: i64,
     deployment_id: String,
+    correlation_id: String,
     stream: String,
     line: String,
     created_at: String,

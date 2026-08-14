@@ -20,6 +20,7 @@ pub(crate) struct ActivityResponse {
     action: String,
     resource_type: Option<String>,
     resource_id: Option<String>,
+    correlation_id: Option<String>,
     created_at: String,
 }
 
@@ -30,6 +31,7 @@ impl From<ActivityRecord> for ActivityResponse {
             action: record.action,
             resource_type: record.resource_type,
             resource_id: record.resource_id,
+            correlation_id: record.correlation_id,
             created_at: record.created_at,
         }
     }

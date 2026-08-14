@@ -163,13 +163,17 @@ async fn evaluate_and_dispatch(
                 continue;
             }
         };
-        let source_id = format!("{}:{}:{}", event.alert_key, event.generation, event.kind);
+        let source_id = format!(
+            "operations/{}/{}/{}",
+            event.alert_key, event.generation, event.kind
+        );
         dispatch(
             database,
             cipher,
             NotificationEvent {
                 source_kind: "operations",
                 source_id: &source_id,
+                correlation_id: Some(&source_id),
                 event_kind: "operations.alert",
                 occurred_at: None,
                 title,

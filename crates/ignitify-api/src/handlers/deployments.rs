@@ -22,6 +22,7 @@ pub(crate) struct DeploymentListQuery {
 #[derive(Debug, Serialize)]
 pub(crate) struct DeploymentResponse {
     pub(crate) id: String,
+    pub(crate) correlation_id: String,
     pub(crate) service_id: String,
     pub(crate) generation: i64,
     pub(crate) status: String,
@@ -38,6 +39,7 @@ impl From<DeploymentRecord> for DeploymentResponse {
     fn from(deployment: DeploymentRecord) -> Self {
         Self {
             id: deployment.id.to_string(),
+            correlation_id: deployment.correlation_id,
             service_id: deployment.service_id.to_string(),
             generation: deployment.generation,
             status: deployment.state.as_str().to_owned(),

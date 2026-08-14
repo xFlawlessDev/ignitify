@@ -46,6 +46,21 @@ async fn migrations_create_auth_storage() {
     assert!(settings.acme_email.is_empty());
     assert_eq!(settings.certificate_provider, "lets-encrypt");
     assert_eq!(settings.fallback_page_heading, "Application not found");
+    for table in [
+        "deployments",
+        "deployment_events",
+        "deployment_logs",
+        "audit_logs",
+        "notification_deliveries",
+    ] {
+        let count: i64 = sqlx::query_scalar(&format!(
+            "SELECT COUNT(*) FROM pragma_table_info('{table}') WHERE name = 'correlation_id'"
+        ))
+        .fetch_one(&database.pool)
+        .await
+        .unwrap();
+        assert_eq!(count, 1, "{table} must retain correlation_id");
+    }
 }
 
 #[tokio::test]
@@ -145,6 +160,31 @@ async fn notification_channels_encrypt_connection_configuration_and_deduplicate_
     assert!(
         database
             .notification_channels()
+            .claim_delivery_with_correlation(
+                &channel.id,
+                "deployment",
+                "deployment/deployment-1/event/7",
+                "deployment.healthy",
+                Some("correlation-1"),
+            )
+            .await
+            .unwrap()
+    );
+    let correlated_delivery = database
+        .notification_channels()
+        .list_deliveries(10)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|delivery| delivery.source_id == "deployment/deployment-1/event/7")
+        .unwrap();
+    assert_eq!(
+        correlated_delivery.correlation_id.as_deref(),
+        Some("correlation-1")
+    );
+    assert!(
+        database
+            .notification_channels()
             .claim_delivery(&channel.id, "remote", "event-1", "remote_agent.offline")
             .await
             .unwrap()
@@ -190,10 +230,10 @@ async fn notification_channels_encrypt_connection_configuration_and_deduplicate_
         .list_deliveries(100)
         .await
         .unwrap();
-    assert_eq!(deliveries.len(), 3);
+    assert_eq!(deliveries.len(), 4);
     let deployment = deliveries
         .iter()
-        .find(|delivery| delivery.source_kind == "deployment")
+        .find(|delivery| delivery.source_kind == "deployment" && delivery.source_id == "42")
         .unwrap();
     assert_eq!(deployment.channel_name, "Operations Telegram");
     assert_eq!(deployment.status, "succeeded");
@@ -1149,6 +1189,52 @@ async fn deployment_repository_enforces_idempotency_active_conflict_and_immutabl
     let crate::CreateDeploymentOutcome::Created(first) = first else {
         panic!("first deployment must be created");
     };
+    assert!(!first.correlation_id.is_empty());
+    let queued_events = database
+        .deployments()
+        .events(first.id.as_str())
+        .await
+        .unwrap();
+    assert_eq!(queued_events.len(), 1);
+    assert_eq!(
+        queued_events[0].event_id,
+        format!(
+            "deployment/{}/event/{}",
+            first.id, queued_events[0].sequence
+        )
+    );
+    assert_eq!(queued_events[0].correlation_id, first.correlation_id);
+    let logs = database
+        .deployments()
+        .append_logs(
+            first.id.as_str(),
+            &[crate::NewDeploymentLog {
+                stream: "system".to_owned(),
+                line: "correlated lifecycle log".to_owned(),
+            }],
+        )
+        .await
+        .unwrap();
+    assert_eq!(logs[0].correlation_id, first.correlation_id);
+    let activity = database
+        .activity()
+        .list_for_project(
+            ActivityActor {
+                id: &actor_id,
+                is_admin: false,
+            },
+            project.id.as_str(),
+            None,
+            None,
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(activity.iter().any(|entry| {
+        entry.action == "deployment.create"
+            && entry.resource_id.as_deref() == Some(first.id.as_str())
+            && entry.correlation_id.as_deref() == Some(first.correlation_id.as_str())
+    }));
     let repeated = database
         .deployments()
         .create(
@@ -1170,6 +1256,7 @@ async fn deployment_repository_enforces_idempotency_active_conflict_and_immutabl
         panic!("same idempotency key must return existing deployment");
     };
     assert_eq!(repeated.id, first.id);
+    assert_eq!(repeated.correlation_id, first.correlation_id);
     let competing = database
         .deployments()
         .create(
@@ -1237,6 +1324,7 @@ async fn deployment_repository_enforces_idempotency_active_conflict_and_immutabl
         ),
         (first.generation + 1, first.spec, first.variables_ciphertext)
     );
+    assert_ne!(rollback.correlation_id, first.correlation_id);
 }
 
 #[tokio::test]

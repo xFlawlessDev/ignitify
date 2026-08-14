@@ -102,7 +102,15 @@ impl DeploymentsRepository {
             "deployment.cancellation_requested"
         };
         insert_event(&mut tx, deployment_id, event_kind, json!({}), &now).await?;
-        insert_audit(&mut tx, actor.id, "deployment.cancel", deployment_id, &now).await?;
+        insert_audit(
+            &mut tx,
+            actor.id,
+            "deployment.cancel",
+            deployment_id,
+            &current.correlation_id,
+            &now,
+        )
+        .await?;
         let record = fetch_deployment(&mut tx, deployment_id)
             .await?
             .ok_or(sqlx::Error::RowNotFound)?;
@@ -211,7 +219,7 @@ impl DeploymentsRepository {
         deployment_id: &str,
     ) -> Result<Vec<DeploymentRecord>> {
         let rows = sqlx::query_as::<_, DeploymentRow>(
-            "SELECT id, service_id, generation, idempotency_key, requested_by_user_id, spec_json, runtime_spec_json,
+            "SELECT id, correlation_id, service_id, generation, idempotency_key, requested_by_user_id, spec_json, runtime_spec_json,
                     source_config_json, deployment_destination_id, source_revision, local_image_id, variables_ciphertext, runtime_ref,
                     status, failure_reason, attempt_count, retry_after, cancel_requested_at,
                     created_at, started_at, finished_at
@@ -313,7 +321,7 @@ impl DeploymentsRepository {
 
     pub async fn routable(&self) -> Result<Vec<DeploymentRecord>> {
         let rows = sqlx::query_as::<_, DeploymentRow>(
-            "SELECT id, service_id, generation, idempotency_key, requested_by_user_id, spec_json, runtime_spec_json,
+            "SELECT id, correlation_id, service_id, generation, idempotency_key, requested_by_user_id, spec_json, runtime_spec_json,
                     source_config_json, deployment_destination_id, source_revision, local_image_id, variables_ciphertext, runtime_ref,
                     status, failure_reason, attempt_count, retry_after, cancel_requested_at,
                     created_at, started_at, finished_at
@@ -326,7 +334,7 @@ impl DeploymentsRepository {
 
     pub async fn nonterminal(&self) -> Result<Vec<DeploymentRecord>> {
         let rows = sqlx::query_as::<_, DeploymentRow>(
-            "SELECT id, service_id, generation, idempotency_key, requested_by_user_id, spec_json, runtime_spec_json,
+            "SELECT id, correlation_id, service_id, generation, idempotency_key, requested_by_user_id, spec_json, runtime_spec_json,
                     source_config_json, deployment_destination_id, source_revision, local_image_id, variables_ciphertext, runtime_ref,
                     status, failure_reason, attempt_count, retry_after, cancel_requested_at,
                     created_at, started_at, finished_at

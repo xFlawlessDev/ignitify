@@ -83,6 +83,13 @@ function deliveryStatusLabel(status: NotificationDelivery["status"]) {
           <p class="mt-1 truncate font-mono text-[10px] text-muted-foreground">
             {{ delivery.source_kind }} / {{ delivery.source_id }}
           </p>
+          <p
+            v-if="delivery.correlation_id"
+            class="mt-1 truncate font-mono text-[10px] text-muted-foreground"
+            :title="delivery.correlation_id"
+          >
+            {{ t("notifications.correlationId") }} · {{ delivery.correlation_id }}
+          </p>
           <p v-if="delivery.message" class="mt-1 text-[11px] text-muted-foreground">
             {{ delivery.message }}
             {{ t("notifications.deliveryAttempts", { count: delivery.attempt_count }) }}

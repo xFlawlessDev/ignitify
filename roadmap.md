@@ -146,14 +146,26 @@ Target: days 31-60.
   channels.
 - [x] Add an operator-facing health summary that distinguishes control-plane,
   runtime, ingress, backup, and remote-host failure modes.
-- [ ] Add structured event identifiers and correlation between audit activity,
-  deployment events, and notification delivery records.
+- [x] Add structured event identifiers and correlation between audit activity,
+  deployment events, worker logs, operational-alert sources, and notification
+  delivery records.
 
 ### Definition Of Done
 
 - [x] An operator can identify a stalled worker, failed retry, stale backup, or
   offline remote agent without inspecting raw logs.
 - [x] Alert conditions are tested and notification deduplication remains intact.
+- [x] An operator can trace a deployment incident from one opaque correlation ID
+  across activity, deployment events/logs, and notification delivery history.
+
+Evidence: migration `0035_event_correlation.sql` assigns every new deployment a
+UUID correlation ID, preserves it through lifecycle events and worker logs, and
+backfills legacy deployment records with a deterministic ID. Notification
+deliveries retain the same ID without changing their deduplication key; alerts
+use structured source IDs. The API, SSE streams, activity history, and delivery
+history expose only the opaque identifier. The operations runbook starts incident
+triage from that identifier, and database/API regression coverage verifies the
+links.
 
 ## Phase 4: Deployment And Remote-Runtime Reliability
 

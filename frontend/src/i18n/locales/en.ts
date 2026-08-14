@@ -136,6 +136,7 @@ export default {
     refreshHistory: "Refresh delivery history",
     loadingHistory: "Loading delivery history",
     emptyHistory: "No notification deliveries recorded yet.",
+    correlationId: "Correlation ID",
     deliveryAttempts: "({count} attempts)",
     deliveryStatus: {
       running: "running",
@@ -167,6 +168,9 @@ export default {
       deploymentSuperseded: "Deployment superseded",
       operationsAlert: "Operational alert",
     },
+  },
+  activity: {
+    correlationId: "Correlation ID",
   },
   deploymentLogs: {
     title: "Deployment logs",

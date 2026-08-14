@@ -30,6 +30,7 @@ pub(super) fn deployment_from_row(row: DeploymentRow) -> Result<DeploymentRecord
     Ok(DeploymentRecord {
         id: DeploymentId::new(row.id)
             .map_err(|_| sqlx::Error::Protocol("stored deployment id is invalid".into()))?,
+        correlation_id: row.correlation_id,
         service_id: parse_service_id(row.service_id)?,
         generation: row.generation,
         idempotency_key: row.idempotency_key,
@@ -106,6 +107,7 @@ impl ProjectVariableRow {
 #[derive(Debug, FromRow)]
 pub(super) struct DeploymentRow {
     pub(super) id: String,
+    pub(super) correlation_id: String,
     pub(super) service_id: String,
     pub(super) generation: i64,
     pub(super) idempotency_key: String,
@@ -131,6 +133,7 @@ pub(super) struct DeploymentRow {
 #[derive(Debug, FromRow)]
 pub(super) struct DeploymentWithProjectRow {
     pub(super) id: String,
+    pub(super) correlation_id: String,
     pub(super) service_id: String,
     pub(super) generation: i64,
     pub(super) idempotency_key: String,
@@ -158,6 +161,7 @@ impl From<DeploymentWithProjectRow> for DeploymentRow {
     fn from(row: DeploymentWithProjectRow) -> Self {
         Self {
             id: row.id,
+            correlation_id: row.correlation_id,
             service_id: row.service_id,
             generation: row.generation,
             idempotency_key: row.idempotency_key,

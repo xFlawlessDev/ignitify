@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it } from "vitest";
 import { createApp, nextTick } from "vue";
+import i18n from "@/i18n";
 
 afterEach(() => {
   document.body.replaceChildren();
@@ -19,6 +20,7 @@ describe("ProjectActivityPanel", () => {
     const host = document.createElement("div");
     document.body.append(host);
     const app = createApp(component, { activity, error: null, loading: false });
+    app.use(i18n);
     app.mount(host);
     await nextTick();
 

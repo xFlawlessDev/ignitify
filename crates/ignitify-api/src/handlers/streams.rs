@@ -304,7 +304,9 @@ fn event_record(record: DeploymentEventRecord) -> Result<Event, ApiError> {
         .data(
             serde_json::json!({
                 "sequence": record.sequence,
+                "event_id": record.event_id,
                 "deployment_id": record.deployment_id,
+                "correlation_id": record.correlation_id,
                 "created_at": record.created_at,
                 "payload": data,
             })
@@ -320,6 +322,7 @@ fn log_record(record: DeploymentLogRecord) -> Result<Event, ApiError> {
             serde_json::json!({
                 "sequence": record.sequence,
                 "deployment_id": record.deployment_id,
+                "correlation_id": record.correlation_id,
                 "stream": record.stream,
                 "line": record.line,
                 "created_at": record.created_at,
