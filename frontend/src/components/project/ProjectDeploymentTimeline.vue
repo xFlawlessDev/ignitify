@@ -1,5 +1,13 @@
 <script setup lang="ts">
-import { ChevronDown, CircleAlert, LoaderCircle, Rocket, RotateCcw, Square } from "@lucide/vue";
+import {
+  ChevronDown,
+  CircleAlert,
+  LoaderCircle,
+  Rocket,
+  RotateCcw,
+  ShieldCheck,
+  Square,
+} from "@lucide/vue";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -18,6 +26,7 @@ const props = defineProps<{
   loading: boolean;
   services: ServiceSummary[];
   submitting: boolean;
+  canApprove?: boolean;
   selectedDeploymentId?: string | null;
 }>();
 
@@ -25,6 +34,7 @@ const emit = defineEmits<{
   deploy: [serviceId: string];
   stop: [serviceId: string];
   rollback: [deploymentId: string];
+  approve: [deploymentId: string];
   select: [deploymentId: string];
   retry: [];
 }>();
@@ -60,6 +70,12 @@ function statusDotState(status: DeploymentState) {
   if (status === "failed") return "failed";
   if (isActive(status)) return "live";
   return "inactive";
+}
+
+function statusLabel(deployment: DeploymentSummary) {
+  return deployment.approval.status === "pending"
+    ? "Awaiting approval"
+    : statusLabels[deployment.status];
 }
 
 function formatTime(value: string) {
@@ -225,7 +241,7 @@ function formatTime(value: string) {
               :data-status="statusDotState(deployment.status)"
               aria-hidden="true"
             />
-            {{ statusLabels[deployment.status] }}
+            {{ statusLabel(deployment) }}
           </span>
           <time
             class="shrink-0 font-mono text-[10px] uppercase text-muted-foreground/80"
@@ -242,6 +258,22 @@ function formatTime(value: string) {
             "
             class="flex items-center gap-1"
           >
+            <Tooltip v-if="deployment.approval.status === 'pending' && canApprove">
+              <TooltipTrigger as-child>
+                <Button
+                  class="app-action-icon"
+                  size="icon-sm"
+                  variant="ghost"
+                  type="button"
+                  :aria-label="`Approve deployment ${deployment.generation}`"
+                  :disabled="submitting"
+                  @click.stop="emit('approve', deployment.id)"
+                >
+                  <ShieldCheck class="size-4" :stroke-width="1.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Approve production deployment</TooltipContent>
+            </Tooltip>
             <Tooltip v-if="deployment.status === 'healthy' || deployment.status === 'running'">
               <TooltipTrigger as-child>
                 <Button

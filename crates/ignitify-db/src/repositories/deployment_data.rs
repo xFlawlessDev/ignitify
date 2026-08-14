@@ -1,8 +1,10 @@
+use ignitify_domain::ProductionApprovalStatus;
 use sqlx::FromRow;
 
 use super::{
-    DatabaseError, DeploymentId, DeploymentRecord, DeploymentState, DeploymentVariableRecord,
-    Result, ServiceId, ServiceSourceConfig, ServiceSpec, SupplyChainReport,
+    DatabaseError, DeploymentApproval, DeploymentId, DeploymentRecord, DeploymentState,
+    DeploymentVariableRecord, Result, ServiceId, ServiceSourceConfig, ServiceSpec,
+    SupplyChainReport,
 };
 
 pub(super) fn decode_spec(value: &str) -> Result<ServiceSpec> {
@@ -38,6 +40,22 @@ pub(super) fn decode_supply_chain_report(
         .transpose()
 }
 
+fn decode_approval(
+    status: String,
+    requested_at: Option<String>,
+    approved_by_user_id: Option<String>,
+    approved_at: Option<String>,
+) -> Result<DeploymentApproval> {
+    let status = ProductionApprovalStatus::try_from(status.as_str())
+        .map_err(|_| DatabaseError::InvalidDeploymentApprovalStatus(status))?;
+    Ok(DeploymentApproval {
+        status,
+        requested_at,
+        approved_by_user_id,
+        approved_at,
+    })
+}
+
 pub(super) fn deployment_from_row(row: DeploymentRow) -> Result<DeploymentRecord> {
     Ok(DeploymentRecord {
         id: DeploymentId::new(row.id)
@@ -58,6 +76,12 @@ pub(super) fn deployment_from_row(row: DeploymentRow) -> Result<DeploymentRecord
         source_revision: row.source_revision,
         local_image_id: row.local_image_id,
         supply_chain_report: decode_supply_chain_report(row.supply_chain_report_json)?,
+        approval: decode_approval(
+            row.approval_status,
+            row.approval_requested_at,
+            row.approved_by_user_id,
+            row.approved_at,
+        )?,
         variables_ciphertext: row.variables_ciphertext,
         runtime_ref: row.runtime_ref,
         state: DeploymentState::try_from(row.status.as_str())
@@ -85,6 +109,7 @@ pub(super) struct ServiceRow {
     pub(super) desired_spec_json: String,
     pub(super) source_config_json: Option<String>,
     pub(super) deployment_destination_id: Option<String>,
+    pub(super) environment_name: String,
 }
 
 #[derive(Debug, FromRow)]
@@ -132,6 +157,10 @@ pub(super) struct DeploymentRow {
     pub(super) source_revision: Option<String>,
     pub(super) local_image_id: Option<String>,
     pub(super) supply_chain_report_json: Option<String>,
+    pub(super) approval_status: String,
+    pub(super) approval_requested_at: Option<String>,
+    pub(super) approved_by_user_id: Option<String>,
+    pub(super) approved_at: Option<String>,
     pub(super) variables_ciphertext: String,
     pub(super) runtime_ref: Option<String>,
     pub(super) status: String,
@@ -159,6 +188,10 @@ pub(super) struct DeploymentWithProjectRow {
     pub(super) source_revision: Option<String>,
     pub(super) local_image_id: Option<String>,
     pub(super) supply_chain_report_json: Option<String>,
+    pub(super) approval_status: String,
+    pub(super) approval_requested_at: Option<String>,
+    pub(super) approved_by_user_id: Option<String>,
+    pub(super) approved_at: Option<String>,
     pub(super) variables_ciphertext: String,
     pub(super) runtime_ref: Option<String>,
     pub(super) status: String,
@@ -188,6 +221,10 @@ impl From<DeploymentWithProjectRow> for DeploymentRow {
             source_revision: row.source_revision,
             local_image_id: row.local_image_id,
             supply_chain_report_json: row.supply_chain_report_json,
+            approval_status: row.approval_status,
+            approval_requested_at: row.approval_requested_at,
+            approved_by_user_id: row.approved_by_user_id,
+            approved_at: row.approved_at,
             variables_ciphertext: row.variables_ciphertext,
             runtime_ref: row.runtime_ref,
             status: row.status,

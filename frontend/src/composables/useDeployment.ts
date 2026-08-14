@@ -1,5 +1,6 @@
 import { shallowRef } from "vue";
 import {
+  apiApproveDeployment,
   apiCancelDeployment,
   apiDeployService,
   apiListDeployments,
@@ -135,6 +136,21 @@ export function useDeployment() {
     return result.data;
   }
 
+  async function approve(deploymentId: string): Promise<DeploymentSummary | null> {
+    submitting.value = true;
+    error.value = null;
+    const result = await apiApproveDeployment(deploymentId);
+    submitting.value = false;
+    if (!result.success) {
+      error.value = result.error ?? "Could not approve deployment";
+      return null;
+    }
+    data.value = data.value.map((deployment) =>
+      deployment.id === result.data.id ? result.data : deployment,
+    );
+    return result.data;
+  }
+
   return {
     data,
     loading,
@@ -148,5 +164,6 @@ export function useDeployment() {
     stop,
     rollback,
     cancel,
+    approve,
   };
 }

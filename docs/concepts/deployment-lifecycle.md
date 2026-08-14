@@ -10,7 +10,7 @@ Project environment
 Service variables
        |
        v
-encrypted deployment snapshot -> queue -> worker -> runtime + ingress
+encrypted deployment snapshot -> approval -> queue -> worker -> runtime + ingress
 ```
 
 Project environment values are merged first, then service variables with the same key override them. The deployment snapshot is encrypted before it is stored. Later environment changes do not alter a submitted deployment.
@@ -47,6 +47,24 @@ healthy -> superseded
 
 The worker only permits valid transitions. Deploy requests use a visible-ASCII idempotency key between 1 and 128 bytes, so a client can retry without creating duplicate deployments.
 
+## Production promotion and approval
+
+The default project environment is `production`. A request for a production
+deployment or rollback creates an immutable snapshot with approval status
+`pending`; it is not claimable by the worker. A project owner or platform
+operator must call `POST /api/v1/deployments/{deployment_id}/approve` before
+the snapshot is queued for execution. Editors can request a deployment but
+cannot approve it. A single owner may approve their own request so a
+single-maintainer installation remains operable, but the request and approval
+remain separate, audited actions.
+
+The history keeps the source revision and image digest associated with the
+snapshot. Direct images already carry a required immutable digest. Git builds
+record their resolved commit and local image digest before runtime start; a
+rollback reuses its snapshot revision rather than the branch tip. API responses
+expose these values under `source_identity` when known. Pending approval can be
+cancelled and never triggers Docker, Compose, SSH, Git build, or ingress work.
+
 ## Domains and ingress
 
 A domain must be a complete lower-case ASCII hostname, not an IP, `localhost`, wildcard, or public suffix. It starts as `pending`, becomes `active` when the route is applied, and becomes `failed` when route reconciliation fails.
@@ -55,7 +73,8 @@ Traefik only discovers containers with the `com.ignitify.managed=true` label. Se
 
 ## Events, logs, stop, and rollback
 
-- `POST /api/v1/services/{service_id}/deployments` queues a deployment.
+- `POST /api/v1/services/{service_id}/deployments` requests a production deployment.
+- `POST /api/v1/deployments/{deployment_id}/approve` records production approval and queues it.
 - `GET /api/v1/deployments/{deployment_id}/events` and `/logs` serve resumable SSE streams.
 - `POST /api/v1/services/{service_id}/stop` requests a stop lifecycle.
 - `POST /api/v1/deployments/{deployment_id}/rollback` queues a deployment from an earlier deployment snapshot/revision.

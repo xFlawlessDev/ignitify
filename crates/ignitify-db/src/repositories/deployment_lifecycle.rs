@@ -4,8 +4,9 @@ use serde_json::json;
 
 use super::{
     CancelDeploymentOutcome, CreateDeploymentOutcome, DatabaseError, DeploymentActor,
-    DeploymentRecord, DeploymentRow, DeploymentState, DeploymentsRepository, NewDeployment, Result,
-    deployment_from_row, fetch_deployment, insert_audit, insert_event,
+    DeploymentApprovalOutcome, DeploymentRecord, DeploymentRow, DeploymentState,
+    DeploymentsRepository, NewDeployment, ProjectMemberRole, Result, deployment_from_row,
+    fetch_deployment, insert_audit, insert_event,
 };
 
 impl DeploymentsRepository {
@@ -14,7 +15,8 @@ impl DeploymentsRepository {
         let now = Utc::now().to_rfc3339();
         let id: Option<String> = sqlx::query_scalar(
             "SELECT id FROM deployments
-             WHERE status = 'queued' AND (retry_after IS NULL OR retry_after <= ?)
+             WHERE status = 'queued' AND approval_status != 'pending'
+               AND (retry_after IS NULL OR retry_after <= ?)
              ORDER BY created_at LIMIT 1",
         )
         .bind(&now)
@@ -28,7 +30,8 @@ impl DeploymentsRepository {
             "UPDATE deployments
              SET status = 'preparing', started_at = ?, retry_after = NULL,
                  attempt_count = attempt_count + 1
-             WHERE id = ? AND status = 'queued' AND (retry_after IS NULL OR retry_after <= ?)",
+             WHERE id = ? AND status = 'queued' AND approval_status != 'pending'
+               AND (retry_after IS NULL OR retry_after <= ?)",
         )
         .bind(&now)
         .bind(&id)
@@ -118,6 +121,78 @@ impl DeploymentsRepository {
         Ok(CancelDeploymentOutcome::Cancelled(record))
     }
 
+    pub async fn approve(
+        &self,
+        actor: DeploymentActor<'_>,
+        deployment_id: &str,
+    ) -> Result<DeploymentApprovalOutcome> {
+        let Some(current) = self.get(actor, deployment_id).await? else {
+            return Ok(DeploymentApprovalOutcome::Missing);
+        };
+        let Some(service) = self
+            .service_for_deployment(actor, current.service_id.as_str())
+            .await?
+        else {
+            return Ok(DeploymentApprovalOutcome::Missing);
+        };
+        if !actor.is_admin && service.role != ProjectMemberRole::Owner {
+            return Ok(DeploymentApprovalOutcome::Forbidden);
+        }
+
+        let mut tx = self.pool.begin().await?;
+        let Some(current) = fetch_deployment(&mut tx, deployment_id).await? else {
+            tx.commit().await?;
+            return Ok(DeploymentApprovalOutcome::Missing);
+        };
+        if current.state != DeploymentState::Queued || !current.approval.is_pending() {
+            tx.commit().await?;
+            return Ok(DeploymentApprovalOutcome::Existing(current));
+        }
+
+        let now = Utc::now().to_rfc3339();
+        let changed = sqlx::query(
+            "UPDATE deployments
+             SET approval_status = 'approved', approved_by_user_id = ?, approved_at = ?
+             WHERE id = ? AND status = 'queued' AND approval_status = 'pending'",
+        )
+        .bind(actor.id)
+        .bind(&now)
+        .bind(deployment_id)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        if changed == 0 {
+            let record = fetch_deployment(&mut tx, deployment_id)
+                .await?
+                .ok_or(sqlx::Error::RowNotFound)?;
+            tx.commit().await?;
+            return Ok(DeploymentApprovalOutcome::Existing(record));
+        }
+        insert_event(
+            &mut tx,
+            deployment_id,
+            "deployment.approved",
+            json!({}),
+            &now,
+        )
+        .await?;
+        insert_event(&mut tx, deployment_id, "deployment.queued", json!({}), &now).await?;
+        insert_audit(
+            &mut tx,
+            actor.id,
+            "deployment.approve",
+            deployment_id,
+            &current.correlation_id,
+            &now,
+        )
+        .await?;
+        let record = fetch_deployment(&mut tx, deployment_id)
+            .await?
+            .ok_or(sqlx::Error::RowNotFound)?;
+        tx.commit().await?;
+        Ok(DeploymentApprovalOutcome::Approved(record))
+    }
+
     pub async fn record_runtime_ref(&self, deployment_id: &str, runtime_ref: &str) -> Result<bool> {
         let changed = sqlx::query(
             "UPDATE deployments SET runtime_ref = ?
@@ -165,7 +240,7 @@ impl DeploymentsRepository {
         let changed = sqlx::query(
             "UPDATE deployments
              SET source_revision = COALESCE(source_revision, ?),
-                 local_image_id = COALESCE(?, local_image_id),
+                 local_image_id = COALESCE(local_image_id, ?),
                  runtime_spec_json = COALESCE(?, runtime_spec_json)
              WHERE id = ? AND status = 'preparing' AND runtime_ref IS NULL",
         )
@@ -240,7 +315,8 @@ impl DeploymentsRepository {
     ) -> Result<Vec<DeploymentRecord>> {
         let rows = sqlx::query_as::<_, DeploymentRow>(
             "SELECT id, correlation_id, service_id, generation, idempotency_key, requested_by_user_id, spec_json, runtime_spec_json,
-                    source_config_json, deployment_destination_id, source_revision, local_image_id, supply_chain_report_json, variables_ciphertext, runtime_ref,
+                    source_config_json, deployment_destination_id, source_revision, local_image_id, supply_chain_report_json,
+                    approval_status, approval_requested_at, approved_by_user_id, approved_at, variables_ciphertext, runtime_ref,
                     status, failure_reason, attempt_count, retry_after, cancel_requested_at,
                     created_at, started_at, finished_at
              FROM deployments
@@ -342,7 +418,8 @@ impl DeploymentsRepository {
     pub async fn routable(&self) -> Result<Vec<DeploymentRecord>> {
         let rows = sqlx::query_as::<_, DeploymentRow>(
             "SELECT id, correlation_id, service_id, generation, idempotency_key, requested_by_user_id, spec_json, runtime_spec_json,
-                    source_config_json, deployment_destination_id, source_revision, local_image_id, supply_chain_report_json, variables_ciphertext, runtime_ref,
+                    source_config_json, deployment_destination_id, source_revision, local_image_id, supply_chain_report_json,
+                    approval_status, approval_requested_at, approved_by_user_id, approved_at, variables_ciphertext, runtime_ref,
                     status, failure_reason, attempt_count, retry_after, cancel_requested_at,
                     created_at, started_at, finished_at
              FROM deployments WHERE status IN ('running', 'healthy') AND runtime_ref IS NOT NULL",
@@ -355,7 +432,8 @@ impl DeploymentsRepository {
     pub async fn nonterminal(&self) -> Result<Vec<DeploymentRecord>> {
         let rows = sqlx::query_as::<_, DeploymentRow>(
             "SELECT id, correlation_id, service_id, generation, idempotency_key, requested_by_user_id, spec_json, runtime_spec_json,
-                    source_config_json, deployment_destination_id, source_revision, local_image_id, supply_chain_report_json, variables_ciphertext, runtime_ref,
+                    source_config_json, deployment_destination_id, source_revision, local_image_id, supply_chain_report_json,
+                    approval_status, approval_requested_at, approved_by_user_id, approved_at, variables_ciphertext, runtime_ref,
                     status, failure_reason, attempt_count, retry_after, cancel_requested_at,
                     created_at, started_at, finished_at
              FROM deployments

@@ -14,6 +14,7 @@ import {
   Square,
 } from "@lucide/vue";
 import { computed, shallowRef, watch } from "vue";
+import DeploymentApprovalPanel from "@/components/project/DeploymentApprovalPanel.vue";
 import DeploymentLogsPanel from "@/components/project/DeploymentLogsPanel.vue";
 import DeploymentSupplyChainPanel from "@/components/project/DeploymentSupplyChainPanel.vue";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -35,6 +36,7 @@ const props = defineProps<{
   streamError: string | null;
   submitting: boolean;
   canManage: boolean;
+  canApprove?: boolean;
   hideConfig?: boolean;
   hideHeader?: boolean;
   selectedDeploymentId: string | null;
@@ -45,6 +47,7 @@ const emit = defineEmits<{
   deploy: [serviceId: string];
   stop: [serviceId: string];
   cancel: [deploymentId: string];
+  approve: [deploymentId: string];
   rollback: [deploymentId: string];
   selectDeployment: [deploymentId: string];
 }>();
@@ -125,11 +128,11 @@ const sourceLabel = computed(() => {
 const deployLabel = computed(() =>
   props.service.source_config?.source === "application"
     ? latestDeployment.value
-      ? "Rebuild"
-      : "Build & deploy"
+      ? "Request rebuild"
+      : "Request production build"
     : latestDeployment.value
-      ? "Deploy again"
-      : "Deploy",
+      ? "Request deployment"
+      : "Request production deployment",
 );
 const connectionLabel = computed(() => {
   if (!latestDeployment.value) return "No live deployment";
@@ -425,6 +428,14 @@ function goToNextDeploymentPage() {
       </Alert>
 
       <DeploymentSupplyChainPanel :report="latestDeployment?.supply_chain_report ?? null" />
+      <DeploymentApprovalPanel
+        v-if="latestDeployment?.approval"
+        :approval="latestDeployment.approval"
+        :identity="latestDeployment.source_identity"
+        :can-approve="canApprove"
+        :submitting="submitting"
+        @approve="emit('approve', latestDeployment.id)"
+      />
 
       <div v-if="serviceDeployments.length" class="divide-y divide-border border-y border-border">
         <div

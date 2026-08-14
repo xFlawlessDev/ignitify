@@ -41,6 +41,7 @@ const deployment = {
   retry_after: null,
   cancel_requested_at: null,
   supply_chain_report: null,
+  approval: { status: "not_required" as const },
   created_at: "2026-08-10T00:00:00Z",
   started_at: "2026-08-10T00:00:00Z",
   finished_at: null,

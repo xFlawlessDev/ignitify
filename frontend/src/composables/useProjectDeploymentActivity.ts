@@ -16,6 +16,16 @@ import type { DeploymentEvent, DeploymentLog, DeploymentSummary } from "@/lib/ty
 
 const SERVICES_PER_PAGE = 6;
 const DEPLOYMENTS_PER_PAGE = 5;
+const DEPLOYMENT_STATES = new Set<DeploymentSummary["status"]>([
+  "queued",
+  "preparing",
+  "running",
+  "healthy",
+  "failed",
+  "stopping",
+  "stopped",
+  "superseded",
+]);
 
 export function useProjectDeploymentActivity(activeTab: Ref<string>) {
   const services = useService();
@@ -153,11 +163,12 @@ export function useProjectDeploymentActivity(activeTab: Ref<string>) {
   }
 
   function applyDeploymentEvent(event: DeploymentEvent) {
+    const nextStatus = event.kind.slice("deployment.".length) as DeploymentSummary["status"];
     deployments.data.value = deployments.data.value.map((deployment) =>
-      deployment.id === event.deployment_id && event.kind.startsWith("deployment.")
+      deployment.id === event.deployment_id && DEPLOYMENT_STATES.has(nextStatus)
         ? {
             ...deployment,
-            status: event.kind.slice("deployment.".length) as DeploymentSummary["status"],
+            status: nextStatus,
             failure_reason:
               (event.payload.failure_reason as string | null | undefined) ??
               deployment.failure_reason,
@@ -231,7 +242,19 @@ export function useProjectDeploymentActivity(activeTab: Ref<string>) {
       return;
     }
     selectDeployment(deployment.id);
-    toast.success("Deployment started");
+    toast.success("Production deployment requested");
+  }
+
+  async function approveDeployment(deploymentId: string) {
+    const deployment = await deployments.approve(deploymentId);
+    if (!deployment) {
+      toast.error("Could not approve deployment", {
+        description: deploymentError.value ?? "Try again in a moment.",
+      });
+      return;
+    }
+    selectDeployment(deployment.id);
+    toast.success("Production deployment approved");
   }
 
   async function stopDeployment(serviceId: string) {
@@ -268,6 +291,7 @@ export function useProjectDeploymentActivity(activeTab: Ref<string>) {
     activityData,
     activityError,
     activityLoading,
+    approveDeployment,
     availableDeployments,
     deploymentCount,
     deploymentCurrentPage,

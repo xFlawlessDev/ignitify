@@ -250,6 +250,20 @@ export interface SupplyChainReport {
   evaluated_at: string;
 }
 
+export type ProductionApprovalStatus = "not_required" | "pending" | "approved";
+
+export interface DeploymentApproval {
+  status: ProductionApprovalStatus;
+  requested_at?: string;
+  approved_by_user_id?: string;
+  approved_at?: string;
+}
+
+export interface DeploymentSourceIdentity {
+  source_revision: string | null;
+  image_digest: string | null;
+}
+
 export interface DeploymentSummary {
   id: string;
   correlation_id: string;
@@ -261,6 +275,8 @@ export interface DeploymentSummary {
   retry_after: string | null;
   cancel_requested_at: string | null;
   supply_chain_report: SupplyChainReport | null;
+  approval: DeploymentApproval;
+  source_identity?: DeploymentSourceIdentity;
   created_at: string;
   started_at: string | null;
   finished_at: string | null;

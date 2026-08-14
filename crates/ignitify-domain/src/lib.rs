@@ -5,9 +5,11 @@ use std::{fmt, str::FromStr};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+mod deployment_approval;
 mod dns;
 mod supply_chain;
 
+pub use deployment_approval::{DeploymentApproval, ProductionApprovalStatus};
 pub use dns::{DnsRecord, DnsRecordTarget, DnsRecordType, DnsVerificationStatus};
 pub use supply_chain::{
     SupplyChainCheck, SupplyChainCheckStatus, SupplyChainEnforcement, SupplyChainReport,

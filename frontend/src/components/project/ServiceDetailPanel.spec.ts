@@ -51,7 +51,7 @@ describe("ServiceDetailPanel", () => {
 
     const textButton = (label: string) =>
       [...host.querySelectorAll("button")].find((button) => button.textContent?.includes(label));
-    (textButton("Deploy") as HTMLButtonElement).click();
+    (textButton("Request production deployment") as HTMLButtonElement).click();
     (textButton("Deployments") as HTMLButtonElement).click();
     await nextTick();
 
@@ -203,7 +203,7 @@ describe("ServiceDetailPanel", () => {
     app.mount(host);
     await nextTick();
 
-    expect(host.textContent).toContain("Rebuild");
+    expect(host.textContent).toContain("Request rebuild");
     app.unmount();
   });
 
@@ -234,7 +234,7 @@ describe("ServiceDetailPanel", () => {
     await nextTick();
 
     const deployButton = [...host.querySelectorAll("button")].find((button) =>
-      button.textContent?.includes("Deploy"),
+      button.textContent?.includes("Request production deployment"),
     ) as HTMLButtonElement;
     expect(deployButton.disabled).toBe(true);
     expect(host.textContent).toContain("Setup required");

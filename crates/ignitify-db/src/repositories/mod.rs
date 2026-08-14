@@ -32,8 +32,9 @@ pub use dashboard::{
 };
 pub use deployments::{
     AuthorizedDeploymentService, CancelDeploymentOutcome, CreateDeploymentOutcome, DeploymentActor,
-    DeploymentEventRecord, DeploymentLogRecord, DeploymentRecord, DeploymentVariableRecord,
-    DeploymentsRepository, NewDeployment, NewDeploymentLog, RetrySchedule, SequenceCursor,
+    DeploymentApprovalOutcome, DeploymentEventRecord, DeploymentLogRecord, DeploymentRecord,
+    DeploymentVariableRecord, DeploymentsRepository, NewDeployment, NewDeploymentLog,
+    RetrySchedule, SequenceCursor,
 };
 pub use domains::{
     DomainActor, DomainMutationOutcome, DomainRecord, DomainVerificationRequestOutcome,

@@ -5,7 +5,7 @@ use axum::{
 };
 use ignitify_control_plane::DeploymentSubmission;
 use ignitify_db::{DeploymentActor, DeploymentRecord};
-use ignitify_domain::SupplyChainReport;
+use ignitify_domain::{DeploymentApproval, ServiceSpec, SupplyChainReport};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -32,6 +32,8 @@ pub(crate) struct DeploymentResponse {
     pub(crate) retry_after: Option<String>,
     pub(crate) cancel_requested_at: Option<String>,
     pub(crate) supply_chain_report: Option<SupplyChainReport>,
+    pub(crate) approval: DeploymentApproval,
+    pub(crate) source_identity: DeploymentSourceIdentityResponse,
     pub(crate) created_at: String,
     pub(crate) started_at: Option<String>,
     pub(crate) finished_at: Option<String>,
@@ -39,6 +41,7 @@ pub(crate) struct DeploymentResponse {
 
 impl From<DeploymentRecord> for DeploymentResponse {
     fn from(deployment: DeploymentRecord) -> Self {
+        let source_identity = DeploymentSourceIdentityResponse::from(&deployment);
         Self {
             id: deployment.id.to_string(),
             correlation_id: deployment.correlation_id,
@@ -50,6 +53,8 @@ impl From<DeploymentRecord> for DeploymentResponse {
             retry_after: deployment.retry_after,
             cancel_requested_at: deployment.cancel_requested_at,
             supply_chain_report: deployment.supply_chain_report,
+            approval: deployment.approval,
+            source_identity,
             created_at: deployment.created_at,
             started_at: deployment.started_at,
             finished_at: deployment.finished_at,
@@ -183,6 +188,48 @@ pub(crate) async fn cancel(
         state
             .control()?
             .submit_cancel(deployment_actor(&actor), &deployment_id)
+            .await?,
+    )?;
+    Ok((StatusCode::ACCEPTED, Json(deployment.into())))
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct DeploymentSourceIdentityResponse {
+    pub(crate) source_revision: Option<String>,
+    pub(crate) image_digest: Option<String>,
+}
+
+impl From<&DeploymentRecord> for DeploymentSourceIdentityResponse {
+    fn from(deployment: &DeploymentRecord) -> Self {
+        let image_digest = deployment
+            .local_image_id
+            .clone()
+            .or_else(|| match &deployment.spec {
+                ServiceSpec::Image {
+                    image_reference, ..
+                } => image_reference
+                    .split_once('@')
+                    .map(|(_, digest)| digest.to_owned()),
+                ServiceSpec::Compose { .. } => None,
+            });
+        Self {
+            source_revision: deployment.source_revision.clone(),
+            image_digest,
+        }
+    }
+}
+
+pub(crate) async fn approve(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(deployment_id): Path<String>,
+) -> Result<(StatusCode, Json<DeploymentResponse>), ApiError> {
+    let actor = require_actor(&state, &headers).await?;
+    require_same_origin_request(&state, &headers)?;
+    let deployment = submission_record(
+        state
+            .control()?
+            .approve_deploy(deployment_actor(&actor), &deployment_id)
             .await?,
     )?;
     Ok((StatusCode::ACCEPTED, Json(deployment.into())))

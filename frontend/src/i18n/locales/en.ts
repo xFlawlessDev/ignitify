@@ -181,6 +181,22 @@ export default {
     sbom: "SBOM",
     vulnerabilities: "Vulnerabilities",
   },
+  deploymentApproval: {
+    title: "Production approval",
+    pending: "Approval pending",
+    approved: "Approved",
+    pendingDescription:
+      "The worker cannot execute this production deployment until it is approved.",
+    approvedDescription: "Approval is recorded; the worker can continue with this snapshot.",
+    actionRequired: "Approval required",
+    requested: "Requested {time}",
+    ownerRequired: "A project owner or platform operator must approve this deployment.",
+    approve: "Approve production deployment",
+    approvedAt: "Approved {time}",
+    sourceRevision: "Source revision",
+    imageDigest: "Image digest",
+    resolvesAfterApproval: "resolves after approval",
+  },
   deploymentLogs: {
     title: "Deployment logs",
     copy: "Copy deployment logs",
