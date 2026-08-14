@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp, nextTick } from "vue";
+import i18n from "@/i18n";
 
 const service = {
   id: "service-1",
@@ -44,6 +45,7 @@ describe("ServiceDetailPanel", () => {
       onEdit: vi.fn(),
       onSelectDeployment: vi.fn(),
     });
+    app.use(i18n);
     app.mount(host);
     await nextTick();
 
@@ -100,6 +102,7 @@ describe("ServiceDetailPanel", () => {
       onEdit: vi.fn(),
       onSelectDeployment: vi.fn(),
     });
+    app.use(i18n);
     app.mount(host);
     await nextTick();
 
@@ -146,6 +149,7 @@ describe("ServiceDetailPanel", () => {
       onEdit: vi.fn(),
       onSelectDeployment: vi.fn(),
     });
+    app.use(i18n);
     app.mount(host);
     await nextTick();
 
@@ -195,6 +199,7 @@ describe("ServiceDetailPanel", () => {
       onEdit: vi.fn(),
       onSelectDeployment: vi.fn(),
     });
+    app.use(i18n);
     app.mount(host);
     await nextTick();
 
@@ -224,6 +229,7 @@ describe("ServiceDetailPanel", () => {
       onEdit: vi.fn(),
       onSelectDeployment: vi.fn(),
     });
+    app.use(i18n);
     app.mount(host);
     await nextTick();
 
@@ -264,6 +270,7 @@ describe("ServiceDetailPanel", () => {
       onEdit: vi.fn(),
       onSelectDeployment: vi.fn(),
     });
+    app.use(i18n);
     app.mount(host);
     await nextTick();
 

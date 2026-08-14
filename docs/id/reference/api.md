@@ -12,6 +12,11 @@ Base URL local: `http://127.0.0.1:5656`. Semua route control plane berada di baw
   juga menyertakan `event_id` terstruktur dan meneruskan ID korelasi yang sama
   ke event serta log. Nilai ini adalah metadata aman untuk insiden, bukan
   kredensial.
+- Respons deployment juga menyertakan `supply_chain_report` opsional dengan
+  pemeriksaan `provenance`, `sbom`, dan `vulnerabilities`. `enforcement` saat
+  ini adalah `warning`; SBOM atau scan eksternal yang belum ada tetap merupakan
+  peringatan dengan string remediation dan tidak pernah dianggap pemeriksaan
+  yang berhasil.
 - Identifier resource adalah UUID. Gunakan idempotency key ketika membuat deployment.
 
 ## Autentikasi

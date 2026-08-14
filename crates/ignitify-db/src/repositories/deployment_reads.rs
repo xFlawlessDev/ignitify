@@ -114,11 +114,17 @@ impl DeploymentsRepository {
             .transpose()
             .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
         let source_revision = deployment.source_revision.as_deref();
+        let supply_chain_report_json = deployment
+            .supply_chain_report
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()
+            .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
         let inserted = sqlx::query(
             "INSERT INTO deployments (
                 id, correlation_id, service_id, generation, idempotency_key, requested_by_user_id, spec_json,
-                source_config_json, deployment_destination_id, source_revision, variables_ciphertext, status, created_at
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?)
+                source_config_json, deployment_destination_id, source_revision, supply_chain_report_json, variables_ciphertext, status, created_at
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?)
              ON CONFLICT(service_id, idempotency_key) DO NOTHING
              ON CONFLICT(service_id) WHERE status IN ('queued', 'preparing', 'running') DO NOTHING",
         )
@@ -132,6 +138,7 @@ impl DeploymentsRepository {
         .bind(source_config_json)
         .bind(&deployment.deployment_destination_id)
         .bind(source_revision)
+        .bind(supply_chain_report_json)
         .bind(&deployment.variables_ciphertext)
         .bind(&now)
         .execute(&mut *tx)
@@ -172,7 +179,7 @@ impl DeploymentsRepository {
     ) -> Result<Option<DeploymentRecord>> {
         let row = sqlx::query_as::<_, DeploymentWithProjectRow>(
             "SELECT d.id, d.correlation_id, d.service_id, d.generation, d.idempotency_key, d.requested_by_user_id,
-                    d.spec_json, d.runtime_spec_json, d.source_config_json, d.deployment_destination_id, d.source_revision, d.local_image_id,
+                    d.spec_json, d.runtime_spec_json, d.source_config_json, d.deployment_destination_id, d.source_revision, d.local_image_id, d.supply_chain_report_json,
                     d.variables_ciphertext, d.runtime_ref, d.status, d.failure_reason,
                     d.attempt_count, d.retry_after, d.cancel_requested_at,
                     d.created_at, d.started_at, d.finished_at, e.project_id
@@ -209,7 +216,7 @@ impl DeploymentsRepository {
         }
         let rows = sqlx::query_as::<_, DeploymentRow>(
             "SELECT id, correlation_id, service_id, generation, idempotency_key, requested_by_user_id, spec_json, runtime_spec_json,
-                    source_config_json, deployment_destination_id, source_revision, local_image_id, variables_ciphertext, runtime_ref,
+                    source_config_json, deployment_destination_id, source_revision, local_image_id, supply_chain_report_json, variables_ciphertext, runtime_ref,
                     status, failure_reason, attempt_count, retry_after, cancel_requested_at,
                     created_at, started_at, finished_at
              FROM deployments
@@ -240,7 +247,7 @@ impl DeploymentsRepository {
         }
         let rows = sqlx::query_as::<_, DeploymentRow>(
             "SELECT d.id, d.correlation_id, d.service_id, d.generation, d.idempotency_key, d.requested_by_user_id,
-                    d.spec_json, d.runtime_spec_json, d.source_config_json, d.deployment_destination_id, d.source_revision, d.local_image_id,
+                    d.spec_json, d.runtime_spec_json, d.source_config_json, d.deployment_destination_id, d.source_revision, d.local_image_id, d.supply_chain_report_json,
                     d.variables_ciphertext, d.runtime_ref, d.status, d.failure_reason,
                     d.attempt_count, d.retry_after, d.cancel_requested_at,
                     d.created_at, d.started_at, d.finished_at
@@ -276,7 +283,7 @@ impl DeploymentsRepository {
         }
         let row = sqlx::query_as::<_, DeploymentRow>(
             "SELECT id, correlation_id, service_id, generation, idempotency_key, requested_by_user_id, spec_json, runtime_spec_json,
-                    source_config_json, deployment_destination_id, source_revision, local_image_id, variables_ciphertext, runtime_ref,
+                    source_config_json, deployment_destination_id, source_revision, local_image_id, supply_chain_report_json, variables_ciphertext, runtime_ref,
                     status, failure_reason, attempt_count, retry_after, cancel_requested_at,
                     created_at, started_at, finished_at
              FROM deployments

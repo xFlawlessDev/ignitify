@@ -62,6 +62,20 @@ Traefik only discovers containers with the `com.ignitify.managed=true` label. Se
 
 The worker redacts logs that could contain snapshot values. Do not use build or application output as a channel for exposing secrets.
 
+## Supply-chain policy
+
+Every new deployment stores a supply-chain report before worker execution. It
+records provenance, SBOM, and vulnerability-policy checks. Direct image
+deployments pass provenance only when their immutable image digest is present;
+source builds replace the initial report after both the resolved source revision
+and built image digest are known.
+
+The current enforcement mode is `warning`: reports never block a deployment.
+An unavailable SBOM or vulnerability scan is reported as a warning with a
+remediation action, never as a pass. Release SBOMs describe the Ignitify
+control-plane artifact; attach a separate CycloneDX or SPDX SBOM for each
+application image before a future blocking policy is enabled.
+
 ## Incident correlation
 
 Each accepted deployment receives an opaque correlation ID that remains stable

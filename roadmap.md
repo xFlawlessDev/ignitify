@@ -196,7 +196,7 @@ Target: days 61-90.
 
 ### Outcomes
 
-- [ ] Add optional image provenance, SBOM, and vulnerability-policy results to
+- [x] Add optional image provenance, SBOM, and vulnerability-policy results to
   deployment records. Start in warning mode and provide a clear remediation
   path before enforcing blocks.
 - [ ] Add explicit production promotion and approval workflow while retaining an
@@ -214,6 +214,15 @@ Target: days 61-90.
   policy.
 - [ ] Historical monitoring provides enough context to investigate regressions and
   alert fatigue.
+
+Evidence: migration `0036_deployment_supply_chain_reports.sql` stores an
+optional per-deployment report. Immutable direct-image digests and resolved
+source-build revision/image pairs pass the provenance check. Application-image
+SBOM and vulnerability evidence that is not attached remains an explicit
+warning with remediation; the worker does not block a deployment. The API and
+service deployment panel expose the report before runtime execution advances,
+and domain/database/control-plane/API/frontend regression coverage verifies
+the warning-mode contract.
 
 ## Deferred Until The Foundations Are Complete
 

@@ -28,6 +28,7 @@ const deployment = {
   attempt_count: 1,
   retry_after: null,
   cancel_requested_at: null,
+  supply_chain_report: null,
   created_at: "2026-07-31T00:00:00Z",
   started_at: null,
   finished_at: null,
