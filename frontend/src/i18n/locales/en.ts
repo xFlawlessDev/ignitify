@@ -175,11 +175,31 @@ export default {
   supplyChain: {
     title: "Supply-chain policy",
     warningMode: "Warnings do not block this deployment.",
+    requireProvenanceMode: "Unresolved provenance blocks runtime execution.",
     pass: "Pass",
     warning: "Warning",
     provenance: "Provenance",
     sbom: "SBOM",
     vulnerabilities: "Vulnerabilities",
+  },
+  supplyChainSettings: {
+    tab: "Delivery policy",
+    eyebrow: "Secure delivery",
+    title: "Deployment provenance",
+    description: "Choose how Ignitify handles the provenance signal before a runtime is started.",
+    enforcement: "Enforcement mode",
+    warning: "Warning only",
+    requireProvenance: "Require resolved provenance",
+    warningDescription:
+      "Deployment reports retain unresolved provenance as a warning and runtime execution continues.",
+    requireProvenanceDescription:
+      "Runtime execution stops when Ignitify cannot retain both a source revision and an image digest, or an immutable direct-image digest.",
+    updated: "Updated {time}",
+    save: "Save delivery policy",
+    saved: "Delivery policy saved",
+    loading: "Loading delivery policy",
+    loadError: "Unable to load delivery policy.",
+    saveError: "Unable to save delivery policy.",
   },
   deploymentApproval: {
     title: "Production approval",

@@ -711,6 +711,7 @@ async fn openapi_document_and_swagger_ui_are_served() {
         "/api/v1/providers/{provider_id}/repositories",
         "/api/v1/runtime/containers/{container_id}/details",
         "/api/v1/settings/infrastructure",
+        "/api/v1/settings/supply-chain-policy",
         "/api/v1/operations/health-summary",
         "/api/v1/remote-servers/{server_id}/agent/install",
         "/api/v1/projects/{project_id}/services",
@@ -1204,6 +1205,103 @@ async fn infrastructure_settings_require_admin_and_persist_validated_updates() {
         .await
         .unwrap();
     assert_eq!(invalid_fallback.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn supply_chain_policy_requires_an_operator_and_persists_valid_modes() {
+    let state = state().await;
+    let token = session_token(&state).await;
+    let app = router(
+        state.auth.clone(),
+        state.database.clone(),
+        state.services.clone(),
+        state.control.clone(),
+        state.runtime_health.clone(),
+        state.worker_health.clone(),
+        state.secure_cookies,
+        Arc::from([]),
+    );
+
+    let unauthenticated = app
+        .clone()
+        .oneshot(request(
+            "GET",
+            "/api/v1/settings/supply-chain-policy",
+            None,
+            "",
+        ))
+        .await
+        .unwrap();
+    assert_eq!(unauthenticated.status(), StatusCode::UNAUTHORIZED);
+
+    let password_hash = Argon2::default()
+        .hash_password(b"password123", &SaltString::generate(&mut OsRng))
+        .unwrap()
+        .to_string();
+    state
+        .database
+        .users()
+        .create("policy-user", &password_hash, DatabaseUserRole::User)
+        .await
+        .unwrap();
+    let user_token = state
+        .auth
+        .login("policy-user", "password123")
+        .await
+        .unwrap()
+        .access_token;
+    let forbidden = app
+        .clone()
+        .oneshot(request(
+            "GET",
+            "/api/v1/settings/supply-chain-policy",
+            Some(&user_token),
+            "",
+        ))
+        .await
+        .unwrap();
+    assert_eq!(forbidden.status(), StatusCode::FORBIDDEN);
+
+    let invalid = app
+        .clone()
+        .oneshot(request(
+            "PUT",
+            "/api/v1/settings/supply-chain-policy",
+            Some(&token),
+            r#"{"enforcement":"block-everything"}"#,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(invalid.status(), StatusCode::BAD_REQUEST);
+
+    let updated = app
+        .clone()
+        .oneshot(request(
+            "PUT",
+            "/api/v1/settings/supply-chain-policy",
+            Some(&token),
+            r#"{"enforcement":"require-provenance"}"#,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(updated.status(), StatusCode::OK);
+    let body = updated.into_body().collect().await.unwrap().to_bytes();
+    let policy: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(policy["enforcement"], "require-provenance");
+    assert!(policy["updated_at"].is_string());
+
+    let persisted = app
+        .oneshot(request(
+            "GET",
+            "/api/v1/settings/supply-chain-policy",
+            Some(&token),
+            "",
+        ))
+        .await
+        .unwrap();
+    let body = persisted.into_body().collect().await.unwrap().to_bytes();
+    let policy: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(policy["enforcement"], "require-provenance");
 }
 
 #[tokio::test]

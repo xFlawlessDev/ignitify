@@ -90,11 +90,21 @@ Deployment image langsung hanya lulus provenance ketika image digest immutable
 tersedia; source build mengganti laporan awal setelah source revision dan built
 image digest sudah diketahui.
 
-Mode enforcement saat ini adalah `warning`: laporan tidak pernah memblokir
-deployment. SBOM atau vulnerability scan yang belum tersedia dilaporkan sebagai
-peringatan dengan tindakan remediation, bukan sebagai pass. SBOM release
-menjelaskan artefak control plane Ignitify; lampirkan SBOM CycloneDX atau SPDX
-terpisah untuk setiap application image sebelum kebijakan blocking diaktifkan.
+Operator platform mengatur kebijakan delivery menjadi `warning` (default) atau
+`require-provenance`. Worker mengevaluasi kebijakan saat ini setelah source
+resolution dan sebelum `runtime.start`. `require-provenance` hanya memblokir
+pemeriksaan provenance yang belum terselesaikan: image langsung membutuhkan
+digest immutable, sedangkan source build membutuhkan resolved revision dan
+built image digest. Snapshot yang diblokir, laporan, event gagal, dan log
+sistem tetap tersedia untuk ditinjau; deployment terminal tidak dievaluasi
+ulang setelah kebijakan berubah.
+
+SBOM atau vulnerability scan yang belum tersedia tetap berupa peringatan dengan
+tindakan remediation, bukan pass atau kondisi pemblokiran. Ignitify belum
+memiliki boundary attachment/verifikasi SBOM atau scan application-image.
+SBOM release menjelaskan artefak control plane Ignitify; lampirkan SBOM
+CycloneDX atau SPDX terpisah untuk setiap application image sampai bukti itu
+dapat diverifikasi oleh control plane.
 
 ## Korelasi insiden
 

@@ -89,11 +89,20 @@ deployments pass provenance only when their immutable image digest is present;
 source builds replace the initial report after both the resolved source revision
 and built image digest are known.
 
-The current enforcement mode is `warning`: reports never block a deployment.
-An unavailable SBOM or vulnerability scan is reported as a warning with a
-remediation action, never as a pass. Release SBOMs describe the Ignitify
-control-plane artifact; attach a separate CycloneDX or SPDX SBOM for each
-application image before a future blocking policy is enabled.
+Platform operators configure the delivery policy as either `warning` (the
+default) or `require-provenance`. The worker evaluates the current policy after
+source resolution and before `runtime.start`. `require-provenance` blocks only
+an unresolved provenance check: a direct image needs its immutable digest, and
+a source build needs both its resolved revision and built image digest. The
+blocked snapshot, report, failure event, and system log remain available for
+review; terminal deployments are never re-evaluated after a policy change.
+
+An unavailable SBOM or vulnerability scan remains a warning with a remediation
+action, never a pass or a blocking condition. Ignitify has no application-image
+SBOM or scan attachment/verification boundary yet. Release SBOMs describe the
+Ignitify control-plane artifact; attach a separate CycloneDX or SPDX SBOM for
+each application image until such evidence can be verified by the control
+plane.
 
 ## Incident correlation
 

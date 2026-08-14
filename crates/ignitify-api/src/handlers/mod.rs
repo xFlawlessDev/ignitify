@@ -19,6 +19,7 @@ pub(crate) mod runtime;
 pub(crate) mod services;
 pub(crate) mod settings;
 pub(crate) mod streams;
+pub(crate) mod supply_chain_policy;
 pub(crate) mod terminal;
 pub(crate) mod uptime_monitors;
 pub(crate) mod webhooks;

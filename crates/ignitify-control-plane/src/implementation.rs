@@ -322,7 +322,10 @@ where
         deployment.id.as_str(),
     );
     source_logs.system("Source build started").await?;
-    let runtime_deployment = match source_build.build(&deployment, &source_logs).await {
+    let (runtime_deployment, source_revision) = match source_build
+        .build(&deployment, &source_logs)
+        .await
+    {
         Ok(Some(output)) => {
             source_logs.system("Source build completed").await?;
             if deployments.cancel_requested(deployment.id.as_str()).await? {
@@ -344,19 +347,12 @@ where
             if let Some(spec) = runtime_spec {
                 runtime_deployment.spec = spec;
             }
-            let report = evaluate_supply_chain_report(
-                &runtime_deployment.spec,
-                deployment.source_config.as_ref(),
-                Some(&source_revision),
-                runtime_deployment.local_image_id.as_deref(),
-                Utc::now().to_rfc3339(),
-            );
-            deployments
-                .record_supply_chain_report(deployment.id.as_str(), &report)
-                .await?;
-            runtime_deployment
+            (runtime_deployment, Some(source_revision))
         }
-        Ok(None) => RuntimeDeployment::from(&deployment),
+        Ok(None) => (
+            RuntimeDeployment::from(&deployment),
+            deployment.source_revision.clone(),
+        ),
         Err(error) => {
             tracing::warn!(deployment_id = %deployment.id, error = %error, "deployment source build failed");
             if deployments.cancel_requested(deployment.id.as_str()).await? {
@@ -385,6 +381,36 @@ where
         }
     };
     if deployments.cancel_requested(deployment.id.as_str()).await? {
+        return Ok(());
+    }
+    let policy = deployments.supply_chain_policy().await?;
+    let report = evaluate_supply_chain_report(
+        &runtime_deployment.spec,
+        deployment.source_config.as_ref(),
+        source_revision.as_deref(),
+        runtime_deployment.local_image_id.as_deref(),
+        policy.enforcement,
+        Utc::now().to_rfc3339(),
+    );
+    deployments
+        .record_supply_chain_report(deployment.id.as_str(), &report)
+        .await?;
+    if report.blocks_execution() {
+        let failure_reason = "supply-chain policy requires resolved provenance";
+        source_logs
+            .system("Supply-chain policy blocked runtime execution: provenance is unresolved")
+            .await?;
+        deployments
+            .transition(
+                deployment.id.as_str(),
+                DeploymentState::Failed,
+                None,
+                Some(failure_reason),
+            )
+            .await?;
+        publisher
+            .publish_events(deployments, deployment.id.as_str())
+            .await;
         return Ok(());
     }
     let predicted_runtime_ref = runtime.runtime_ref(&runtime_deployment);

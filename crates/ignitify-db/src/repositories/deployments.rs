@@ -17,6 +17,8 @@ mod deployment_reads;
 mod deployment_retry;
 #[path = "deployment_streams.rs"]
 mod deployment_streams;
+#[path = "supply_chain_policy.rs"]
+mod supply_chain_policy;
 
 use deployment_data::{
     DeploymentRow, DeploymentWithProjectRow, ProjectVariableRow, ServiceRow, VariableRow,

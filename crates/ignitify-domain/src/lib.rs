@@ -12,8 +12,8 @@ mod supply_chain;
 pub use deployment_approval::{DeploymentApproval, ProductionApprovalStatus};
 pub use dns::{DnsRecord, DnsRecordTarget, DnsRecordType, DnsVerificationStatus};
 pub use supply_chain::{
-    SupplyChainCheck, SupplyChainCheckStatus, SupplyChainEnforcement, SupplyChainReport,
-    evaluate_supply_chain_report,
+    SupplyChainCheck, SupplyChainCheckStatus, SupplyChainEnforcement, SupplyChainPolicy,
+    SupplyChainReport, evaluate_supply_chain_report,
 };
 
 macro_rules! uuid_id {
@@ -673,6 +673,8 @@ pub enum InputError {
     InvalidDnsRecordTarget,
     #[error("invalid DNS verification status")]
     InvalidDnsVerificationStatus,
+    #[error("invalid supply-chain enforcement mode")]
+    InvalidSupplyChainEnforcement,
 }
 
 pub type Result<T> = std::result::Result<T, InputError>;

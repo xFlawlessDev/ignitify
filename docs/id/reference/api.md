@@ -13,10 +13,10 @@ Base URL local: `http://127.0.0.1:5656`. Semua route control plane berada di baw
   ke event serta log. Nilai ini adalah metadata aman untuk insiden, bukan
   kredensial.
 - Respons deployment juga menyertakan `supply_chain_report` opsional dengan
-  pemeriksaan `provenance`, `sbom`, dan `vulnerabilities`. `enforcement` saat
-  ini adalah `warning`; SBOM atau scan eksternal yang belum ada tetap merupakan
-  peringatan dengan string remediation dan tidak pernah dianggap pemeriksaan
-  yang berhasil.
+  pemeriksaan `provenance`, `sbom`, dan `vulnerabilities`. `enforcement` adalah
+  evaluasi kebijakan yang disimpan (`warning` atau `require-provenance`); SBOM
+  atau scan eksternal yang belum ada tetap merupakan peringatan dengan string
+  remediation dan tidak pernah dianggap pemeriksaan yang berhasil.
 - Identifier resource adalah UUID. Gunakan idempotency key ketika membuat deployment.
 
 ## Autentikasi
@@ -120,6 +120,20 @@ Environment project memakai bentuk berikut. Untuk mempertahankan secret yang sud
 | `GET`         | `/api/v1/deployments/{deployment_id}/logs`     | SSE line log.                                   |
 
 Submit deployment membutuhkan header idempotency key sesuai kontrak client. Request produksi mengembalikan objek `approval` dan tetap pending sampai owner project atau operator platform menyetujuinya. Respons menampilkan bukti source/image immutable di `source_identity` saat sudah diketahui. Untuk melanjutkan SSE, kirim `Last-Event-ID` atau parameter query `after=<sequence>`. Stream mengirim event `snapshot` jika cursor lebih lama dari data yang masih tersedia, heartbeat sekitar 15 detik, dan event `log` untuk stream log.
+
+## Kebijakan delivery
+
+| Method | Path                                      | Keterangan                                      |
+| ------ | ----------------------------------------- | ----------------------------------------------- |
+| `GET`  | `/api/v1/settings/supply-chain-policy`    | Baca mode enforcement delivery platform.        |
+| `PUT`  | `/api/v1/settings/supply-chain-policy`    | Ubah mode enforcement delivery platform.        |
+
+Kedua route membutuhkan akses operator platform; `PUT` juga membutuhkan
+`X-Ignitify-Request: 1` dan origin tepercaya. Body-nya adalah
+`{ "enforcement": "warning" | "require-provenance" }`. Mode kedua hanya
+memblokir eksekusi runtime jika provenance tidak dapat diselesaikan sebelum
+start. Mode ini tidak menganggap SBOM atau bukti vulnerability eksternal yang
+hilang sebagai pemeriksaan berhasil ataupun sebagai blok.
 
 ## Monitoring uptime
 

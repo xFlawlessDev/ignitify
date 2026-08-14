@@ -90,6 +90,29 @@ async fn migrations_create_auth_storage() {
     .await
     .unwrap();
     assert_eq!(count, 1, "uptime check history must be durable");
+    let policy = database.deployments().supply_chain_policy().await.unwrap();
+    assert_eq!(
+        policy.enforcement,
+        ignitify_domain::SupplyChainEnforcement::Warning
+    );
+}
+
+#[tokio::test]
+async fn supply_chain_policy_persists_the_operator_enforcement_mode() {
+    let database = database().await;
+
+    let updated = database
+        .deployments()
+        .update_supply_chain_enforcement(ignitify_domain::SupplyChainEnforcement::RequireProvenance)
+        .await
+        .unwrap();
+    let reloaded = database.deployments().supply_chain_policy().await.unwrap();
+
+    assert_eq!(
+        updated.enforcement,
+        ignitify_domain::SupplyChainEnforcement::RequireProvenance
+    );
+    assert_eq!(reloaded, updated);
 }
 
 #[tokio::test]
@@ -1302,6 +1325,7 @@ async fn deployment_repository_enforces_idempotency_active_conflict_and_immutabl
         None,
         None,
         None,
+        ignitify_domain::SupplyChainEnforcement::Warning,
         "2026-08-14T00:00:00Z".to_owned(),
     );
     let first = database

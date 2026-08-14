@@ -13,9 +13,10 @@ Local base URL: `http://127.0.0.1:5656`. All control plane routes are under `/ap
   ID to event and log records. These values are safe incident metadata, not
   credentials.
 - Deployment responses also include an optional `supply_chain_report` with
-  `provenance`, `sbom`, and `vulnerabilities` checks. The current `enforcement`
-  is `warning`; a missing external SBOM or scan remains a warning with a
-  remediation string and never represents a successful check.
+  `provenance`, `sbom`, and `vulnerabilities` checks. Its `enforcement` is the
+  retained policy evaluation (`warning` or `require-provenance`); a missing
+  external SBOM or scan remains a warning with a remediation string and never
+  represents a successful check.
 - Resource identifiers are UUIDs. Use an idempotency key when creating a deployment.
 
 ## Authentication
@@ -119,6 +120,20 @@ Project environments use this shape. To keep an existing secret, send `value: nu
 | `GET`         | `/api/v1/deployments/{deployment_id}/logs`     | SSE log lines.                                   |
 
 Deployment submission requires an idempotency key header according to the client contract. Production requests return an `approval` object and remain pending until a project owner or platform operator approves them. Responses expose immutable source/image evidence under `source_identity` when it is known. To resume SSE, send `Last-Event-ID` or the `after=<sequence>` query parameter. Streams send a `snapshot` event when the cursor is older than the retained data, a heartbeat about every 15 seconds, and `log` events on the log stream.
+
+## Delivery policy
+
+| Method     | Path                                        | Description                                      |
+| ---------- | ------------------------------------------- | ------------------------------------------------ |
+| `GET`      | `/api/v1/settings/supply-chain-policy`      | Read the platform delivery enforcement mode.     |
+| `PUT`      | `/api/v1/settings/supply-chain-policy`      | Update the platform delivery enforcement mode.   |
+
+Both routes require platform operator access; `PUT` also requires
+`X-Ignitify-Request: 1` and a trusted origin. The body is
+`{ "enforcement": "warning" | "require-provenance" }`. The latter blocks
+runtime execution only when provenance cannot be resolved before start. It does
+not treat missing external SBOM or vulnerability evidence as a successful check
+or a block.
 
 ## Uptime monitoring
 

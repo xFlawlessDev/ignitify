@@ -6,6 +6,7 @@ import {
   RefreshCw,
   RotateCcw,
   Save,
+  ShieldCheck,
 } from "@lucide/vue";
 import { computed, onMounted, reactive, shallowRef } from "vue";
 import { useI18n } from "vue-i18n";
@@ -19,6 +20,7 @@ import ControlPlaneIngressSettings from "@/components/settings/ControlPlaneIngre
 import IngressFallbackSettings from "@/components/settings/IngressFallbackSettings.vue";
 import InfrastructureHealth from "@/components/settings/InfrastructureHealth.vue";
 import OperationalHealthSummary from "@/components/settings/OperationalHealthSummary.vue";
+import SupplyChainPolicySettings from "@/components/settings/SupplyChainPolicySettings.vue";
 import type {
   CertificateProvider,
   CustomCertificateSummary,
@@ -54,7 +56,7 @@ interface SettingsDraft {
   concurrentBuilds: number;
 }
 
-type SettingsSection = "overview" | "ingress" | "backup";
+type SettingsSection = "overview" | "ingress" | "delivery" | "backup";
 
 const defaults: SettingsDraft = {
   controlPlaneDomain: "",
@@ -281,13 +283,15 @@ const sectionDescription = computed(() => {
       return "Configure managed routing, TLS policy, and the unmatched-hostname page.";
     case "backup":
       return "Configure durable control-plane backup storage and recovery access.";
+    case "delivery":
+      return t("supplyChainSettings.description");
     default:
       return "Review host readiness, runtime defaults, and build capacity.";
   }
 });
 
 function selectSection(value: string) {
-  if (value === "overview" || value === "ingress" || value === "backup") {
+  if (value === "overview" || value === "ingress" || value === "delivery" || value === "backup") {
     activeSection.value = value;
   }
 }
@@ -502,6 +506,10 @@ onMounted(loadSettings);
           <Network class="size-3.5" :stroke-width="1.5" />
           Ingress &amp; TLS
         </TabsTrigger>
+        <TabsTrigger value="delivery" class="min-w-max px-3 text-xs">
+          <ShieldCheck class="size-3.5" :stroke-width="1.5" />
+          {{ t("supplyChainSettings.tab") }}
+        </TabsTrigger>
         <TabsTrigger value="backup" class="min-w-max px-3 text-xs">
           <HardDriveDownload class="size-3.5" :stroke-width="1.5" />
           Backup
@@ -607,6 +615,10 @@ onMounted(loadSettings);
             <span class="shrink-0 font-mono">Admin only</span>
           </footer>
         </form>
+      </TabsContent>
+
+      <TabsContent value="delivery" class="mt-4">
+        <SupplyChainPolicySettings />
       </TabsContent>
 
       <TabsContent value="backup" class="mt-4">

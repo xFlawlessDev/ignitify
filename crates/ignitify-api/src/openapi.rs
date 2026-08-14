@@ -244,6 +244,17 @@ protected_mutation!(
     "/api/v1/settings/infrastructure",
     "Settings"
 );
+protected_get!(
+    supply_chain_policy_doc,
+    "/api/v1/settings/supply-chain-policy",
+    "Settings"
+);
+protected_mutation!(
+    update_supply_chain_policy_doc,
+    put,
+    "/api/v1/settings/supply-chain-policy",
+    "Settings"
+);
 protected_mutation!(
     create_infrastructure_certificate_doc,
     post,
@@ -649,6 +660,8 @@ protected_get!(terminal_doc, "/api/v1/terminal", "Terminal");
         ai::chat,
         infrastructure_settings_doc,
         update_infrastructure_settings_doc,
+        supply_chain_policy_doc,
+        update_supply_chain_policy_doc,
         create_infrastructure_certificate_doc,
         remove_infrastructure_certificate_doc,
         server_settings_doc,

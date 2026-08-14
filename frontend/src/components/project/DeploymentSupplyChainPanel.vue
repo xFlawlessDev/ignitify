@@ -10,6 +10,11 @@ const props = defineProps<{
 }>();
 
 const { t } = useI18n();
+const enforcementDescription = computed(() =>
+  props.report?.enforcement === "require-provenance"
+    ? t("supplyChain.requireProvenanceMode")
+    : t("supplyChain.warningMode"),
+);
 const checks = computed(() =>
   props.report
     ? [
@@ -40,7 +45,7 @@ function statusLabel(check: Pick<SupplyChainCheck, "status">) {
     <div class="flex flex-wrap items-start justify-between gap-3 px-1">
       <div>
         <p class="ui-label">{{ t("supplyChain.title") }}</p>
-        <p class="mt-1 text-xs text-muted-foreground">{{ t("supplyChain.warningMode") }}</p>
+        <p class="mt-1 text-xs text-muted-foreground">{{ enforcementDescription }}</p>
       </div>
       <Badge
         variant="outline"

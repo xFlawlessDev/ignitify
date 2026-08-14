@@ -174,11 +174,31 @@ export default {
   supplyChain: {
     title: "Kebijakan rantai pasok",
     warningMode: "Peringatan tidak memblokir deployment ini.",
+    requireProvenanceMode: "Provenance yang belum terselesaikan memblokir eksekusi runtime.",
     pass: "Lulus",
     warning: "Peringatan",
     provenance: "Provenance",
     sbom: "SBOM",
     vulnerabilities: "Kerentanan",
+  },
+  supplyChainSettings: {
+    tab: "Kebijakan delivery",
+    eyebrow: "Delivery aman",
+    title: "Provenance deployment",
+    description: "Pilih cara Ignitify menangani sinyal provenance sebelum runtime dimulai.",
+    enforcement: "Mode enforcement",
+    warning: "Peringatan saja",
+    requireProvenance: "Wajibkan provenance terselesaikan",
+    warningDescription:
+      "Laporan deployment menyimpan provenance yang belum terselesaikan sebagai peringatan dan eksekusi runtime dilanjutkan.",
+    requireProvenanceDescription:
+      "Eksekusi runtime berhenti saat Ignitify tidak dapat menyimpan source revision serta image digest, atau digest image langsung yang immutable.",
+    updated: "Diperbarui {time}",
+    save: "Simpan kebijakan delivery",
+    saved: "Kebijakan delivery disimpan",
+    loading: "Memuat kebijakan delivery",
+    loadError: "Tidak dapat memuat kebijakan delivery.",
+    saveError: "Tidak dapat menyimpan kebijakan delivery.",
   },
   deploymentApproval: {
     title: "Persetujuan produksi",

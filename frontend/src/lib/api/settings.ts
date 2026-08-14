@@ -1,5 +1,6 @@
 import type { ApiResult } from "./core";
 import { apiFetch } from "./core";
+import type { SupplyChainEnforcement } from "@/lib/types";
 
 export type ServerCertificateProvider = "none" | "lets-encrypt" | "custom";
 
@@ -58,6 +59,11 @@ export interface InfrastructureSettingsInput {
   concurrent_builds: number;
 }
 
+export interface SupplyChainPolicyResponse {
+  enforcement: SupplyChainEnforcement;
+  updated_at: string;
+}
+
 const endpoint = "/settings/infrastructure";
 
 export function apiGetInfrastructureSettings(): Promise<ApiResult<InfrastructureSettingsResponse>> {
@@ -70,6 +76,19 @@ export function apiUpdateInfrastructureSettings(
   return apiFetch<InfrastructureSettingsResponse>(endpoint, {
     method: "PATCH",
     body: JSON.stringify(input),
+  });
+}
+
+export function apiGetSupplyChainPolicy(): Promise<ApiResult<SupplyChainPolicyResponse>> {
+  return apiFetch<SupplyChainPolicyResponse>("/settings/supply-chain-policy");
+}
+
+export function apiUpdateSupplyChainPolicy(
+  enforcement: SupplyChainEnforcement,
+): Promise<ApiResult<SupplyChainPolicyResponse>> {
+  return apiFetch<SupplyChainPolicyResponse>("/settings/supply-chain-policy", {
+    method: "PUT",
+    body: JSON.stringify({ enforcement }),
   });
 }
 
