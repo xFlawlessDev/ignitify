@@ -1,4 +1,4 @@
-use chrono::Utc;
+use chrono::{Duration, Utc};
 use serde_json::Value;
 use sqlx::{FromRow, SqlitePool};
 use uuid::Uuid;
@@ -6,6 +6,10 @@ use uuid::Uuid;
 use crate::{DatabaseError, Result};
 
 const HISTORY_LENGTH: usize = 30;
+pub const UPTIME_HISTORY_RETENTION_DAYS: i64 = 30;
+pub const UPTIME_HISTORY_MAX_ROWS: i64 = 1_000;
+pub const UPTIME_ERROR_BUDGET_TARGET_PERCENTAGE: f64 = 99.0;
+pub const UPTIME_MIN_CHECKS_FOR_ALERT: i64 = 3;
 
 #[derive(Debug, Clone)]
 pub struct UptimeMonitorRecord {
@@ -50,6 +54,32 @@ pub struct UptimeCheckUpdate {
     pub latency_ms: Option<u64>,
     pub last_error: Option<String>,
     pub checked_at: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct UptimeCheckRecord {
+    pub status: String,
+    pub latency_ms: Option<i64>,
+    pub error: Option<String>,
+    pub checked_at: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct UptimeAvailabilitySummary {
+    pub window_hours: u32,
+    pub total_checks: i64,
+    pub successful_checks: i64,
+    pub failed_checks: i64,
+    pub availability_percentage: Option<f64>,
+    pub error_budget_percentage: Option<f64>,
+    pub budget_consumed_percentage: Option<f64>,
+    pub status: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct UptimeMonitorHistory {
+    pub checks: Vec<UptimeCheckRecord>,
+    pub summary: UptimeAvailabilitySummary,
 }
 
 #[derive(Debug, Clone)]
@@ -176,15 +206,17 @@ impl UptimeMonitorsRepository {
         expected_updated_at: &str,
         update: UptimeCheckUpdate,
     ) -> Result<bool> {
+        let mut transaction = self.pool.begin().await?;
         let existing = sqlx::query_as::<_, HistoryRow>(
             "SELECT history_json FROM uptime_monitors
              WHERE id = ? AND enabled = 1 AND updated_at = ?",
         )
         .bind(id)
         .bind(expected_updated_at)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *transaction)
         .await?;
         let Some(existing) = existing else {
+            transaction.rollback().await?;
             return Ok(false);
         };
         let mut history = parse_history(&existing.history_json)?;
@@ -213,9 +245,136 @@ impl UptimeMonitorsRepository {
         .bind(&update.checked_at)
         .bind(id)
         .bind(expected_updated_at)
-        .execute(&self.pool)
+        .execute(&mut *transaction)
         .await?;
-        Ok(result.rows_affected() == 1)
+        if result.rows_affected() != 1 {
+            transaction.rollback().await?;
+            return Ok(false);
+        }
+        sqlx::query(
+            "INSERT INTO uptime_monitor_checks
+             (id, monitor_id, status, latency_ms, error, checked_at)
+             VALUES (?, ?, ?, ?, ?, ?)",
+        )
+        .bind(Uuid::new_v4().to_string())
+        .bind(id)
+        .bind(&update.status)
+        .bind(
+            update
+                .latency_ms
+                .map(|value| i64::try_from(value).unwrap_or(i64::MAX)),
+        )
+        .bind(&update.last_error)
+        .bind(&update.checked_at)
+        .execute(&mut *transaction)
+        .await?;
+        prune_check_history(&mut transaction, id).await?;
+        transaction.commit().await?;
+        Ok(true)
+    }
+
+    pub async fn history_for_user(
+        &self,
+        user_id: &str,
+        id: &str,
+        window_hours: u32,
+        limit: u32,
+    ) -> Result<Option<UptimeMonitorHistory>> {
+        let exists = sqlx::query_scalar::<_, i64>(
+            "SELECT 1 FROM uptime_monitors WHERE id = ? AND user_id = ?",
+        )
+        .bind(id)
+        .bind(user_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        if exists.is_none() {
+            return Ok(None);
+        }
+        let window_hours = window_hours.clamp(1, (UPTIME_HISTORY_RETENTION_DAYS * 24) as u32);
+        let limit = i64::from(limit.clamp(1, UPTIME_HISTORY_MAX_ROWS as u32));
+        let since = (Utc::now() - Duration::hours(i64::from(window_hours))).to_rfc3339();
+        let summary = sqlx::query_as::<_, UptimeHistorySummaryRow>(
+            "SELECT COUNT(*) AS total_checks,
+                    COALESCE(SUM(CASE WHEN status = 'up' THEN 1 ELSE 0 END), 0) AS successful_checks,
+                    COALESCE(SUM(CASE WHEN status = 'down' THEN 1 ELSE 0 END), 0) AS failed_checks
+             FROM uptime_monitor_checks
+             WHERE monitor_id = ? AND julianday(checked_at) >= julianday(?)",
+        )
+        .bind(id)
+        .bind(&since)
+        .fetch_one(&self.pool)
+        .await?;
+        let rows = sqlx::query_as::<_, UptimeCheckRow>(
+            "SELECT status, latency_ms, error, checked_at
+             FROM uptime_monitor_checks
+             WHERE monitor_id = ? AND julianday(checked_at) >= julianday(?)
+             ORDER BY checked_at DESC
+             LIMIT ?",
+        )
+        .bind(id)
+        .bind(since)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
+        let mut checks = rows
+            .into_iter()
+            .map(UptimeCheckRow::into_record)
+            .collect::<Vec<_>>();
+        checks.reverse();
+        let total_checks = summary.total_checks;
+        let successful_checks = summary.successful_checks;
+        let failed_checks = summary.failed_checks;
+        let availability_percentage =
+            (total_checks > 0).then(|| (successful_checks as f64 / total_checks as f64) * 100.0);
+        let error_budget_percentage = availability_percentage
+            .map(|availability| (availability - UPTIME_ERROR_BUDGET_TARGET_PERCENTAGE).max(0.0));
+        let budget_consumed_percentage = (total_checks > 0).then(|| {
+            (failed_checks as f64 / total_checks as f64)
+                / (100.0 - UPTIME_ERROR_BUDGET_TARGET_PERCENTAGE)
+                * 100.0
+        });
+        let status = if total_checks < UPTIME_MIN_CHECKS_FOR_ALERT {
+            "insufficient_data"
+        } else if availability_percentage
+            .is_some_and(|value| value < UPTIME_ERROR_BUDGET_TARGET_PERCENTAGE)
+        {
+            "exhausted"
+        } else if budget_consumed_percentage.is_some_and(|value| value >= 80.0) {
+            "warning"
+        } else {
+            "healthy"
+        };
+        Ok(Some(UptimeMonitorHistory {
+            checks,
+            summary: UptimeAvailabilitySummary {
+                window_hours,
+                total_checks,
+                successful_checks,
+                failed_checks,
+                availability_percentage,
+                error_budget_percentage,
+                budget_consumed_percentage,
+                status: status.to_owned(),
+            },
+        }))
+    }
+
+    pub async fn budget_breached_count(&self) -> Result<i64> {
+        Ok(sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM (
+                 SELECT monitor_id
+                 FROM uptime_monitor_checks
+                 WHERE julianday(checked_at) >= julianday('now', '-24 hours')
+                 GROUP BY monitor_id
+                 HAVING COUNT(*) >= ?
+                    AND SUM(CASE WHEN status = 'down' THEN 1 ELSE 0 END) * 100.0 / COUNT(*)
+                        > (100.0 - ?)
+             )",
+        )
+        .bind(UPTIME_MIN_CHECKS_FOR_ALERT)
+        .bind(UPTIME_ERROR_BUDGET_TARGET_PERCENTAGE)
+        .fetch_one(&self.pool)
+        .await?)
     }
 
     async fn get_for_user(&self, user_id: &str, id: &str) -> Result<Option<UptimeMonitorRecord>> {
@@ -303,4 +462,61 @@ impl UptimeMonitorRow {
 #[derive(Debug, FromRow)]
 struct HistoryRow {
     history_json: String,
+}
+
+#[derive(Debug, FromRow)]
+struct UptimeCheckRow {
+    status: String,
+    latency_ms: Option<i64>,
+    error: Option<String>,
+    checked_at: String,
+}
+
+#[derive(Debug, FromRow)]
+struct UptimeHistorySummaryRow {
+    total_checks: i64,
+    successful_checks: i64,
+    failed_checks: i64,
+}
+
+impl UptimeCheckRow {
+    fn into_record(self) -> UptimeCheckRecord {
+        UptimeCheckRecord {
+            status: self.status,
+            latency_ms: self.latency_ms,
+            error: self.error,
+            checked_at: self.checked_at,
+        }
+    }
+}
+
+async fn prune_check_history(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    monitor_id: &str,
+) -> Result<()> {
+    let cutoff = (Utc::now() - Duration::days(UPTIME_HISTORY_RETENTION_DAYS)).to_rfc3339();
+    sqlx::query(
+        "DELETE FROM uptime_monitor_checks
+         WHERE monitor_id = ? AND julianday(checked_at) < julianday(?)",
+    )
+    .bind(monitor_id)
+    .bind(cutoff)
+    .execute(&mut **transaction)
+    .await?;
+    sqlx::query(
+        "DELETE FROM uptime_monitor_checks
+         WHERE monitor_id = ?
+           AND id NOT IN (
+               SELECT id FROM uptime_monitor_checks
+               WHERE monitor_id = ?
+               ORDER BY checked_at DESC
+               LIMIT ?
+           )",
+    )
+    .bind(monitor_id)
+    .bind(monitor_id)
+    .bind(UPTIME_HISTORY_MAX_ROWS)
+    .execute(&mut **transaction)
+    .await?;
+    Ok(())
 }

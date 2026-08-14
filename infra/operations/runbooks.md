@@ -40,10 +40,28 @@ The operational dispatcher evaluates these bounded conditions every 30 seconds:
 - `domain.verification_failed`: at least one domain is in failed state.
 - `certificate.needs_attention`: HTTPS is enabled with an incomplete custom
   certificate configuration.
+- `uptime.error_budget_exhausted`: at least one monitor with three or more
+  checks exceeded the 1% failure budget over the latest 24 hours.
 
 Each condition sends one `operations.alert` notification when raised and one
 when resolved. Repeated evaluator cycles do not create additional deliveries;
 delivery history is the source of truth for retry diagnostics.
+
+## Uptime Error Budget
+
+1. Open the affected monitor history and compare the 24-hour, 7-day, and
+   30-day views. The endpoint retains at most 30 days and 1,000 checks, so
+   preserve the safe timestamp, status, latency, and error evidence before it
+   expires.
+2. Confirm whether failures are isolated to one endpoint, check type, or
+   deployment window. Do not add a private or loopback target to test around
+   the existing SSRF policy.
+3. Check the 24-hour availability summary. The alert requires at least three
+   checks and is raised only after failures exceed the 1% budget; it resolves
+   automatically after the window recovers.
+4. Correlate the time range with deployment and notification history before
+   changing the monitored service. Treat monitor errors as bounded diagnostics,
+   never as permission to expose runtime ports or credentials.
 
 ## Failed Deployment
 

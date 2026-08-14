@@ -204,6 +204,34 @@ async fn uptime_monitor_api_validates_and_persists_custom_endpoints() {
     let listed_json: serde_json::Value = serde_json::from_slice(&listed_body).unwrap();
     assert_eq!(listed_json.as_array().unwrap().len(), 1);
 
+    let history = app
+        .clone()
+        .oneshot(request(
+            "GET",
+            &format!("/api/v1/uptime-monitors/{monitor_id}/history?hours=24&limit=100"),
+            Some(&token),
+            "",
+        ))
+        .await
+        .unwrap();
+    assert_eq!(history.status(), StatusCode::OK);
+    let history_body = history.into_body().collect().await.unwrap().to_bytes();
+    let history_json: serde_json::Value = serde_json::from_slice(&history_body).unwrap();
+    assert_eq!(history_json["retention_days"], 30);
+    assert_eq!(history_json["summary"]["status"], "insufficient_data");
+
+    let invalid_history = app
+        .clone()
+        .oneshot(request(
+            "GET",
+            &format!("/api/v1/uptime-monitors/{monitor_id}/history?hours=0"),
+            Some(&token),
+            "",
+        ))
+        .await
+        .unwrap();
+    assert_eq!(invalid_history.status(), StatusCode::BAD_REQUEST);
+
     let removed = app
         .oneshot(request(
             "DELETE",

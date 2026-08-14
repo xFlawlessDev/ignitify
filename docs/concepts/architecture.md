@@ -58,4 +58,10 @@ Repositories receive the actor and evaluate access before returning data. Handle
 
 `GET /health` is an unauthenticated basic probe. `GET /api/v1/runtime/status` checks the database, runtime, worker, ingress, and host metrics as `ready` or `unavailable`. Detailed system metrics are available at `GET /api/v1/runtime/metrics`; Docker inventory is available through the runtime endpoints.
 
+Uptime monitor checks are persisted separately from monitor configuration with a
+30-day and 1,000-check per-monitor bound. Owner-scoped history exposes
+timestamped status, latency, and safe errors for 24-hour, 7-day, or 30-day
+inspection. A 99% availability target over the most recent 24 hours raises a
+deduplicated operational alert only after at least three checks.
+
 Deployment events and logs use SSE. Streams can replay from a stored cursor (`Last-Event-ID` or `after`) and send a snapshot when the client's cursor is older than the event retention window.

@@ -202,6 +202,25 @@ export default {
     lineCount: "{shown} dari {total} baris",
     noMatches: "Tidak ada baris log deployment yang cocok.",
   },
+  uptimeHistory: {
+    title: "Riwayat 24 jam",
+    retention: "Pemeriksaan detail disimpan selama {days} hari",
+    availability: "Ketersediaan",
+    budgetConsumed: "Budget error terpakai",
+    checks: "Pemeriksaan berhasil",
+    timeline: "Linimasa pemeriksaan",
+    window: "{hours} jam terakhir",
+    windowSelector: "Rentang waktu riwayat",
+    noData: "Belum ada pemeriksaan selesai dalam rentang ini.",
+    view: "Lihat riwayat",
+    hide: "Sembunyikan riwayat",
+    status: {
+      healthy: "Sehat",
+      warning: "Peringatan budget",
+      exhausted: "Budget habis",
+      insufficient_data: "Menunggu data",
+    },
+  },
   ai: {
     actions: {
       ask: "Tanya AI",

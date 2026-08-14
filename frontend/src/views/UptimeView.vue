@@ -6,6 +6,7 @@ import {
   Ellipsis,
   ExternalLink,
   Globe2,
+  History,
   Plus,
   RefreshCw,
   Server,
@@ -13,6 +14,8 @@ import {
 } from "@lucide/vue";
 import { computed, onMounted, onUnmounted, shallowRef } from "vue";
 import { toast } from "vue-sonner";
+import { useI18n } from "vue-i18n";
+import UptimeMonitorHistoryPanel from "@/components/uptime/UptimeMonitorHistoryPanel.vue";
 import UptimeMonitorDialog from "@/components/uptime/UptimeMonitorDialog.vue";
 import { Button } from "@/components/ui/button";
 import {
@@ -38,9 +41,12 @@ import {
   type UptimeMonitorInput,
   type UptimeMonitorStatus,
 } from "@/composables/useUptimeMonitors";
+import { useUptimeMonitorHistory } from "@/composables/useUptimeMonitorHistory";
 
 type DisplayStatus = UptimeMonitorStatus | "paused";
 type StatusFilter = "all" | DisplayStatus;
+
+const { t } = useI18n();
 
 const {
   monitors,
@@ -53,11 +59,20 @@ const {
   removeMonitor,
   reloadMonitors,
 } = useUptimeMonitors();
+const {
+  histories,
+  loadingMonitorId,
+  error: historyError,
+  loadHistory,
+  clearHistory,
+} = useUptimeMonitorHistory();
 const search = shallowRef("");
 const statusFilter = shallowRef<StatusFilter>("all");
 const dialogOpen = shallowRef(false);
 const editingMonitor = shallowRef<UptimeMonitor | null>(null);
 const monitorPendingRemoval = shallowRef<UptimeMonitor | null>(null);
+const expandedHistoryMonitorId = shallowRef<string | null>(null);
+const historyWindowHours = shallowRef(24);
 const lastUpdated = shallowRef(new Date());
 let refreshTimer: number | undefined;
 
@@ -188,6 +203,7 @@ async function saveMonitor(input: UptimeMonitorInput) {
     });
     return;
   }
+  if (existing) clearHistory(existing.id);
   lastUpdated.value = new Date();
   updateDialog(false);
   toast.success(existing ? "Monitor updated" : "Monitor added", { description: result.name });
@@ -208,8 +224,24 @@ async function removeSelectedMonitor() {
     return;
   }
   monitorPendingRemoval.value = null;
+  clearHistory(monitor.id);
+  if (expandedHistoryMonitorId.value === monitor.id) expandedHistoryMonitorId.value = null;
   lastUpdated.value = new Date();
   toast.success("Monitor removed", { description: monitor.name });
+}
+
+async function toggleHistory(monitor: UptimeMonitor) {
+  if (expandedHistoryMonitorId.value === monitor.id) {
+    expandedHistoryMonitorId.value = null;
+    return;
+  }
+  expandedHistoryMonitorId.value = monitor.id;
+  await loadHistory(monitor.id, historyWindowHours.value);
+}
+
+async function selectHistoryWindow(monitor: UptimeMonitor, hours: number) {
+  historyWindowHours.value = hours;
+  await loadHistory(monitor.id, hours);
 }
 
 async function reloadConfiguration(showSuccess = false) {
@@ -486,8 +518,33 @@ onUnmounted(() => {
                   :class="historyClass(state)"
                 />
               </div>
+              <Button
+                class="mt-3 w-full"
+                size="sm"
+                variant="outline"
+                type="button"
+                :disabled="loadingMonitorId === monitor.id"
+                @click="toggleHistory(monitor)"
+              >
+                <History class="size-3.5" :stroke-width="1.5" />
+                {{
+                  t(
+                    expandedHistoryMonitorId === monitor.id
+                      ? "uptimeHistory.hide"
+                      : "uptimeHistory.view",
+                  )
+                }}
+              </Button>
             </div>
           </div>
+          <UptimeMonitorHistoryPanel
+            v-if="expandedHistoryMonitorId === monitor.id"
+            :history="histories[monitor.id]"
+            :loading="loadingMonitorId === monitor.id"
+            :error="historyError"
+            :window-hours="historyWindowHours"
+            @select-window="selectHistoryWindow(monitor, $event)"
+          />
         </article>
       </div>
 

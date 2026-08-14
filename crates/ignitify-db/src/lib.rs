@@ -34,8 +34,10 @@ pub use repositories::{
     RemoteServerAgentsRepository, RemoteServerConnection, RemoteServerRecord, RemoteServerUpdate,
     RemoteServersRepository, RetrySchedule, SequenceCursor, ServerCertificateRecord,
     ServerSettingsRecord, ServerSettingsRepository, ServerSettingsUpdate, ServiceActor,
-    ServiceMutationOutcome, ServiceVariableRecord, ServicesRepository, UptimeCheckUpdate,
-    UptimeMonitorRecord, UptimeMonitorUpdate, UptimeMonitorsRepository, UsersRepository,
+    ServiceMutationOutcome, ServiceVariableRecord, ServicesRepository, UPTIME_HISTORY_MAX_ROWS,
+    UPTIME_HISTORY_RETENTION_DAYS, UptimeAvailabilitySummary, UptimeCheckRecord, UptimeCheckUpdate,
+    UptimeMonitorHistory, UptimeMonitorRecord, UptimeMonitorUpdate, UptimeMonitorsRepository,
+    UsersRepository,
 };
 
 #[cfg(test)]
