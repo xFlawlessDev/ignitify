@@ -43,6 +43,7 @@ const services: ServiceSummary[] = [
 const deployments: DeploymentSummary[] = [
   {
     id: "deployment-web",
+    correlation_id: "correlation-web",
     service_id: "service-web",
     generation: 2,
     status: "healthy",
@@ -56,6 +57,7 @@ const deployments: DeploymentSummary[] = [
   },
   {
     id: "deployment-api",
+    correlation_id: "correlation-api",
     service_id: "service-api",
     generation: 1,
     status: "failed",
@@ -75,6 +77,7 @@ const activity: ActivitySummary[] = [
     action: "service.created",
     resource_type: "service",
     resource_id: "service-web",
+    correlation_id: "correlation-service",
     created_at: "2026-08-07T10:00:00Z",
   },
 ];

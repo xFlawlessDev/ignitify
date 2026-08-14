@@ -7,18 +7,21 @@ investigating unless that action is part of the selected runbook.
 
 ## Common Triage
 
-1. Open the operator health summary at `/api/v1/operations/health-summary` or
+1. Start with the correlation ID shown in the deployment response, project
+   activity, notification delivery history, or an `operations.alert` source.
+   Treat it as an opaque incident reference, not as a credential.
+2. Open the operator health summary at `/api/v1/operations/health-summary` or
    the Dashboard operations panel.
-2. Record the deployment ID, service, destination, current status, and the
+3. Record the deployment ID, service, destination, current status, and the
    request or audit ID before taking action.
-3. Review the deployment events and logs for the same deployment. Treat log
+4. Review deployment events and logs carrying the same correlation ID. Treat log
    text as diagnostic data; do not paste environment values, tokens, keys, or
    unredacted command output into an incident record.
-4. For an `operations.alert` notification, use its safe title and the health
+5. For an `operations.alert` notification, use its safe title and the health
    summary to identify the affected subsystem. Alerts are transition-based:
    one notification is sent when a condition is raised and one when it
    resolves. Inspect delivery history before creating another channel.
-5. Check whether the worker is progressing. A queued deployment can be safely
+6. Check whether the worker is progressing. A queued deployment can be safely
    retried after the underlying dependency is restored; a running deployment
    must be inspected before submitting another deployment.
 
@@ -138,7 +141,7 @@ retained.
 
 ## Incident Evidence
 
-Record the UTC time, release/tag, deployment and service IDs, health-summary
-status, selected action, outcome, and follow-up issue. Redact customer names,
+Record the UTC time, release/tag, correlation ID, deployment and service IDs,
+health-summary status, selected action, outcome, and follow-up issue. Redact customer names,
 repository credentials, environment values, private keys, certificate keys,
 signed URLs, and raw provider error bodies.

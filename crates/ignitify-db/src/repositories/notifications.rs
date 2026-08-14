@@ -41,6 +41,7 @@ pub struct NotificationDeliveryRecord {
     pub channel_kind: String,
     pub source_kind: String,
     pub source_id: String,
+    pub correlation_id: Option<String>,
     pub event_kind: String,
     pub status: String,
     pub attempt_count: i64,
@@ -171,7 +172,7 @@ impl NotificationChannelsRepository {
         let rows = sqlx::query_as::<_, NotificationDeliveryRow>(
             "SELECT deliveries.id, deliveries.channel_id, channels.name AS channel_name,
                     channels.kind AS channel_kind, deliveries.source_kind,
-                    deliveries.source_id, deliveries.event_kind, deliveries.status,
+                    deliveries.source_id, deliveries.correlation_id, deliveries.event_kind, deliveries.status,
                     deliveries.attempt_count,
                     deliveries.created_at, deliveries.completed_at, deliveries.message
              FROM notification_deliveries deliveries
@@ -195,16 +196,29 @@ impl NotificationChannelsRepository {
         source_id: &str,
         event_kind: &str,
     ) -> Result<bool> {
+        self.claim_delivery_with_correlation(channel_id, source_kind, source_id, event_kind, None)
+            .await
+    }
+
+    pub async fn claim_delivery_with_correlation(
+        &self,
+        channel_id: &str,
+        source_kind: &str,
+        source_id: &str,
+        event_kind: &str,
+        correlation_id: Option<&str>,
+    ) -> Result<bool> {
         let result = sqlx::query(
             "INSERT INTO notification_deliveries
-             (id, channel_id, source_kind, source_id, event_kind, status, created_at)
-             VALUES (?, ?, ?, ?, ?, 'running', ?)
+             (id, channel_id, source_kind, source_id, correlation_id, event_kind, status, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, 'running', ?)
              ON CONFLICT(channel_id, source_kind, source_id, event_kind) DO NOTHING",
         )
         .bind(Uuid::new_v4().to_string())
         .bind(channel_id)
         .bind(source_kind)
         .bind(source_id)
+        .bind(correlation_id)
         .bind(event_kind)
         .bind(Utc::now().to_rfc3339())
         .execute(&self.pool)
@@ -328,6 +342,7 @@ struct NotificationDeliveryRow {
     channel_kind: String,
     source_kind: String,
     source_id: String,
+    correlation_id: Option<String>,
     event_kind: String,
     status: String,
     attempt_count: i64,
@@ -345,6 +360,7 @@ impl NotificationDeliveryRow {
             channel_kind: self.channel_kind,
             source_kind: self.source_kind,
             source_id: self.source_id,
+            correlation_id: self.correlation_id,
             event_kind: self.event_kind,
             status: self.status,
             attempt_count: self.attempt_count,

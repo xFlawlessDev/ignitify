@@ -8,6 +8,10 @@ Local base URL: `http://127.0.0.1:5656`. All control plane routes are under `/ap
 - Protected routes require `Authorization: Bearer <access-token>`.
 - State-changing requests also require `X-Ignitify-Request: 1` and an `Origin` listed in `IGNITIFY_TRUSTED_ORIGINS`.
 - Error responses do not expose database, token, or runtime details. Statuses `400`, `401`, `403`, `404`, `409`, and `500` represent the general failure classes.
+- Deployment responses include an opaque `correlation_id`; deployment event
+  streams also include a structured `event_id` and propagate that correlation
+  ID to event and log records. These values are safe incident metadata, not
+  credentials.
 - Resource identifiers are UUIDs. Use an idempotency key when creating a deployment.
 
 ## Authentication

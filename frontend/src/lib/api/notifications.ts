@@ -44,6 +44,7 @@ export interface NotificationDelivery {
   channel_kind: NotificationChannelKind;
   source_kind: string;
   source_id: string;
+  correlation_id: string | null;
   event_kind: NotificationEventKind;
   status: "running" | "succeeded" | "failed";
   attempt_count: number;

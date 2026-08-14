@@ -953,11 +953,12 @@ async fn notification_delivery_history_requires_operator_access_and_omits_creden
     state
         .database
         .notification_channels()
-        .claim_delivery(
+        .claim_delivery_with_correlation(
             &channel.id,
             "deployment",
             "deployment-1",
             "deployment.failed",
+            Some("correlation-1"),
         )
         .await
         .unwrap();
@@ -1009,6 +1010,7 @@ async fn notification_delivery_history_requires_operator_access_and_omits_creden
     assert_eq!(json[0]["channel_name"], "Secure webhook");
     assert_eq!(json[0]["status"], "failed");
     assert_eq!(json[0]["attempt_count"], 1);
+    assert_eq!(json[0]["correlation_id"], "correlation-1");
     assert_eq!(
         json[0]["message"],
         "Delivery failed; review the server logs"
@@ -1710,6 +1712,7 @@ async fn deployment_events_replay_durable_rows_and_keep_unauthorized_hidden() {
         .unwrap()
         .to_bytes();
     let deployment: serde_json::Value = serde_json::from_slice(&deployment).unwrap();
+    let correlation_id = deployment["correlation_id"].as_str().unwrap();
     let response = app
         .clone()
         .oneshot(request(
@@ -1731,7 +1734,10 @@ async fn deployment_events_replay_durable_rows_and_keep_unauthorized_hidden() {
         .unwrap()
         .unwrap()
         .unwrap();
-    assert!(String::from_utf8_lossy(&first).contains("deployment.queued"));
+    let first = String::from_utf8_lossy(&first);
+    assert!(first.contains("deployment.queued"));
+    assert!(first.contains("\"event_id\""));
+    assert!(first.contains(correlation_id));
 }
 
 #[tokio::test]

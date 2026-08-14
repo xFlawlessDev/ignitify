@@ -8,6 +8,10 @@ Base URL local: `http://127.0.0.1:5656`. Semua route control plane berada di baw
 - Route terproteksi membutuhkan `Authorization: Bearer <access-token>`.
 - Request yang mengubah state juga membutuhkan `X-Ignitify-Request: 1` dan `Origin` yang ada dalam `IGNITIFY_TRUSTED_ORIGINS`.
 - Respons error tidak mengungkap detail database, token, atau runtime. Status `400`, `401`, `403`, `404`, `409`, dan `500` mengikuti kelas kegagalan umum.
+- Respons deployment menyertakan `correlation_id` opaque; stream event deployment
+  juga menyertakan `event_id` terstruktur dan meneruskan ID korelasi yang sama
+  ke event serta log. Nilai ini adalah metadata aman untuk insiden, bukan
+  kredensial.
 - Identifier resource adalah UUID. Gunakan idempotency key ketika membuat deployment.
 
 ## Autentikasi

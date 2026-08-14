@@ -32,6 +32,7 @@ const service = {
 
 const deployment = {
   id: "deployment-1",
+  correlation_id: "correlation-1",
   service_id: service.id,
   generation: 1,
   status: "healthy" as const,

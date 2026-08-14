@@ -17,6 +17,7 @@ pub struct ActivityRecord {
     pub action: String,
     pub resource_type: Option<String>,
     pub resource_id: Option<String>,
+    pub correlation_id: Option<String>,
     pub created_at: String,
 }
 
@@ -41,7 +42,7 @@ impl ActivityRepository {
             return Ok(None);
         }
         let rows = sqlx::query_as::<_, ActivityRow>(
-            "SELECT a.id, a.action, a.resource_type, a.resource_id, a.created_at
+            "SELECT a.id, a.action, a.resource_type, a.resource_id, a.correlation_id, a.created_at
              FROM audit_logs a
              WHERE (
                 (a.resource_type = 'project' AND a.resource_id = ?)
@@ -81,6 +82,7 @@ impl ActivityRepository {
                     action: row.action,
                     resource_type: row.resource_type,
                     resource_id: row.resource_id,
+                    correlation_id: row.correlation_id,
                     created_at: row.created_at,
                 })
                 .collect(),
@@ -120,5 +122,6 @@ struct ActivityRow {
     action: String,
     resource_type: Option<String>,
     resource_id: Option<String>,
+    correlation_id: Option<String>,
     created_at: String,
 }

@@ -135,6 +135,7 @@ export default {
     refreshHistory: "Muat ulang riwayat pengiriman",
     loadingHistory: "Memuat riwayat pengiriman",
     emptyHistory: "Belum ada pengiriman notifikasi.",
+    correlationId: "ID korelasi",
     deliveryAttempts: "({count} percobaan)",
     deliveryStatus: {
       running: "berjalan",
@@ -166,6 +167,9 @@ export default {
       deploymentSuperseded: "Deployment digantikan",
       operationsAlert: "Alert operasional",
     },
+  },
+  activity: {
+    correlationId: "ID korelasi",
   },
   deploymentLogs: {
     title: "Log deployment",

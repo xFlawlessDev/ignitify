@@ -56,10 +56,10 @@ pub fn spawn_deployment_dispatcher(
         loop {
             match receiver.recv().await {
                 Ok(StreamRecord::Event(event)) => {
-                    let source_id = event.sequence.to_string();
                     let notification = NotificationEvent {
                         source_kind: "deployment",
-                        source_id: &source_id,
+                        source_id: &event.event_id,
+                        correlation_id: Some(&event.correlation_id),
                         event_kind: &event.kind,
                         occurred_at: Some(&event.created_at),
                         title: deployment_title(&event.kind),
@@ -147,6 +147,7 @@ pub async fn dispatch_backup(
         NotificationEvent {
             source_kind: "backup",
             source_id: run_id,
+            correlation_id: Some(run_id),
             event_kind,
             occurred_at: None,
             title,
@@ -167,6 +168,7 @@ async fn dispatch_remote_event(
         NotificationEvent {
             source_kind: "remote",
             source_id: &event.id,
+            correlation_id: Some(&event.id),
             event_kind: &event.kind,
             occurred_at: Some(&event.created_at),
             title: remote_event_title(&event.kind),
@@ -179,6 +181,7 @@ async fn dispatch_remote_event(
 pub(crate) struct NotificationEvent<'a> {
     pub(crate) source_kind: &'a str,
     pub(crate) source_id: &'a str,
+    pub(crate) correlation_id: Option<&'a str>,
     pub(crate) event_kind: &'a str,
     pub(crate) occurred_at: Option<&'a str>,
     pub(crate) title: &'a str,
@@ -214,11 +217,12 @@ async fn dispatch_channel(
     }
     if !database
         .notification_channels()
-        .claim_delivery(
+        .claim_delivery_with_correlation(
             &channel.channel.id,
             event.source_kind,
             event.source_id,
             event.event_kind,
+            event.correlation_id,
         )
         .await?
     {
@@ -414,6 +418,7 @@ async fn webhook(
     let mut request = client.post(configuration.url).json(&json!({
         "event": event.event_kind,
         "source": { "type": event.source_kind, "id": event.source_id },
+        "correlation_id": event.correlation_id,
         "title": event.title,
         "message": event.body,
     }));

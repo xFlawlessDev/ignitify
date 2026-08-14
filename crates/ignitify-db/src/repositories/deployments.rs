@@ -62,6 +62,7 @@ pub struct NewDeployment {
 #[derive(Debug, Clone)]
 pub struct DeploymentRecord {
     pub id: DeploymentId,
+    pub correlation_id: String,
     pub service_id: ServiceId,
     pub generation: i64,
     pub idempotency_key: String,
@@ -86,7 +87,9 @@ pub struct DeploymentRecord {
 #[derive(Debug, Clone)]
 pub struct DeploymentEventRecord {
     pub sequence: i64,
+    pub event_id: String,
     pub deployment_id: DeploymentId,
+    pub correlation_id: String,
     pub kind: String,
     pub payload_json: String,
     pub created_at: String,
@@ -96,6 +99,7 @@ pub struct DeploymentEventRecord {
 pub struct DeploymentLogRecord {
     pub sequence: i64,
     pub deployment_id: DeploymentId,
+    pub correlation_id: String,
     pub stream: String,
     pub line: String,
     pub created_at: String,
@@ -195,7 +199,7 @@ async fn fetch_by_service_key(
     idempotency_key: &str,
 ) -> Result<Option<DeploymentRecord>> {
     let row = sqlx::query_as::<_, DeploymentRow>(
-        "SELECT id, service_id, generation, idempotency_key, requested_by_user_id, spec_json, runtime_spec_json,
+        "SELECT id, correlation_id, service_id, generation, idempotency_key, requested_by_user_id, spec_json, runtime_spec_json,
                 source_config_json, deployment_destination_id, source_revision, local_image_id, variables_ciphertext, runtime_ref,
                 status, failure_reason, attempt_count, retry_after, cancel_requested_at,
                 created_at, started_at, finished_at
@@ -213,7 +217,7 @@ async fn fetch_deployment(
     deployment_id: &str,
 ) -> Result<Option<DeploymentRecord>> {
     let row = sqlx::query_as::<_, DeploymentRow>(
-        "SELECT id, service_id, generation, idempotency_key, requested_by_user_id, spec_json, runtime_spec_json,
+        "SELECT id, correlation_id, service_id, generation, idempotency_key, requested_by_user_id, spec_json, runtime_spec_json,
                 source_config_json, deployment_destination_id, source_revision, local_image_id, variables_ciphertext, runtime_ref,
                 status, failure_reason, attempt_count, retry_after, cancel_requested_at,
                 created_at, started_at, finished_at
@@ -233,12 +237,13 @@ async fn insert_event(
     now: &str,
 ) -> Result<()> {
     sqlx::query(
-        "INSERT INTO deployment_events (deployment_id, kind, payload_json, created_at) VALUES (?, ?, ?, ?)",
+        "INSERT INTO deployment_events (deployment_id, correlation_id, kind, payload_json, created_at)
+         SELECT id, correlation_id, ?, ?, ? FROM deployments WHERE id = ?",
     )
-    .bind(deployment_id)
     .bind(kind)
     .bind(payload.to_string())
     .bind(now)
+    .bind(deployment_id)
     .execute(&mut **tx)
     .await?;
     Ok(())
@@ -249,16 +254,18 @@ async fn insert_audit(
     actor_id: &str,
     action: &str,
     deployment_id: &str,
+    correlation_id: &str,
     now: &str,
 ) -> Result<()> {
     sqlx::query(
-        "INSERT INTO audit_logs (id, user_id, action, resource_type, resource_id, created_at)
-         VALUES (?, ?, ?, 'deployment', ?, ?)",
+        "INSERT INTO audit_logs (id, user_id, action, resource_type, resource_id, correlation_id, created_at)
+         VALUES (?, ?, ?, 'deployment', ?, ?, ?)",
     )
     .bind(Uuid::new_v4().to_string())
     .bind(actor_id)
     .bind(action)
     .bind(deployment_id)
+    .bind(correlation_id)
     .bind(now)
     .execute(&mut **tx)
     .await?;

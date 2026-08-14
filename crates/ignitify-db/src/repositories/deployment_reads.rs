@@ -103,6 +103,7 @@ impl DeploymentsRepository {
         let generation =
             next_generation(&mut tx, service.id.as_str(), service.desired_generation).await?;
         let id = Uuid::new_v4().to_string();
+        let correlation_id = Uuid::new_v4().to_string();
         let now = Utc::now().to_rfc3339();
         let spec_json = serde_json::to_string(&deployment.spec)
             .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
@@ -115,13 +116,14 @@ impl DeploymentsRepository {
         let source_revision = deployment.source_revision.as_deref();
         let inserted = sqlx::query(
             "INSERT INTO deployments (
-                id, service_id, generation, idempotency_key, requested_by_user_id, spec_json,
+                id, correlation_id, service_id, generation, idempotency_key, requested_by_user_id, spec_json,
                 source_config_json, deployment_destination_id, source_revision, variables_ciphertext, status, created_at
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?)
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?)
              ON CONFLICT(service_id, idempotency_key) DO NOTHING
              ON CONFLICT(service_id) WHERE status IN ('queued', 'preparing', 'running') DO NOTHING",
         )
         .bind(&id)
+        .bind(&correlation_id)
         .bind(service.id.as_str())
         .bind(generation)
         .bind(&deployment.idempotency_key)
@@ -152,6 +154,7 @@ impl DeploymentsRepository {
             &deployment.requested_by_user_id,
             "deployment.create",
             &id,
+            &correlation_id,
             &now,
         )
         .await?;
@@ -168,7 +171,7 @@ impl DeploymentsRepository {
         deployment_id: &str,
     ) -> Result<Option<DeploymentRecord>> {
         let row = sqlx::query_as::<_, DeploymentWithProjectRow>(
-            "SELECT d.id, d.service_id, d.generation, d.idempotency_key, d.requested_by_user_id,
+            "SELECT d.id, d.correlation_id, d.service_id, d.generation, d.idempotency_key, d.requested_by_user_id,
                     d.spec_json, d.runtime_spec_json, d.source_config_json, d.deployment_destination_id, d.source_revision, d.local_image_id,
                     d.variables_ciphertext, d.runtime_ref, d.status, d.failure_reason,
                     d.attempt_count, d.retry_after, d.cancel_requested_at,
@@ -205,7 +208,7 @@ impl DeploymentsRepository {
             return Ok(None);
         }
         let rows = sqlx::query_as::<_, DeploymentRow>(
-            "SELECT id, service_id, generation, idempotency_key, requested_by_user_id, spec_json, runtime_spec_json,
+            "SELECT id, correlation_id, service_id, generation, idempotency_key, requested_by_user_id, spec_json, runtime_spec_json,
                     source_config_json, deployment_destination_id, source_revision, local_image_id, variables_ciphertext, runtime_ref,
                     status, failure_reason, attempt_count, retry_after, cancel_requested_at,
                     created_at, started_at, finished_at
@@ -236,7 +239,7 @@ impl DeploymentsRepository {
             return Ok(None);
         }
         let rows = sqlx::query_as::<_, DeploymentRow>(
-            "SELECT d.id, d.service_id, d.generation, d.idempotency_key, d.requested_by_user_id,
+            "SELECT d.id, d.correlation_id, d.service_id, d.generation, d.idempotency_key, d.requested_by_user_id,
                     d.spec_json, d.runtime_spec_json, d.source_config_json, d.deployment_destination_id, d.source_revision, d.local_image_id,
                     d.variables_ciphertext, d.runtime_ref, d.status, d.failure_reason,
                     d.attempt_count, d.retry_after, d.cancel_requested_at,
@@ -272,7 +275,7 @@ impl DeploymentsRepository {
             return Ok(None);
         }
         let row = sqlx::query_as::<_, DeploymentRow>(
-            "SELECT id, service_id, generation, idempotency_key, requested_by_user_id, spec_json, runtime_spec_json,
+            "SELECT id, correlation_id, service_id, generation, idempotency_key, requested_by_user_id, spec_json, runtime_spec_json,
                     source_config_json, deployment_destination_id, source_revision, local_image_id, variables_ciphertext, runtime_ref,
                     status, failure_reason, attempt_count, retry_after, cancel_requested_at,
                     created_at, started_at, finished_at

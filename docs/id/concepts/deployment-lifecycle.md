@@ -61,3 +61,13 @@ Traefik hanya menemukan kontainer dengan label `com.ignitify.managed=true`. Serv
 - `POST /api/v1/deployments/{deployment_id}/rollback` mengantrekan deployment dari snapshot/revisi deployment sebelumnya.
 
 Log yang berpotensi mengandung nilai snapshot akan disensor oleh worker. Jangan gunakan output build atau aplikasi sebagai kanal untuk mengungkap secret.
+
+## Korelasi insiden
+
+Setiap deployment yang diterima mendapat ID korelasi opaque yang tetap sama
+untuk retry idempotent. Event deployment menyediakan event ID terstruktur dan
+ID korelasi yang sama; log worker, activity audit deployment, dan riwayat
+delivery notifikasi terkait membawa ID ini sebagai metadata. Mulai tracing
+insiden dari ID korelasi pada activity atau delivery history, lalu periksa event
+dan log yang dibatasi. ID ini aman ditampilkan, tetapi bukan access token dan
+tidak memuat secret deployment atau payload provider.

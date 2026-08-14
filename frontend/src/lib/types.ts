@@ -216,7 +216,9 @@ export interface DomainSummary {
 
 export interface DeploymentEvent {
   sequence: number;
+  event_id: string;
   deployment_id: string;
+  correlation_id: string;
   kind: string;
   created_at: string;
   payload: Record<string, unknown>;
@@ -225,6 +227,7 @@ export interface DeploymentEvent {
 export interface DeploymentLog {
   sequence: number;
   deployment_id: string;
+  correlation_id: string;
   stream: "stdout" | "stderr" | "system";
   line: string;
   created_at: string;
@@ -232,6 +235,7 @@ export interface DeploymentLog {
 
 export interface DeploymentSummary {
   id: string;
+  correlation_id: string;
   service_id: string;
   generation: number;
   status: DeploymentState;
@@ -447,6 +451,7 @@ export interface ActivitySummary {
   action: string;
   resource_type: string | null;
   resource_id: string | null;
+  correlation_id: string | null;
   created_at: string;
 }
 
