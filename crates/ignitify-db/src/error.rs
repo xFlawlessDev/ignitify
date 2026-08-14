@@ -34,6 +34,8 @@ pub enum DatabaseError {
     InvalidDeploymentState(String),
     #[error("invalid stored deployment supply-chain report: {0}")]
     InvalidDeploymentSupplyChainReport(String),
+    #[error("invalid stored deployment approval status: {0}")]
+    InvalidDeploymentApprovalStatus(String),
     #[error("domain hostname already exists")]
     DomainNameConflict,
     #[error("domain removal confirmation does not match hostname")]

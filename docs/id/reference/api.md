@@ -111,14 +111,15 @@ Environment project memakai bentuk berikut. Untuk mempertahankan secret yang sud
 
 | Method        | Path                                           | Keterangan                                      |
 | ------------- | ---------------------------------------------- | ----------------------------------------------- |
-| `GET`, `POST` | `/api/v1/services/{service_id}/deployments`    | List deployment service atau submit deployment. |
+| `GET`, `POST` | `/api/v1/services/{service_id}/deployments`    | List deployment service atau meminta deployment produksi. |
 | `POST`        | `/api/v1/services/{service_id}/stop`           | Meminta penghentian service.                    |
 | `GET`         | `/api/v1/deployments/{deployment_id}`          | Detail deployment.                              |
-| `POST`        | `/api/v1/deployments/{deployment_id}/rollback` | Submit rollback dari snapshot deployment.       |
+| `POST`        | `/api/v1/deployments/{deployment_id}/approve`  | Persetujuan owner/operator sebelum worker berjalan. |
+| `POST`        | `/api/v1/deployments/{deployment_id}/rollback` | Meminta rollback dari snapshot deployment.      |
 | `GET`         | `/api/v1/deployments/{deployment_id}/events`   | SSE event lifecycle.                            |
 | `GET`         | `/api/v1/deployments/{deployment_id}/logs`     | SSE line log.                                   |
 
-Submit deployment membutuhkan header idempotency key sesuai kontrak client. Untuk melanjutkan SSE, kirim `Last-Event-ID` atau parameter query `after=<sequence>`. Stream mengirim event `snapshot` jika cursor lebih lama dari data yang masih tersedia, heartbeat sekitar 15 detik, dan event `log` untuk stream log.
+Submit deployment membutuhkan header idempotency key sesuai kontrak client. Request produksi mengembalikan objek `approval` dan tetap pending sampai owner project atau operator platform menyetujuinya. Respons menampilkan bukti source/image immutable di `source_identity` saat sudah diketahui. Untuk melanjutkan SSE, kirim `Last-Event-ID` atau parameter query `after=<sequence>`. Stream mengirim event `snapshot` jika cursor lebih lama dari data yang masih tersedia, heartbeat sekitar 15 detik, dan event `log` untuk stream log.
 
 ## Sumber kontrak
 

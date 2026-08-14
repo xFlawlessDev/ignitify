@@ -69,6 +69,20 @@ async fn migrations_create_auth_storage() {
     .await
     .unwrap();
     assert_eq!(count, 1, "deployments must retain supply-chain reports");
+    for column in [
+        "approval_status",
+        "approval_requested_at",
+        "approved_by_user_id",
+        "approved_at",
+    ] {
+        let count: i64 = sqlx::query_scalar(&format!(
+            "SELECT COUNT(*) FROM pragma_table_info('deployments') WHERE name = '{column}'"
+        ))
+        .fetch_one(&database.pool)
+        .await
+        .unwrap();
+        assert_eq!(count, 1, "deployments must retain {column}");
+    }
 }
 
 #[tokio::test]
@@ -1350,6 +1364,106 @@ async fn deployment_repository_enforces_idempotency_active_conflict_and_immutabl
 }
 
 #[tokio::test]
+async fn production_deployment_requires_owner_approval_before_worker_claim() {
+    let database = database().await;
+    let owner_id = user_id(&database, "approval-owner").await;
+    let editor_id = user_id(&database, "approval-editor").await;
+    let project = database
+        .projects()
+        .create(&owner_id, ProjectInput::new("Approval flow").unwrap())
+        .await
+        .unwrap();
+    database
+        .projects()
+        .add_member(project.id.as_str(), &editor_id, ProjectMemberRole::Editor)
+        .await
+        .unwrap();
+    let service = database
+        .services()
+        .create(
+            ServiceActor {
+                id: &owner_id,
+                is_admin: false,
+            },
+            project.id.as_str(),
+            ServiceInput::image(
+                "web",
+                "nginx@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                Some(8080),
+                None,
+                vec![],
+            )
+            .unwrap()
+            .configuration,
+            vec![],
+            None,
+        )
+        .await
+        .unwrap();
+    let ServiceMutationOutcome::Created(service) = service else {
+        panic!("service must be created");
+    };
+    let owner = crate::DeploymentActor {
+        id: &owner_id,
+        is_admin: false,
+    };
+    let created = database
+        .deployments()
+        .create(
+            owner,
+            service.id.as_str(),
+            crate::NewDeployment {
+                idempotency_key: "approval-1".to_owned(),
+                requested_by_user_id: owner_id.clone(),
+                spec: service.spec.clone(),
+                source_config: None,
+                deployment_destination_id: None,
+                source_revision: None,
+                supply_chain_report: None,
+                variables_ciphertext: "ciphertext".to_owned(),
+            },
+        )
+        .await
+        .unwrap();
+    let crate::CreateDeploymentOutcome::Created(created) = created else {
+        panic!("deployment must be created");
+    };
+    assert!(created.approval.is_pending());
+    assert!(database.deployments().claim_next().await.unwrap().is_none());
+
+    let editor = crate::DeploymentActor {
+        id: &editor_id,
+        is_admin: false,
+    };
+    assert!(matches!(
+        database
+            .deployments()
+            .approve(editor, created.id.as_str())
+            .await
+            .unwrap(),
+        crate::DeploymentApprovalOutcome::Forbidden
+    ));
+
+    let approved = database
+        .deployments()
+        .approve(owner, created.id.as_str())
+        .await
+        .unwrap();
+    let crate::DeploymentApprovalOutcome::Approved(approved) = approved else {
+        panic!("owner approval must be recorded");
+    };
+    assert_eq!(
+        approved.approval.status,
+        ignitify_domain::ProductionApprovalStatus::Approved
+    );
+    assert_eq!(
+        approved.approval.approved_by_user_id.as_deref(),
+        Some(owner_id.as_str())
+    );
+    assert!(database.deployments().claim_next().await.unwrap().is_some());
+}
+
+#[tokio::test]
 async fn deployment_retry_backoff_and_cancellation_are_durable() {
     let database = database().await;
     let actor_id = user_id(&database, "execution-owner").await;
@@ -1407,6 +1521,14 @@ async fn deployment_retry_backoff_and_cancellation_are_durable() {
         .unwrap();
     let crate::CreateDeploymentOutcome::Created(deployment) = deployment else {
         panic!("deployment must be created");
+    };
+    let crate::DeploymentApprovalOutcome::Approved(_) = database
+        .deployments()
+        .approve(actor, deployment.id.as_str())
+        .await
+        .unwrap()
+    else {
+        panic!("deployment must be approved before retry testing");
     };
 
     let claimed = database.deployments().claim_next().await.unwrap().unwrap();
@@ -1518,6 +1640,14 @@ async fn deployment_retry_exhaustion_persists_failure_and_clears_schedule() {
     let crate::CreateDeploymentOutcome::Created(deployment) = deployment else {
         panic!("deployment must be created");
     };
+    let crate::DeploymentApprovalOutcome::Approved(_) = database
+        .deployments()
+        .approve(actor, deployment.id.as_str())
+        .await
+        .unwrap()
+    else {
+        panic!("deployment must be approved before retry testing");
+    };
 
     let claimed = database.deployments().claim_next().await.unwrap().unwrap();
     let retry = database
@@ -1628,6 +1758,20 @@ async fn service_repository_persists_source_configuration_separately_from_runtim
         .unwrap();
     let crate::CreateDeploymentOutcome::Created(deployment) = deployment else {
         panic!("deployment must be created");
+    };
+    let crate::DeploymentApprovalOutcome::Approved(_) = database
+        .deployments()
+        .approve(
+            crate::DeploymentActor {
+                id: &actor_id,
+                is_admin: false,
+            },
+            deployment.id.as_str(),
+        )
+        .await
+        .unwrap()
+    else {
+        panic!("deployment must be approved before source resolution testing");
     };
     let claimed = database.deployments().claim_next().await.unwrap().unwrap();
     let resolved_spec = ServiceSpec::image(

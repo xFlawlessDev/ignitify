@@ -57,3 +57,9 @@ export function apiCancelDeployment(deploymentId: string): Promise<ApiResult<Dep
     method: "POST",
   });
 }
+
+export function apiApproveDeployment(deploymentId: string): Promise<ApiResult<DeploymentSummary>> {
+  return apiFetch<DeploymentSummary>(`/deployments/${encodeURIComponent(deploymentId)}/approve`, {
+    method: "POST",
+  });
+}

@@ -1713,6 +1713,11 @@ async fn deployment_events_replay_durable_rows_and_keep_unauthorized_hidden() {
         .to_bytes();
     let deployment: serde_json::Value = serde_json::from_slice(&deployment).unwrap();
     let correlation_id = deployment["correlation_id"].as_str().unwrap();
+    assert_eq!(deployment["approval"]["status"], "pending");
+    assert_eq!(
+        deployment["source_identity"]["image_digest"],
+        format!("sha256:{}", "a".repeat(64))
+    );
     assert_eq!(deployment["supply_chain_report"]["enforcement"], "warning");
     assert_eq!(
         deployment["supply_chain_report"]["provenance"]["status"],
@@ -1722,6 +1727,23 @@ async fn deployment_events_replay_durable_rows_and_keep_unauthorized_hidden() {
         deployment["supply_chain_report"]["sbom"]["status"],
         "warning"
     );
+    let approved = app
+        .clone()
+        .oneshot(request(
+            "POST",
+            &format!(
+                "/api/v1/deployments/{}/approve",
+                deployment["id"].as_str().unwrap()
+            ),
+            Some(&token),
+            "",
+        ))
+        .await
+        .unwrap();
+    assert_eq!(approved.status(), StatusCode::ACCEPTED);
+    let approved_body = approved.into_body().collect().await.unwrap().to_bytes();
+    let approved_json: serde_json::Value = serde_json::from_slice(&approved_body).unwrap();
+    assert_eq!(approved_json["approval"]["status"], "approved");
     let response = app
         .clone()
         .oneshot(request(
@@ -1744,7 +1766,7 @@ async fn deployment_events_replay_durable_rows_and_keep_unauthorized_hidden() {
         .unwrap()
         .unwrap();
     let first = String::from_utf8_lossy(&first);
-    assert!(first.contains("deployment.queued"));
+    assert!(first.contains("deployment.approval_requested"));
     assert!(first.contains("\"event_id\""));
     assert!(first.contains(correlation_id));
 }

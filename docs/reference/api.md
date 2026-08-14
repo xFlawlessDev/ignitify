@@ -110,14 +110,15 @@ Project environments use this shape. To keep an existing secret, send `value: nu
 
 | Method        | Path                                           | Description                                      |
 | ------------- | ---------------------------------------------- | ------------------------------------------------ |
-| `GET`, `POST` | `/api/v1/services/{service_id}/deployments`    | List service deployments or submit a deployment. |
+| `GET`, `POST` | `/api/v1/services/{service_id}/deployments`    | List service deployments or request production deployment. |
 | `POST`        | `/api/v1/services/{service_id}/stop`           | Request a service stop.                          |
 | `GET`         | `/api/v1/deployments/{deployment_id}`          | Deployment details.                              |
-| `POST`        | `/api/v1/deployments/{deployment_id}/rollback` | Submit a rollback from a deployment snapshot.    |
+| `POST`        | `/api/v1/deployments/{deployment_id}/approve`  | Owner/operator approval before worker execution. |
+| `POST`        | `/api/v1/deployments/{deployment_id}/rollback` | Request a rollback from a deployment snapshot.   |
 | `GET`         | `/api/v1/deployments/{deployment_id}/events`   | Deployment lifecycle SSE events.                 |
 | `GET`         | `/api/v1/deployments/{deployment_id}/logs`     | SSE log lines.                                   |
 
-Deployment submission requires an idempotency key header according to the client contract. To resume SSE, send `Last-Event-ID` or the `after=<sequence>` query parameter. Streams send a `snapshot` event when the cursor is older than the retained data, a heartbeat about every 15 seconds, and `log` events on the log stream.
+Deployment submission requires an idempotency key header according to the client contract. Production requests return an `approval` object and remain pending until a project owner or platform operator approves them. Responses expose immutable source/image evidence under `source_identity` when it is known. To resume SSE, send `Last-Event-ID` or the `after=<sequence>` query parameter. Streams send a `snapshot` event when the cursor is older than the retained data, a heartbeat about every 15 seconds, and `log` events on the log stream.
 
 ## Contract sources
 

@@ -463,6 +463,20 @@ async fn worker_restart_scan_recovers_preparing_deployment_without_restarting_ru
     let ignitify_db::CreateDeploymentOutcome::Created(deployment) = deployment else {
         panic!("deployment must be created");
     };
+    let ignitify_db::DeploymentApprovalOutcome::Approved(_) = database
+        .deployments()
+        .approve(
+            DeploymentActor {
+                id: &actor_id,
+                is_admin: false,
+            },
+            deployment.id.as_str(),
+        )
+        .await
+        .unwrap()
+    else {
+        panic!("deployment must be approved before restart testing");
+    };
     let claimed = database.deployments().claim_next().await.unwrap().unwrap();
     database
         .deployments()
@@ -517,6 +531,8 @@ async fn worker_restart_scan_recovers_preparing_deployment_without_restarting_ru
             .map(|event| event.kind)
             .collect::<Vec<_>>(),
         [
+            "deployment.approval_requested",
+            "deployment.approved",
             "deployment.queued",
             "deployment.preparing",
             "deployment.running",
@@ -621,8 +637,22 @@ async fn reconcile_marks_domains_failed_when_route_application_fails() {
         )
         .await
         .unwrap();
-    let ignitify_db::CreateDeploymentOutcome::Created(_) = deployment else {
+    let ignitify_db::CreateDeploymentOutcome::Created(deployment) = deployment else {
         panic!("deployment must be created");
+    };
+    let ignitify_db::DeploymentApprovalOutcome::Approved(_) = database
+        .deployments()
+        .approve(
+            DeploymentActor {
+                id: &actor_id,
+                is_admin: false,
+            },
+            deployment.id.as_str(),
+        )
+        .await
+        .unwrap()
+    else {
+        panic!("deployment must be approved before route testing");
     };
     let claimed = database.deployments().claim_next().await.unwrap().unwrap();
     database

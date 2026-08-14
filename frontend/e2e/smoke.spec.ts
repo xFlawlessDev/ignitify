@@ -49,7 +49,7 @@ test("creates a service deployment and shows its logs", async ({ page }) => {
   await page.getByRole("button", { name: "Create service" }).click();
   await expect(page).toHaveURL(/\/projects\/project-1\/services\/service-1$/);
 
-  await page.getByRole("button", { name: "Deploy", exact: true }).click();
+  await page.getByRole("button", { name: "Request production deployment", exact: true }).click();
   await expect(page.getByText("healthy", { exact: true }).first()).toBeVisible();
   await page.getByRole("tab", { name: "Logs", exact: true }).click();
   await expect(page.getByText("deployment fixture complete")).toBeVisible();

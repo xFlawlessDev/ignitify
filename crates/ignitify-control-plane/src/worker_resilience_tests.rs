@@ -91,6 +91,20 @@ async fn queued_image_deployment() -> DeploymentContext {
     let ignitify_db::CreateDeploymentOutcome::Created(deployment) = deployment else {
         panic!("deployment must be created");
     };
+    let ignitify_db::DeploymentApprovalOutcome::Approved(deployment) = database
+        .deployments()
+        .approve(
+            DeploymentActor {
+                id: &actor_id,
+                is_admin: false,
+            },
+            deployment.id.as_str(),
+        )
+        .await
+        .unwrap()
+    else {
+        panic!("deployment must be approved for worker resilience tests");
+    };
     DeploymentContext {
         database,
         actor_id,

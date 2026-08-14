@@ -153,6 +153,7 @@ const serviceStatusLabel = computed(() => {
 const canManage = computed(
   () => service.value?.role === "owner" || service.value?.role === "editor",
 );
+const canApprove = computed(() => auth.isPlatformOperator || service.value?.role === "owner");
 const sourceLabel = computed(() => {
   const current = service.value;
   if (!current) return "";
@@ -186,11 +187,22 @@ const projectRoute = computed(() => ({
 }));
 
 function applyDeploymentEvent(event: DeploymentEvent) {
+  const nextStatus = event.kind.slice("deployment.".length) as DeploymentSummary["status"];
   deployments.data.value = deployments.data.value.map((deployment) =>
-    deployment.id === event.deployment_id && event.kind.startsWith("deployment.")
+    deployment.id === event.deployment_id &&
+    [
+      "queued",
+      "preparing",
+      "running",
+      "healthy",
+      "failed",
+      "stopping",
+      "stopped",
+      "superseded",
+    ].includes(nextStatus)
       ? {
           ...deployment,
-          status: event.kind.slice("deployment.".length) as DeploymentSummary["status"],
+          status: nextStatus,
           failure_reason:
             (event.payload.failure_reason as string | null | undefined) ??
             deployment.failure_reason,
@@ -339,6 +351,18 @@ async function cancelDeployment(deploymentId: string) {
   }
   selectDeployment(deployment.id);
   toast.success("Deployment cancelled");
+}
+
+async function approveDeployment(deploymentId: string) {
+  const deployment = await deployments.approve(deploymentId);
+  if (!deployment) {
+    toast.error("Could not approve deployment", {
+      description: deploymentError.value ?? "Try again in a moment.",
+    });
+    return;
+  }
+  selectDeployment(deployment.id);
+  toast.success("Production deployment approved");
 }
 
 async function rollbackDeployment(deploymentId: string) {
@@ -547,6 +571,7 @@ onUnmounted(() => {
         />
         <ServiceDetailPanel
           v-else-if="activeView === 'operations'"
+          :can-approve="canApprove"
           :can-manage="canManage"
           :connected="streamConnected && logStreamConnected"
           :deployments="deploymentData"
@@ -559,6 +584,7 @@ onUnmounted(() => {
           :submitting="deploymentSubmitting"
           @deploy="submitDeployment"
           @cancel="cancelDeployment"
+          @approve="approveDeployment"
           @rollback="rollbackDeployment"
           @select-deployment="selectDeployment"
           @stop="stopService"

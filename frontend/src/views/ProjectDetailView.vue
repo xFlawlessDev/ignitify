@@ -72,6 +72,7 @@ const {
   activityData,
   activityError,
   activityLoading,
+  approveDeployment,
   deploymentCount,
   deploymentCurrentPage,
   deploymentData,
@@ -527,6 +528,7 @@ onUnmounted(() => {
       >
         <div class="order-2 grid min-w-0 gap-3 lg:order-1">
           <ProjectDeploymentTimeline
+            :can-approve="data.role === 'owner'"
             :deployments="visibleDeployments"
             :error="deploymentError"
             :loading="deploymentLoading"
@@ -534,6 +536,7 @@ onUnmounted(() => {
             :submitting="deploymentSubmitting"
             :selected-deployment-id="selectedDeploymentId"
             @deploy="submitDeployment"
+            @approve="approveDeployment"
             @stop="stopDeployment"
             @retry="loadProjectWorkloads(data.id)"
             @rollback="rollbackDeployment"

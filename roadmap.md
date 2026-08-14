@@ -199,7 +199,7 @@ Target: days 61-90.
 - [x] Add optional image provenance, SBOM, and vulnerability-policy results to
   deployment records. Start in warning mode and provide a clear remediation
   path before enforcing blocks.
-- [ ] Add explicit production promotion and approval workflow while retaining an
+- [x] Add explicit production promotion and approval workflow while retaining an
   immutable source commit and image digest in deployment history.
 - [x] Add webhook delivery history and clear retry diagnostics without exposing
   credentials or payloads.
@@ -208,7 +208,7 @@ Target: days 61-90.
 
 ### Definition Of Done
 
-- [ ] Production deployments have an auditable source/image identity and an
+- [x] Production deployments have an auditable source/image identity and an
   approval trail.
 - [ ] Supply-chain signals are visible before deployment and can be governed by
   policy.
@@ -223,6 +223,15 @@ warning with remediation; the worker does not block a deployment. The API and
 service deployment panel expose the report before runtime execution advances,
 and domain/database/control-plane/API/frontend regression coverage verifies
 the warning-mode contract.
+
+Evidence: migration `0037_deployment_production_approvals.sql` records pending
+and approved production promotion states. Owners and platform operators must
+perform an explicit approval action before the worker can claim a production
+snapshot; editors can request but cannot approve. Approval events and audit
+records use the deployment correlation ID. The API and deployment UI expose the
+approval trail and immutable source/image identity when it is known; database,
+control-plane, API, and frontend regression coverage verifies that pending work
+is never executed.
 
 ## Deferred Until The Foundations Are Complete
 

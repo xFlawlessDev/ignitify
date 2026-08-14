@@ -3,7 +3,7 @@ use std::{collections::BTreeMap, sync::Arc};
 use chrono::Utc;
 use ignitify_db::{
     AuthorizedDeploymentService, CancelDeploymentOutcome, CreateDeploymentOutcome, DeploymentActor,
-    DeploymentRecord, DeploymentsRepository, NewDeployment,
+    DeploymentApprovalOutcome, DeploymentRecord, DeploymentsRepository, NewDeployment,
 };
 use ignitify_domain::{DeploymentState, evaluate_supply_chain_report};
 use tokio::sync::{broadcast, mpsc};
@@ -99,7 +99,9 @@ impl ControlHandle {
             .await?;
         if let CreateDeploymentOutcome::Created(record) = &outcome {
             self.publish_deployment_records(record.id.as_str()).await?;
-            let _ = self.wake.try_send(());
+            if record.approval.allows_execution() {
+                let _ = self.wake.try_send(());
+            }
         }
         Ok(match outcome {
             CreateDeploymentOutcome::Created(record) => DeploymentSubmission::Accepted(record),
@@ -150,6 +152,24 @@ impl ControlHandle {
             CancelDeploymentOutcome::Existing(record) => DeploymentSubmission::Existing(record),
             CancelDeploymentOutcome::Missing => DeploymentSubmission::Missing,
             CancelDeploymentOutcome::Forbidden => DeploymentSubmission::Forbidden,
+        })
+    }
+
+    pub async fn approve_deploy(
+        &self,
+        actor: DeploymentActor<'_>,
+        deployment_id: &str,
+    ) -> Result<DeploymentSubmission> {
+        let outcome = self.deployments.approve(actor, deployment_id).await?;
+        if let DeploymentApprovalOutcome::Approved(record) = &outcome {
+            self.publish_deployment_records(record.id.as_str()).await?;
+            let _ = self.wake.try_send(());
+        }
+        Ok(match outcome {
+            DeploymentApprovalOutcome::Approved(record)
+            | DeploymentApprovalOutcome::Existing(record) => DeploymentSubmission::Accepted(record),
+            DeploymentApprovalOutcome::Missing => DeploymentSubmission::Missing,
+            DeploymentApprovalOutcome::Forbidden => DeploymentSubmission::Forbidden,
         })
     }
 

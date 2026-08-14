@@ -567,6 +567,13 @@ protected_mutation_param!(
     "deployment_id"
 );
 protected_mutation_param!(
+    approve_deployment_doc,
+    post,
+    "/api/v1/deployments/{deployment_id}/approve",
+    "Deployments",
+    "deployment_id"
+);
+protected_mutation_param!(
     cancel_deployment_doc,
     post,
     "/api/v1/deployments/{deployment_id}/cancel",
@@ -690,6 +697,7 @@ protected_get!(terminal_doc, "/api/v1/terminal", "Terminal");
         deployment_events_doc,
         deployment_logs_doc,
         rollback_deployment_doc,
+        approve_deployment_doc,
         cancel_deployment_doc,
         remove_domain_doc,
         verify_domain_doc,

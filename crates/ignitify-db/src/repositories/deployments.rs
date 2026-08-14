@@ -1,6 +1,6 @@
 use ignitify_domain::{
-    DeploymentId, DeploymentState, ProjectMemberRole, ServiceId, ServiceSourceConfig, ServiceSpec,
-    SupplyChainReport,
+    DeploymentApproval, DeploymentId, DeploymentState, ProjectMemberRole, ServiceId,
+    ServiceSourceConfig, ServiceSpec, SupplyChainReport,
 };
 use sqlx::SqlitePool;
 use uuid::Uuid;
@@ -40,6 +40,7 @@ pub struct AuthorizedDeploymentService {
     pub spec: ServiceSpec,
     pub source_config: Option<ServiceSourceConfig>,
     pub deployment_destination_id: Option<String>,
+    pub is_production: bool,
     pub variables: Vec<DeploymentVariableRecord>,
 }
 
@@ -75,6 +76,7 @@ pub struct DeploymentRecord {
     pub source_revision: Option<String>,
     pub local_image_id: Option<String>,
     pub supply_chain_report: Option<SupplyChainReport>,
+    pub approval: DeploymentApproval,
     pub variables_ciphertext: String,
     pub runtime_ref: Option<String>,
     pub state: DeploymentState,
@@ -132,6 +134,14 @@ pub enum CreateDeploymentOutcome {
 #[derive(Debug, Clone)]
 pub enum CancelDeploymentOutcome {
     Cancelled(DeploymentRecord),
+    Existing(DeploymentRecord),
+    Missing,
+    Forbidden,
+}
+
+#[derive(Debug, Clone)]
+pub enum DeploymentApprovalOutcome {
+    Approved(DeploymentRecord),
     Existing(DeploymentRecord),
     Missing,
     Forbidden,
@@ -203,7 +213,8 @@ async fn fetch_by_service_key(
 ) -> Result<Option<DeploymentRecord>> {
     let row = sqlx::query_as::<_, DeploymentRow>(
         "SELECT id, correlation_id, service_id, generation, idempotency_key, requested_by_user_id, spec_json, runtime_spec_json,
-                source_config_json, deployment_destination_id, source_revision, local_image_id, supply_chain_report_json, variables_ciphertext, runtime_ref,
+                source_config_json, deployment_destination_id, source_revision, local_image_id, supply_chain_report_json,
+                approval_status, approval_requested_at, approved_by_user_id, approved_at, variables_ciphertext, runtime_ref,
                 status, failure_reason, attempt_count, retry_after, cancel_requested_at,
                 created_at, started_at, finished_at
          FROM deployments WHERE service_id = ? AND idempotency_key = ?",
@@ -221,7 +232,8 @@ async fn fetch_deployment(
 ) -> Result<Option<DeploymentRecord>> {
     let row = sqlx::query_as::<_, DeploymentRow>(
         "SELECT id, correlation_id, service_id, generation, idempotency_key, requested_by_user_id, spec_json, runtime_spec_json,
-                source_config_json, deployment_destination_id, source_revision, local_image_id, supply_chain_report_json, variables_ciphertext, runtime_ref,
+                source_config_json, deployment_destination_id, source_revision, local_image_id, supply_chain_report_json,
+                approval_status, approval_requested_at, approved_by_user_id, approved_at, variables_ciphertext, runtime_ref,
                 status, failure_reason, attempt_count, retry_after, cancel_requested_at,
                 created_at, started_at, finished_at
          FROM deployments WHERE id = ?",

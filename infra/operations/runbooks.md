@@ -56,6 +56,10 @@ source build, runtime start/health, or ingress synchronization.
   vulnerability remediation before promoting the result. A warning is
   informational in the current policy mode; do not represent it as a passed
   scan or remove the deployment record to hide it.
+- Pending production approval: inspect the immutable source/image identity and
+  supply-chain warning first. A project owner or platform operator can approve
+  the exact snapshot; otherwise cancel it. Do not bypass approval by changing
+  the service configuration or invoking runtime commands.
 - Runtime failure: inspect the bounded container/runtime logs and resource
   settings. Stop the unhealthy service before changing its configuration.
 - Ingress failure: verify the domain target and certificate state, then retry

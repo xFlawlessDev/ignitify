@@ -267,6 +267,10 @@ pub(crate) fn router(state: AppState) -> Router {
             post(handlers::deployments::rollback),
         )
         .route(
+            "/api/v1/deployments/{deployment_id}/approve",
+            post(handlers::deployments::approve),
+        )
+        .route(
             "/api/v1/deployments/{deployment_id}/cancel",
             post(handlers::deployments::cancel),
         )

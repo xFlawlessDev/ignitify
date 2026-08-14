@@ -10,7 +10,7 @@ Project environment
 Service variables
        |
        v
-encrypted deployment snapshot -> queue -> worker -> runtime + ingress
+encrypted deployment snapshot -> approval -> queue -> worker -> runtime + ingress
 ```
 
 Nilai environment project digabung terlebih dahulu, lalu variabel service dengan key yang sama menimpa nilainya. Snapshot deployment dienkripsi sebelum disimpan. Perubahan environment berikutnya tidak mengubah deployment yang telah disubmit.
@@ -47,6 +47,25 @@ healthy -> superseded
 
 Worker hanya mengizinkan transisi yang sah. Permintaan deploy memakai idempotency key terlihat-ASCII dengan panjang 1 sampai 128 byte, sehingga client dapat mengulang submit tanpa membuat deployment ganda.
 
+## Promosi dan persetujuan produksi
+
+Default environment project adalah `production`. Request deployment atau rollback
+produksi membuat snapshot immutable dengan status approval `pending`; worker
+tidak dapat mengklaimnya. Pemilik project atau operator platform harus memanggil
+`POST /api/v1/deployments/{deployment_id}/approve` sebelum snapshot diantrikan
+untuk dieksekusi. Editor dapat meminta deployment, tetapi tidak dapat
+menyetujuinya. Seorang owner dapat menyetujui request sendiri agar instalasi
+single-maintainer tetap operasional, namun request dan approval tetap menjadi
+aksi audit terpisah.
+
+Riwayat menyimpan source revision dan image digest yang terkait dengan snapshot.
+Image langsung sudah membawa digest immutable yang wajib. Git build mencatat
+commit ter-resolve serta digest image lokal sebelum runtime mulai; rollback
+menggunakan revision snapshot, bukan branch tip. Respons API menampilkan nilai
+ini di `source_identity` ketika sudah diketahui. Approval yang masih pending
+dapat dibatalkan dan tidak pernah memicu pekerjaan Docker, Compose, SSH, Git
+build, atau ingress.
+
 ## Domain dan ingress
 
 Domain harus berupa hostname ASCII lower-case lengkap, bukan IP, `localhost`, wildcard, atau public suffix. Domain mulai dalam status `pending`, menjadi `active` ketika route berhasil diterapkan, dan menjadi `failed` ketika rekonsiliasi route gagal.
@@ -55,7 +74,8 @@ Traefik hanya menemukan kontainer dengan label `com.ignitify.managed=true`. Serv
 
 ## Event, log, stop, dan rollback
 
-- `POST /api/v1/services/{service_id}/deployments` mengantrekan deployment.
+- `POST /api/v1/services/{service_id}/deployments` meminta deployment produksi.
+- `POST /api/v1/deployments/{deployment_id}/approve` mencatat persetujuan produksi dan mengantrekannya.
 - `GET /api/v1/deployments/{deployment_id}/events` dan `/logs` menyajikan SSE yang dapat di-resume.
 - `POST /api/v1/services/{service_id}/stop` meminta lifecycle berhenti.
 - `POST /api/v1/deployments/{deployment_id}/rollback` mengantrekan deployment dari snapshot/revisi deployment sebelumnya.
