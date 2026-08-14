@@ -52,6 +52,10 @@ source build, runtime start/health, or ingress synchronization.
 
 - Source build failure: verify the provider/repository and immutable source
   revision, then retry after the provider or builder is healthy.
+- Supply-chain warning: read the deployment's provenance, SBOM, and
+  vulnerability remediation before promoting the result. A warning is
+  informational in the current policy mode; do not represent it as a passed
+  scan or remove the deployment record to hide it.
 - Runtime failure: inspect the bounded container/runtime logs and resource
   settings. Stop the unhealthy service before changing its configuration.
 - Ingress failure: verify the domain target and certificate state, then retry

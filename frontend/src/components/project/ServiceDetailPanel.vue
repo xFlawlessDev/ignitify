@@ -15,6 +15,7 @@ import {
 } from "@lucide/vue";
 import { computed, shallowRef, watch } from "vue";
 import DeploymentLogsPanel from "@/components/project/DeploymentLogsPanel.vue";
+import DeploymentSupplyChainPanel from "@/components/project/DeploymentSupplyChainPanel.vue";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -422,6 +423,8 @@ function goToNextDeploymentPage() {
           retry after {{ formatRetry(latestDeployment.retry_after) }}.
         </AlertDescription>
       </Alert>
+
+      <DeploymentSupplyChainPanel :report="latestDeployment?.supply_chain_report ?? null" />
 
       <div v-if="serviceDeployments.length" class="divide-y divide-border border-y border-border">
         <div

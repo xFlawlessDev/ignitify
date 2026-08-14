@@ -171,6 +171,15 @@ export default {
   activity: {
     correlationId: "ID korelasi",
   },
+  supplyChain: {
+    title: "Kebijakan rantai pasok",
+    warningMode: "Peringatan tidak memblokir deployment ini.",
+    pass: "Lulus",
+    warning: "Peringatan",
+    provenance: "Provenance",
+    sbom: "SBOM",
+    vulnerabilities: "Kerentanan",
+  },
   deploymentLogs: {
     title: "Log deployment",
     copy: "Salin log deployment",

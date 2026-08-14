@@ -12,6 +12,10 @@ Local base URL: `http://127.0.0.1:5656`. All control plane routes are under `/ap
   streams also include a structured `event_id` and propagate that correlation
   ID to event and log records. These values are safe incident metadata, not
   credentials.
+- Deployment responses also include an optional `supply_chain_report` with
+  `provenance`, `sbom`, and `vulnerabilities` checks. The current `enforcement`
+  is `warning`; a missing external SBOM or scan remains a warning with a
+  remediation string and never represents a successful check.
 - Resource identifiers are UUIDs. Use an idempotency key when creating a deployment.
 
 ## Authentication

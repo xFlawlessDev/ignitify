@@ -1713,6 +1713,15 @@ async fn deployment_events_replay_durable_rows_and_keep_unauthorized_hidden() {
         .to_bytes();
     let deployment: serde_json::Value = serde_json::from_slice(&deployment).unwrap();
     let correlation_id = deployment["correlation_id"].as_str().unwrap();
+    assert_eq!(deployment["supply_chain_report"]["enforcement"], "warning");
+    assert_eq!(
+        deployment["supply_chain_report"]["provenance"]["status"],
+        "pass"
+    );
+    assert_eq!(
+        deployment["supply_chain_report"]["sbom"]["status"],
+        "warning"
+    );
     let response = app
         .clone()
         .oneshot(request(

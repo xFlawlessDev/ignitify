@@ -233,6 +233,23 @@ export interface DeploymentLog {
   created_at: string;
 }
 
+export type SupplyChainCheckStatus = "pass" | "warning";
+
+export interface SupplyChainCheck {
+  status: SupplyChainCheckStatus;
+  summary: string;
+  remediation?: string;
+}
+
+export interface SupplyChainReport {
+  enforcement: "warning";
+  status: SupplyChainCheckStatus;
+  provenance: SupplyChainCheck;
+  sbom: SupplyChainCheck;
+  vulnerabilities: SupplyChainCheck;
+  evaluated_at: string;
+}
+
 export interface DeploymentSummary {
   id: string;
   correlation_id: string;
@@ -243,6 +260,7 @@ export interface DeploymentSummary {
   attempt_count: number;
   retry_after: string | null;
   cancel_requested_at: string | null;
+  supply_chain_report: SupplyChainReport | null;
   created_at: string;
   started_at: string | null;
   finished_at: string | null;

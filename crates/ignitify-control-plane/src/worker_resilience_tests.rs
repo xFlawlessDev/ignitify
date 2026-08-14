@@ -8,7 +8,7 @@ use ignitify_db::{
     Database, DatabaseConfig, DeploymentActor, DeploymentRecord, NewDeployment, NewServiceVariable,
     ServiceActor,
 };
-use ignitify_domain::{DeploymentState, ProjectInput, ServiceInput};
+use ignitify_domain::{DeploymentState, ProjectInput, ServiceInput, SupplyChainCheckStatus};
 
 use super::{
     AgeCipher, Error, ImageRuntime, Ingress, RuntimeDeployment, RuntimeObservation, SourceBuild,
@@ -82,6 +82,7 @@ async fn queued_image_deployment() -> DeploymentContext {
                 source_config: None,
                 deployment_destination_id: None,
                 source_revision: None,
+                supply_chain_report: None,
                 variables_ciphertext: cipher.encrypt(b"{}").unwrap(),
             },
         )
@@ -225,6 +226,22 @@ struct CancellingSourceBuild {
     actor_id: String,
 }
 
+struct ResolvingSourceBuild;
+
+impl SourceBuild for ResolvingSourceBuild {
+    async fn build(
+        &self,
+        _deployment: &DeploymentRecord,
+        _logs: &super::DeploymentLogSink,
+    ) -> super::Result<Option<SourceBuildOutput>> {
+        Ok(Some(SourceBuildOutput {
+            source_revision: "a".repeat(40),
+            local_image_id: Some(format!("sha256:{}", "b".repeat(64))),
+            runtime_spec: None,
+        }))
+    }
+}
+
 impl SourceBuild for CancellingSourceBuild {
     async fn build(
         &self,
@@ -340,6 +357,50 @@ async fn cancellation_during_source_build_prevents_runtime_start() {
         .unwrap()
         .unwrap();
     assert_eq!(stopped.state, DeploymentState::Stopped);
+}
+
+#[tokio::test]
+async fn source_build_records_resolved_supply_chain_provenance_in_warning_mode() {
+    let context = queued_image_deployment().await;
+    let runtime = RecordingRuntime::new();
+
+    reconcile_once_with_source(
+        &context.database.deployments(),
+        &context.database.domains(),
+        &context.cipher,
+        &runtime,
+        &ReadyIngress,
+        &ResolvingSourceBuild,
+        &publisher(),
+    )
+    .await
+    .unwrap();
+
+    let deployment = context
+        .database
+        .deployments()
+        .get(
+            DeploymentActor {
+                id: &context.actor_id,
+                is_admin: false,
+            },
+            context.deployment.id.as_str(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    let report = deployment
+        .supply_chain_report
+        .expect("report must be recorded");
+
+    assert_eq!(report.status, SupplyChainCheckStatus::Warning);
+    assert_eq!(report.provenance.status, SupplyChainCheckStatus::Pass);
+    assert_eq!(report.sbom.status, SupplyChainCheckStatus::Warning);
+    assert_eq!(
+        report.vulnerabilities.status,
+        SupplyChainCheckStatus::Warning
+    );
+    assert_eq!(runtime.start_calls.load(Ordering::Relaxed), 1);
 }
 
 #[tokio::test]

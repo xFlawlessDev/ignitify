@@ -62,6 +62,20 @@ Traefik hanya menemukan kontainer dengan label `com.ignitify.managed=true`. Serv
 
 Log yang berpotensi mengandung nilai snapshot akan disensor oleh worker. Jangan gunakan output build atau aplikasi sebagai kanal untuk mengungkap secret.
 
+## Kebijakan rantai pasok
+
+Setiap deployment baru menyimpan laporan rantai pasok sebelum worker berjalan.
+Laporan ini mencatat pemeriksaan provenance, SBOM, dan kebijakan kerentanan.
+Deployment image langsung hanya lulus provenance ketika image digest immutable
+tersedia; source build mengganti laporan awal setelah source revision dan built
+image digest sudah diketahui.
+
+Mode enforcement saat ini adalah `warning`: laporan tidak pernah memblokir
+deployment. SBOM atau vulnerability scan yang belum tersedia dilaporkan sebagai
+peringatan dengan tindakan remediation, bukan sebagai pass. SBOM release
+menjelaskan artefak control plane Ignitify; lampirkan SBOM CycloneDX atau SPDX
+terpisah untuk setiap application image sebelum kebijakan blocking diaktifkan.
+
 ## Korelasi insiden
 
 Setiap deployment yang diterima mendapat ID korelasi opaque yang tetap sama

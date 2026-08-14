@@ -2,7 +2,7 @@ use sqlx::FromRow;
 
 use super::{
     DatabaseError, DeploymentId, DeploymentRecord, DeploymentState, DeploymentVariableRecord,
-    Result, ServiceId, ServiceSourceConfig, ServiceSpec,
+    Result, ServiceId, ServiceSourceConfig, ServiceSpec, SupplyChainReport,
 };
 
 pub(super) fn decode_spec(value: &str) -> Result<ServiceSpec> {
@@ -26,6 +26,18 @@ pub(super) fn decode_source_config(value: Option<String>) -> Result<Option<Servi
         .transpose()
 }
 
+pub(super) fn decode_supply_chain_report(
+    value: Option<String>,
+) -> Result<Option<SupplyChainReport>> {
+    value
+        .map(|json| {
+            serde_json::from_str::<SupplyChainReport>(&json).map_err(|error| {
+                DatabaseError::InvalidDeploymentSupplyChainReport(error.to_string())
+            })
+        })
+        .transpose()
+}
+
 pub(super) fn deployment_from_row(row: DeploymentRow) -> Result<DeploymentRecord> {
     Ok(DeploymentRecord {
         id: DeploymentId::new(row.id)
@@ -45,6 +57,7 @@ pub(super) fn deployment_from_row(row: DeploymentRow) -> Result<DeploymentRecord
         deployment_destination_id: row.deployment_destination_id,
         source_revision: row.source_revision,
         local_image_id: row.local_image_id,
+        supply_chain_report: decode_supply_chain_report(row.supply_chain_report_json)?,
         variables_ciphertext: row.variables_ciphertext,
         runtime_ref: row.runtime_ref,
         state: DeploymentState::try_from(row.status.as_str())
@@ -118,6 +131,7 @@ pub(super) struct DeploymentRow {
     pub(super) deployment_destination_id: Option<String>,
     pub(super) source_revision: Option<String>,
     pub(super) local_image_id: Option<String>,
+    pub(super) supply_chain_report_json: Option<String>,
     pub(super) variables_ciphertext: String,
     pub(super) runtime_ref: Option<String>,
     pub(super) status: String,
@@ -144,6 +158,7 @@ pub(super) struct DeploymentWithProjectRow {
     pub(super) deployment_destination_id: Option<String>,
     pub(super) source_revision: Option<String>,
     pub(super) local_image_id: Option<String>,
+    pub(super) supply_chain_report_json: Option<String>,
     pub(super) variables_ciphertext: String,
     pub(super) runtime_ref: Option<String>,
     pub(super) status: String,
@@ -172,6 +187,7 @@ impl From<DeploymentWithProjectRow> for DeploymentRow {
             deployment_destination_id: row.deployment_destination_id,
             source_revision: row.source_revision,
             local_image_id: row.local_image_id,
+            supply_chain_report_json: row.supply_chain_report_json,
             variables_ciphertext: row.variables_ciphertext,
             runtime_ref: row.runtime_ref,
             status: row.status,

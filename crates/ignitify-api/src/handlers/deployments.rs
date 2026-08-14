@@ -5,6 +5,7 @@ use axum::{
 };
 use ignitify_control_plane::DeploymentSubmission;
 use ignitify_db::{DeploymentActor, DeploymentRecord};
+use ignitify_domain::SupplyChainReport;
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -30,6 +31,7 @@ pub(crate) struct DeploymentResponse {
     pub(crate) attempt_count: i64,
     pub(crate) retry_after: Option<String>,
     pub(crate) cancel_requested_at: Option<String>,
+    pub(crate) supply_chain_report: Option<SupplyChainReport>,
     pub(crate) created_at: String,
     pub(crate) started_at: Option<String>,
     pub(crate) finished_at: Option<String>,
@@ -47,6 +49,7 @@ impl From<DeploymentRecord> for DeploymentResponse {
             attempt_count: deployment.attempt_count,
             retry_after: deployment.retry_after,
             cancel_requested_at: deployment.cancel_requested_at,
+            supply_chain_report: deployment.supply_chain_report,
             created_at: deployment.created_at,
             started_at: deployment.started_at,
             finished_at: deployment.finished_at,

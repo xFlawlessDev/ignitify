@@ -454,6 +454,7 @@ async fn worker_restart_scan_recovers_preparing_deployment_without_restarting_ru
                 source_config: None,
                 deployment_destination_id: None,
                 source_revision: None,
+                supply_chain_report: None,
                 variables_ciphertext,
             },
         )
@@ -614,6 +615,7 @@ async fn reconcile_marks_domains_failed_when_route_application_fails() {
                 source_config: None,
                 deployment_destination_id: None,
                 source_revision: None,
+                supply_chain_report: None,
                 variables_ciphertext: cipher.encrypt(b"{}").unwrap(),
             },
         )

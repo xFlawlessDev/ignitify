@@ -32,6 +32,8 @@ pub enum DatabaseError {
     InvalidServiceSourceConfig(String),
     #[error("invalid stored deployment state: {0}")]
     InvalidDeploymentState(String),
+    #[error("invalid stored deployment supply-chain report: {0}")]
+    InvalidDeploymentSupplyChainReport(String),
     #[error("domain hostname already exists")]
     DomainNameConflict,
     #[error("domain removal confirmation does not match hostname")]

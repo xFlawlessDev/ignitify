@@ -2,6 +2,7 @@ use chrono::Utc;
 use ignitify_domain::{
     ApplicationBuilder, DnsRecord, DnsRecordType, DnsVerificationStatus, DomainName, ProjectInput,
     ProjectMemberRole, ServiceInput, ServiceSourceConfig, ServiceSpec, ServiceVariableInput,
+    evaluate_supply_chain_report,
 };
 use uuid::Uuid;
 
@@ -61,6 +62,13 @@ async fn migrations_create_auth_storage() {
         .unwrap();
         assert_eq!(count, 1, "{table} must retain correlation_id");
     }
+    let count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM pragma_table_info('deployments') WHERE name = 'supply_chain_report_json'",
+    )
+    .fetch_one(&database.pool)
+    .await
+    .unwrap();
+    assert_eq!(count, 1, "deployments must retain supply-chain reports");
 }
 
 #[tokio::test]
@@ -648,6 +656,7 @@ async fn deployment_snapshots_keep_the_selected_destination() {
                 source_config: service.source_config,
                 deployment_destination_id: service.deployment_destination_id.clone(),
                 source_revision: None,
+                supply_chain_report: None,
                 variables_ciphertext: "ciphertext".to_owned(),
             },
         )
@@ -1169,6 +1178,13 @@ async fn deployment_repository_enforces_idempotency_active_conflict_and_immutabl
         id: &actor_id,
         is_admin: false,
     };
+    let report = evaluate_supply_chain_report(
+        &service.spec,
+        None,
+        None,
+        None,
+        "2026-08-14T00:00:00Z".to_owned(),
+    );
     let first = database
         .deployments()
         .create(
@@ -1181,6 +1197,7 @@ async fn deployment_repository_enforces_idempotency_active_conflict_and_immutabl
                 source_config: None,
                 deployment_destination_id: None,
                 source_revision: None,
+                supply_chain_report: Some(report.clone()),
                 variables_ciphertext: "ciphertext-1".to_owned(),
             },
         )
@@ -1190,6 +1207,7 @@ async fn deployment_repository_enforces_idempotency_active_conflict_and_immutabl
         panic!("first deployment must be created");
     };
     assert!(!first.correlation_id.is_empty());
+    assert_eq!(first.supply_chain_report, Some(report.clone()));
     let queued_events = database
         .deployments()
         .events(first.id.as_str())
@@ -1247,6 +1265,7 @@ async fn deployment_repository_enforces_idempotency_active_conflict_and_immutabl
                 source_config: None,
                 deployment_destination_id: None,
                 source_revision: None,
+                supply_chain_report: None,
                 variables_ciphertext: "different-ciphertext".to_owned(),
             },
         )
@@ -1257,6 +1276,7 @@ async fn deployment_repository_enforces_idempotency_active_conflict_and_immutabl
     };
     assert_eq!(repeated.id, first.id);
     assert_eq!(repeated.correlation_id, first.correlation_id);
+    assert_eq!(repeated.supply_chain_report, Some(report.clone()));
     let competing = database
         .deployments()
         .create(
@@ -1269,6 +1289,7 @@ async fn deployment_repository_enforces_idempotency_active_conflict_and_immutabl
                 source_config: None,
                 deployment_destination_id: None,
                 source_revision: None,
+                supply_chain_report: None,
                 variables_ciphertext: "ciphertext-2".to_owned(),
             },
         )
@@ -1325,6 +1346,7 @@ async fn deployment_repository_enforces_idempotency_active_conflict_and_immutabl
         (first.generation + 1, first.spec, first.variables_ciphertext)
     );
     assert_ne!(rollback.correlation_id, first.correlation_id);
+    assert_eq!(rollback.supply_chain_report, Some(report));
 }
 
 #[tokio::test]
@@ -1377,6 +1399,7 @@ async fn deployment_retry_backoff_and_cancellation_are_durable() {
                 source_config: None,
                 deployment_destination_id: None,
                 source_revision: None,
+                supply_chain_report: None,
                 variables_ciphertext: "ciphertext".to_owned(),
             },
         )
@@ -1486,6 +1509,7 @@ async fn deployment_retry_exhaustion_persists_failure_and_clears_schedule() {
                 source_config: None,
                 deployment_destination_id: None,
                 source_revision: None,
+                supply_chain_report: None,
                 variables_ciphertext: "ciphertext".to_owned(),
             },
         )
@@ -1596,6 +1620,7 @@ async fn service_repository_persists_source_configuration_separately_from_runtim
                 source_config: service.source_config.clone(),
                 deployment_destination_id: None,
                 source_revision: None,
+                supply_chain_report: None,
                 variables_ciphertext: "ciphertext".to_owned(),
             },
         )
@@ -1722,6 +1747,7 @@ async fn deployment_log_retention_keeps_newest_ten_thousand_rows() {
                 source_config: None,
                 deployment_destination_id: None,
                 source_revision: None,
+                supply_chain_report: None,
                 variables_ciphertext: "ciphertext".to_owned(),
             },
         )

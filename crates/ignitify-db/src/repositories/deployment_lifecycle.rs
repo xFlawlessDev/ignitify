@@ -1,5 +1,5 @@
 use chrono::Utc;
-use ignitify_domain::ServiceSpec;
+use ignitify_domain::{ServiceSpec, SupplyChainReport};
 use serde_json::json;
 
 use super::{
@@ -179,6 +179,26 @@ impl DeploymentsRepository {
         Ok(changed == 1)
     }
 
+    pub async fn record_supply_chain_report(
+        &self,
+        deployment_id: &str,
+        report: &SupplyChainReport,
+    ) -> Result<bool> {
+        let report_json = serde_json::to_string(report)
+            .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
+        let changed = sqlx::query(
+            "UPDATE deployments
+             SET supply_chain_report_json = ?
+             WHERE id = ? AND status = 'preparing'",
+        )
+        .bind(report_json)
+        .bind(deployment_id)
+        .execute(&self.pool)
+        .await?
+        .rows_affected();
+        Ok(changed == 1)
+    }
+
     pub async fn record_source_revision(
         &self,
         deployment_id: &str,
@@ -220,7 +240,7 @@ impl DeploymentsRepository {
     ) -> Result<Vec<DeploymentRecord>> {
         let rows = sqlx::query_as::<_, DeploymentRow>(
             "SELECT id, correlation_id, service_id, generation, idempotency_key, requested_by_user_id, spec_json, runtime_spec_json,
-                    source_config_json, deployment_destination_id, source_revision, local_image_id, variables_ciphertext, runtime_ref,
+                    source_config_json, deployment_destination_id, source_revision, local_image_id, supply_chain_report_json, variables_ciphertext, runtime_ref,
                     status, failure_reason, attempt_count, retry_after, cancel_requested_at,
                     created_at, started_at, finished_at
              FROM deployments
@@ -322,7 +342,7 @@ impl DeploymentsRepository {
     pub async fn routable(&self) -> Result<Vec<DeploymentRecord>> {
         let rows = sqlx::query_as::<_, DeploymentRow>(
             "SELECT id, correlation_id, service_id, generation, idempotency_key, requested_by_user_id, spec_json, runtime_spec_json,
-                    source_config_json, deployment_destination_id, source_revision, local_image_id, variables_ciphertext, runtime_ref,
+                    source_config_json, deployment_destination_id, source_revision, local_image_id, supply_chain_report_json, variables_ciphertext, runtime_ref,
                     status, failure_reason, attempt_count, retry_after, cancel_requested_at,
                     created_at, started_at, finished_at
              FROM deployments WHERE status IN ('running', 'healthy') AND runtime_ref IS NOT NULL",
@@ -335,7 +355,7 @@ impl DeploymentsRepository {
     pub async fn nonterminal(&self) -> Result<Vec<DeploymentRecord>> {
         let rows = sqlx::query_as::<_, DeploymentRow>(
             "SELECT id, correlation_id, service_id, generation, idempotency_key, requested_by_user_id, spec_json, runtime_spec_json,
-                    source_config_json, deployment_destination_id, source_revision, local_image_id, variables_ciphertext, runtime_ref,
+                    source_config_json, deployment_destination_id, source_revision, local_image_id, supply_chain_report_json, variables_ciphertext, runtime_ref,
                     status, failure_reason, attempt_count, retry_after, cancel_requested_at,
                     created_at, started_at, finished_at
              FROM deployments
@@ -375,6 +395,7 @@ impl DeploymentsRepository {
                 source_config: source.source_config,
                 deployment_destination_id: source.deployment_destination_id,
                 source_revision: source.source_revision,
+                supply_chain_report: source.supply_chain_report,
                 variables_ciphertext: source.variables_ciphertext,
             },
         )

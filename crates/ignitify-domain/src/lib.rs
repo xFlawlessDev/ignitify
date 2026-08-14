@@ -6,8 +6,13 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 mod dns;
+mod supply_chain;
 
 pub use dns::{DnsRecord, DnsRecordTarget, DnsRecordType, DnsVerificationStatus};
+pub use supply_chain::{
+    SupplyChainCheck, SupplyChainCheckStatus, SupplyChainEnforcement, SupplyChainReport,
+    evaluate_supply_chain_report,
+};
 
 macro_rules! uuid_id {
     ($name:ident) => {

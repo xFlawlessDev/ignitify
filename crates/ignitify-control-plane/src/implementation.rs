@@ -15,7 +15,7 @@ use std::{collections::HashSet, time::Duration};
 
 use chrono::{DateTime, Utc};
 use ignitify_db::{DeploymentRecord, DeploymentsRepository, DomainsRepository};
-use ignitify_domain::DeploymentState;
+use ignitify_domain::{DeploymentState, evaluate_supply_chain_report};
 
 const HEALTH_GATE_TIMEOUT: Duration = Duration::from_secs(300);
 
@@ -328,19 +328,32 @@ where
             if deployments.cancel_requested(deployment.id.as_str()).await? {
                 return Ok(());
             }
+            let source_revision = output.source_revision;
+            let local_image_id = output.local_image_id;
+            let runtime_spec = output.runtime_spec;
             deployments
                 .record_source_resolution(
                     deployment.id.as_str(),
-                    &output.source_revision,
-                    output.local_image_id.as_deref(),
-                    output.runtime_spec.as_ref(),
+                    &source_revision,
+                    local_image_id.as_deref(),
+                    runtime_spec.as_ref(),
                 )
                 .await?;
             let mut runtime_deployment = RuntimeDeployment::from(&deployment);
-            runtime_deployment.local_image_id = output.local_image_id;
-            if let Some(spec) = output.runtime_spec {
+            runtime_deployment.local_image_id = local_image_id;
+            if let Some(spec) = runtime_spec {
                 runtime_deployment.spec = spec;
             }
+            let report = evaluate_supply_chain_report(
+                &runtime_deployment.spec,
+                deployment.source_config.as_ref(),
+                Some(&source_revision),
+                runtime_deployment.local_image_id.as_deref(),
+                Utc::now().to_rfc3339(),
+            );
+            deployments
+                .record_supply_chain_report(deployment.id.as_str(), &report)
+                .await?;
             runtime_deployment
         }
         Ok(None) => RuntimeDeployment::from(&deployment),

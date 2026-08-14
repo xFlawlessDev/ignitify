@@ -172,6 +172,15 @@ export default {
   activity: {
     correlationId: "Correlation ID",
   },
+  supplyChain: {
+    title: "Supply-chain policy",
+    warningMode: "Warnings do not block this deployment.",
+    pass: "Pass",
+    warning: "Warning",
+    provenance: "Provenance",
+    sbom: "SBOM",
+    vulnerabilities: "Vulnerabilities",
+  },
   deploymentLogs: {
     title: "Deployment logs",
     copy: "Copy deployment logs",

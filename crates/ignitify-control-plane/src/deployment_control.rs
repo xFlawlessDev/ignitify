@@ -1,10 +1,11 @@
 use std::{collections::BTreeMap, sync::Arc};
 
+use chrono::Utc;
 use ignitify_db::{
     AuthorizedDeploymentService, CancelDeploymentOutcome, CreateDeploymentOutcome, DeploymentActor,
     DeploymentRecord, DeploymentsRepository, NewDeployment,
 };
-use ignitify_domain::DeploymentState;
+use ignitify_domain::{DeploymentState, evaluate_supply_chain_report};
 use tokio::sync::{broadcast, mpsc};
 use zeroize::Zeroizing;
 
@@ -72,6 +73,13 @@ impl ControlHandle {
         let variables_ciphertext = self.snapshot_variables(&service)?;
         let spec = service.spec.clone();
         let source_config = service.source_config.clone();
+        let supply_chain_report = Some(evaluate_supply_chain_report(
+            &spec,
+            source_config.as_ref(),
+            source_revision,
+            None,
+            Utc::now().to_rfc3339(),
+        ));
         let outcome = self
             .deployments
             .create(
@@ -84,6 +92,7 @@ impl ControlHandle {
                     source_config,
                     deployment_destination_id: service.deployment_destination_id.clone(),
                     source_revision: source_revision.map(str::to_owned),
+                    supply_chain_report,
                     variables_ciphertext,
                 },
             )
