@@ -10,9 +10,37 @@ pub enum SupplyChainCheckStatus {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "kebab-case")]
 pub enum SupplyChainEnforcement {
     Warning,
+    RequireProvenance,
+}
+
+impl SupplyChainEnforcement {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Warning => "warning",
+            Self::RequireProvenance => "require-provenance",
+        }
+    }
+}
+
+impl TryFrom<&str> for SupplyChainEnforcement {
+    type Error = crate::InputError;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value {
+            "warning" => Ok(Self::Warning),
+            "require-provenance" => Ok(Self::RequireProvenance),
+            _ => Err(crate::InputError::InvalidSupplyChainEnforcement),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SupplyChainPolicy {
+    pub enforcement: SupplyChainEnforcement,
+    pub updated_at: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -33,6 +61,13 @@ pub struct SupplyChainReport {
     pub evaluated_at: String,
 }
 
+impl SupplyChainReport {
+    pub fn blocks_execution(&self) -> bool {
+        self.enforcement == SupplyChainEnforcement::RequireProvenance
+            && self.provenance.status == SupplyChainCheckStatus::Warning
+    }
+}
+
 /// Produces an informational policy snapshot from the identities Ignitify has
 /// actually resolved. Missing external evidence is a warning, never a pass.
 pub fn evaluate_supply_chain_report(
@@ -40,6 +75,7 @@ pub fn evaluate_supply_chain_report(
     source_config: Option<&ServiceSourceConfig>,
     source_revision: Option<&str>,
     local_image_id: Option<&str>,
+    enforcement: SupplyChainEnforcement,
     evaluated_at: String,
 ) -> SupplyChainReport {
     let has_resolved_build_identity = source_revision.is_some() && local_image_id.is_some();
@@ -86,7 +122,7 @@ pub fn evaluate_supply_chain_report(
     };
 
     SupplyChainReport {
-        enforcement: SupplyChainEnforcement::Warning,
+        enforcement,
         status: SupplyChainCheckStatus::Warning,
         provenance,
         sbom,
@@ -97,7 +133,7 @@ pub fn evaluate_supply_chain_report(
 
 #[cfg(test)]
 mod tests {
-    use super::{SupplyChainCheckStatus, evaluate_supply_chain_report};
+    use super::{SupplyChainCheckStatus, SupplyChainEnforcement, evaluate_supply_chain_report};
     use crate::ServiceSpec;
 
     const DIGEST: &str = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -107,8 +143,14 @@ mod tests {
         let spec = ServiceSpec::image(format!("registry.example/app@{DIGEST}"), Some(8080), None)
             .expect("digest image is valid");
 
-        let report =
-            evaluate_supply_chain_report(&spec, None, None, None, "2026-08-14T00:00:00Z".into());
+        let report = evaluate_supply_chain_report(
+            &spec,
+            None,
+            None,
+            None,
+            SupplyChainEnforcement::Warning,
+            "2026-08-14T00:00:00Z".into(),
+        );
 
         assert_eq!(report.enforcement, super::SupplyChainEnforcement::Warning);
         assert_eq!(report.status, SupplyChainCheckStatus::Warning);
@@ -130,6 +172,7 @@ mod tests {
             None,
             Some(&"a".repeat(40)),
             None,
+            SupplyChainEnforcement::Warning,
             "2026-08-14T00:00:00Z".into(),
         );
         let resolved = evaluate_supply_chain_report(
@@ -137,6 +180,7 @@ mod tests {
             None,
             Some(&"a".repeat(40)),
             Some(DIGEST),
+            SupplyChainEnforcement::Warning,
             "2026-08-14T00:01:00Z".into(),
         );
 
@@ -170,9 +214,35 @@ mod tests {
             Some(&source_config),
             None,
             None,
+            SupplyChainEnforcement::Warning,
             "2026-08-14T00:00:00Z".into(),
         );
 
         assert_eq!(report.provenance.status, SupplyChainCheckStatus::Warning);
+    }
+
+    #[test]
+    fn require_provenance_blocks_only_an_unresolved_provenance_check() {
+        let spec =
+            ServiceSpec::compose("services: {}", "app", Some(8080)).expect("compose spec is valid");
+        let blocked = evaluate_supply_chain_report(
+            &spec,
+            None,
+            None,
+            None,
+            SupplyChainEnforcement::RequireProvenance,
+            "2026-08-14T00:00:00Z".into(),
+        );
+        let permitted = evaluate_supply_chain_report(
+            &spec,
+            None,
+            Some(&"a".repeat(40)),
+            Some(DIGEST),
+            SupplyChainEnforcement::RequireProvenance,
+            "2026-08-14T00:00:00Z".into(),
+        );
+
+        assert!(blocked.blocks_execution());
+        assert!(!permitted.blocks_execution());
     }
 }

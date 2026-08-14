@@ -234,6 +234,7 @@ export interface DeploymentLog {
 }
 
 export type SupplyChainCheckStatus = "pass" | "warning";
+export type SupplyChainEnforcement = "warning" | "require-provenance";
 
 export interface SupplyChainCheck {
   status: SupplyChainCheckStatus;
@@ -242,7 +243,7 @@ export interface SupplyChainCheck {
 }
 
 export interface SupplyChainReport {
-  enforcement: "warning";
+  enforcement: SupplyChainEnforcement;
   status: SupplyChainCheckStatus;
   provenance: SupplyChainCheck;
   sbom: SupplyChainCheck;

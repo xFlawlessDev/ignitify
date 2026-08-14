@@ -90,6 +90,10 @@ pub(crate) fn router(state: AppState) -> Router {
             get(handlers::settings::get).patch(handlers::settings::update),
         )
         .route(
+            "/api/v1/settings/supply-chain-policy",
+            get(handlers::supply_chain_policy::get).put(handlers::supply_chain_policy::update),
+        )
+        .route(
             "/api/v1/settings/infrastructure/certificates",
             axum::routing::post(handlers::settings::create_certificate),
         )

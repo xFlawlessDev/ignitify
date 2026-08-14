@@ -71,9 +71,14 @@ source build, runtime start/health, or ingress synchronization.
 - Source build failure: verify the provider/repository and immutable source
   revision, then retry after the provider or builder is healthy.
 - Supply-chain warning: read the deployment's provenance, SBOM, and
-  vulnerability remediation before promoting the result. A warning is
-  informational in the current policy mode; do not represent it as a passed
-  scan or remove the deployment record to hide it.
+  vulnerability remediation before promoting the result. A warning mode is
+  informational; do not represent it as a passed scan or remove the deployment
+  record to hide it.
+- Supply-chain policy block: inspect the retained report and system log. Under
+  `require-provenance`, record an immutable direct-image digest or rebuild until
+  both the source revision and built image digest are retained. Do not downgrade
+  the policy merely to discard the failed snapshot; submit a new deployment
+  after the evidence is resolved.
 - Pending production approval: inspect the immutable source/image identity and
   supply-chain warning first. A project owner or platform operator can approve
   the exact snapshot; otherwise cancel it. Do not bypass approval by changing

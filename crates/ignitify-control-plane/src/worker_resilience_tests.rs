@@ -8,7 +8,9 @@ use ignitify_db::{
     Database, DatabaseConfig, DeploymentActor, DeploymentRecord, NewDeployment, NewServiceVariable,
     ServiceActor,
 };
-use ignitify_domain::{DeploymentState, ProjectInput, ServiceInput, SupplyChainCheckStatus};
+use ignitify_domain::{
+    DeploymentState, ProjectInput, ServiceInput, SupplyChainCheckStatus, SupplyChainEnforcement,
+};
 
 use super::{
     AgeCipher, Error, ImageRuntime, Ingress, RuntimeDeployment, RuntimeObservation, SourceBuild,
@@ -77,6 +79,96 @@ async fn queued_image_deployment() -> DeploymentContext {
             service.id.as_str(),
             NewDeployment {
                 idempotency_key: "resilience-deploy".to_owned(),
+                requested_by_user_id: actor_id.clone(),
+                spec: service.spec,
+                source_config: None,
+                deployment_destination_id: None,
+                source_revision: None,
+                supply_chain_report: None,
+                variables_ciphertext: cipher.encrypt(b"{}").unwrap(),
+            },
+        )
+        .await
+        .unwrap();
+    let ignitify_db::CreateDeploymentOutcome::Created(deployment) = deployment else {
+        panic!("deployment must be created");
+    };
+    let ignitify_db::DeploymentApprovalOutcome::Approved(deployment) = database
+        .deployments()
+        .approve(
+            DeploymentActor {
+                id: &actor_id,
+                is_admin: false,
+            },
+            deployment.id.as_str(),
+        )
+        .await
+        .unwrap()
+    else {
+        panic!("deployment must be approved for worker resilience tests");
+    };
+    DeploymentContext {
+        database,
+        actor_id,
+        deployment,
+        cipher,
+    }
+}
+
+async fn queued_unresolved_compose_deployment() -> DeploymentContext {
+    let database = Database::connect(&DatabaseConfig {
+        url: "sqlite::memory:".to_owned(),
+    })
+    .await
+    .unwrap();
+    let actor_id = database
+        .users()
+        .create("owner", "hash", ignitify_db::UserRole::User)
+        .await
+        .unwrap()
+        .id;
+    let project = database
+        .projects()
+        .create(&actor_id, ProjectInput::new("Resilience").unwrap())
+        .await
+        .unwrap();
+    let service = database
+        .services()
+        .create(
+            ServiceActor {
+                id: &actor_id,
+                is_admin: false,
+            },
+            project.id.as_str(),
+            ServiceInput::compose(
+                "web",
+                "services:\n  app:\n    image: nginx@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "app",
+                Some(8080),
+                vec![],
+            )
+            .unwrap()
+            .configuration,
+            Vec::<NewServiceVariable>::new(),
+            None,
+        )
+        .await
+        .unwrap();
+    let ignitify_db::ServiceMutationOutcome::Created(service) = service else {
+        panic!("service must be created");
+    };
+    let identity = age::x25519::Identity::generate().to_string();
+    let cipher = AgeCipher::from_identity(identity.expose_secret()).unwrap();
+    let deployment = database
+        .deployments()
+        .create(
+            DeploymentActor {
+                id: &actor_id,
+                is_admin: false,
+            },
+            service.id.as_str(),
+            NewDeployment {
+                idempotency_key: "unresolved-compose".to_owned(),
                 requested_by_user_id: actor_id.clone(),
                 spec: service.spec,
                 source_config: None,
@@ -415,6 +507,58 @@ async fn source_build_records_resolved_supply_chain_provenance_in_warning_mode()
         SupplyChainCheckStatus::Warning
     );
     assert_eq!(runtime.start_calls.load(Ordering::Relaxed), 1);
+}
+
+#[tokio::test]
+async fn require_provenance_policy_blocks_unresolved_deployment_before_runtime_start() {
+    let context = queued_unresolved_compose_deployment().await;
+    context
+        .database
+        .deployments()
+        .update_supply_chain_enforcement(SupplyChainEnforcement::RequireProvenance)
+        .await
+        .unwrap();
+    let runtime = RecordingRuntime::new();
+
+    reconcile_once(
+        &context.database.deployments(),
+        &context.database.domains(),
+        &context.cipher,
+        &runtime,
+        &ReadyIngress,
+        &publisher(),
+    )
+    .await
+    .unwrap();
+
+    let deployment = context
+        .database
+        .deployments()
+        .get(
+            DeploymentActor {
+                id: &context.actor_id,
+                is_admin: false,
+            },
+            context.deployment.id.as_str(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    let report = deployment
+        .supply_chain_report
+        .expect("blocking report must be retained");
+
+    assert_eq!(deployment.state, DeploymentState::Failed);
+    assert_eq!(
+        deployment.failure_reason.as_deref(),
+        Some("supply-chain policy requires resolved provenance")
+    );
+    assert_eq!(
+        report.enforcement,
+        SupplyChainEnforcement::RequireProvenance
+    );
+    assert_eq!(report.provenance.status, SupplyChainCheckStatus::Warning);
+    assert_eq!(runtime.start_calls.load(Ordering::Relaxed), 0);
 }
 
 #[tokio::test]

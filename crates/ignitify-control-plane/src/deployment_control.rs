@@ -73,11 +73,13 @@ impl ControlHandle {
         let variables_ciphertext = self.snapshot_variables(&service)?;
         let spec = service.spec.clone();
         let source_config = service.source_config.clone();
+        let supply_chain_policy = self.deployments.supply_chain_policy().await?;
         let supply_chain_report = Some(evaluate_supply_chain_report(
             &spec,
             source_config.as_ref(),
             source_revision,
             None,
+            supply_chain_policy.enforcement,
             Utc::now().to_rfc3339(),
         ));
         let outcome = self

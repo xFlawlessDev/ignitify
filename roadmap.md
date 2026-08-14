@@ -210,19 +210,23 @@ Target: days 61-90.
 
 - [x] Production deployments have an auditable source/image identity and an
   approval trail.
-- [ ] Supply-chain signals are visible before deployment and can be governed by
+- [x] Supply-chain signals are visible before deployment and can be governed by
   policy.
 - [x] Historical monitoring provides enough context to investigate regressions and
   alert fatigue.
 
 Evidence: migration `0036_deployment_supply_chain_reports.sql` stores an
-optional per-deployment report. Immutable direct-image digests and resolved
-source-build revision/image pairs pass the provenance check. Application-image
-SBOM and vulnerability evidence that is not attached remains an explicit
-warning with remediation; the worker does not block a deployment. The API and
-service deployment panel expose the report before runtime execution advances,
-and domain/database/control-plane/API/frontend regression coverage verifies
-the warning-mode contract.
+optional per-deployment report, and migration
+`0039_supply_chain_policy.sql` stores the audited platform policy. Immutable
+direct-image digests and resolved source-build revision/image pairs pass the
+provenance check. Operators can retain the compatible `warning` default or use
+`require-provenance`, which the worker re-evaluates after source resolution and
+before runtime execution; an unresolved provenance signal fails the snapshot
+without calling the runtime. Application-image SBOM and vulnerability evidence
+that is not attached remains an explicit warning with remediation, not a false
+pass or block. The API, delivery-policy UI, and service deployment panel expose
+the policy/report, with domain/database/control-plane/API/frontend regression
+coverage for warning and enforcement behavior.
 
 Evidence: migration `0037_deployment_production_approvals.sql` records pending
 and approved production promotion states. Owners and platform operators must
