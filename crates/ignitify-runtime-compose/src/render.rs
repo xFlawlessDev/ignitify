@@ -7,8 +7,8 @@ use crate::{Error, Result};
 
 pub(crate) const PROXY_NETWORK: &str = "ignitify-proxy";
 pub(crate) const MANAGED_LABEL: &str = "com.ignitify.managed";
-const SERVICE_LABEL: &str = "com.ignitify.service-id";
-const GENERATION_LABEL: &str = "com.ignitify.generation";
+pub(crate) const SERVICE_LABEL: &str = "com.ignitify.service-id";
+pub(crate) const GENERATION_LABEL: &str = "com.ignitify.generation";
 
 pub(crate) fn render_override(
     deployment: &RuntimeDeployment,

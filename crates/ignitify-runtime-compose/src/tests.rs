@@ -44,6 +44,36 @@ fn fake_docker(temp: &tempfile::TempDir) -> std::path::PathBuf {
     executable
 }
 
+#[cfg(unix)]
+fn cleanup_docker(temp: &tempfile::TempDir) -> std::path::PathBuf {
+    let executable = temp.path().join("cleanup-docker");
+    fs::write(
+        &executable,
+        r#"#!/bin/sh
+printf 'args=' >> "$0.log"
+for argument in "$@"; do printf '<%s>' "$argument" >> "$0.log"; done
+printf '\n' >> "$0.log"
+for argument in "$@"; do
+  if [ "$argument" = down ]; then
+    printf 'down failed\n' >&2
+    exit 1
+  fi
+done
+if [ "$1" = ps ]; then
+  if [ -f "$0.owned-containers" ]; then cat "$0.owned-containers"; fi
+  exit 0
+fi
+if [ "$1" = container ] && [ "$2" = rm ]; then
+  rm -f "$0.owned-containers"
+  exit 0
+fi
+"#,
+    )
+    .unwrap();
+    fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).unwrap();
+    executable
+}
+
 #[test]
 fn compose_command_uses_fixed_argument_order() {
     let args = super::compose_args(
@@ -190,6 +220,85 @@ async fn fake_docker_enforces_fixed_commands_and_cleans_failed_stages() {
     fs::write(docker.with_extension("fail-up"), "").unwrap();
     assert!(runtime.start(&failed_deployment, vec![]).await.is_err());
     assert!(!failed_stage.exists());
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn stop_falls_back_to_exact_owned_container_cleanup() {
+    let temp = tempfile::tempdir().unwrap();
+    let docker = cleanup_docker(&temp);
+    let root = temp.path().join("stages");
+    let runtime = super::ComposeRuntime::new(&docker, &root).unwrap();
+    let deployment = deployment();
+    let stage = root.join(deployment.service_id.as_str()).join("1");
+    fs::create_dir_all(&stage).unwrap();
+    let runtime_ref = format!(
+        "ignitify-{}-g{}",
+        deployment.service_id, deployment.generation
+    );
+    let container_id = "a".repeat(64);
+    fs::write(
+        docker.with_extension("owned-containers"),
+        format!("{container_id}\n"),
+    )
+    .unwrap();
+
+    assert!(
+        runtime
+            .stop(
+                &runtime_ref,
+                deployment.service_id.as_str(),
+                deployment.generation,
+            )
+            .await
+            .unwrap()
+    );
+    assert!(!stage.exists());
+    assert!(!docker.with_extension("owned-containers").exists());
+
+    let calls = fs::read_to_string(docker.with_extension("log")).unwrap();
+    assert!(calls.contains("<down><--remove-orphans>"));
+    assert!(calls.contains(&format!(
+        "<ps><--all><--quiet><--filter><label=com.ignitify.managed=true><--filter><label=com.ignitify.service-id={}><--filter><label=com.ignitify.generation=1>",
+        deployment.service_id
+    )));
+    assert!(calls.contains(&format!("<container><rm><--force><{container_id}>")));
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn stop_removes_owned_containers_when_compose_stage_is_missing() {
+    let temp = tempfile::tempdir().unwrap();
+    let docker = cleanup_docker(&temp);
+    let root = temp.path().join("stages");
+    let runtime = super::ComposeRuntime::new(&docker, &root).unwrap();
+    let deployment = deployment();
+    let runtime_ref = format!(
+        "ignitify-{}-g{}",
+        deployment.service_id, deployment.generation
+    );
+    let container_id = "b".repeat(64);
+    fs::write(
+        docker.with_extension("owned-containers"),
+        format!("{container_id}\n"),
+    )
+    .unwrap();
+
+    assert!(
+        runtime
+            .stop(
+                &runtime_ref,
+                deployment.service_id.as_str(),
+                deployment.generation,
+            )
+            .await
+            .unwrap()
+    );
+    assert!(!docker.with_extension("owned-containers").exists());
+
+    let calls = fs::read_to_string(docker.with_extension("log")).unwrap();
+    assert!(!calls.contains("<down><--remove-orphans>"));
+    assert!(calls.contains(&format!("<container><rm><--force><{container_id}>")));
 }
 
 #[cfg(unix)]

@@ -6,7 +6,7 @@ use std::sync::{
 use age::secrecy::ExposeSecret;
 use ignitify_db::{
     Database, DatabaseConfig, DeploymentActor, DeploymentRecord, NewDeployment, NewServiceVariable,
-    ServiceActor,
+    ProjectActor, ProjectRemoveOutcome, ServiceActor, ServiceMutationOutcome,
 };
 use ignitify_domain::{
     DeploymentState, ProjectInput, ServiceInput, SupplyChainCheckStatus, SupplyChainEnforcement,
@@ -16,11 +16,12 @@ use super::{
     AgeCipher, Error, ImageRuntime, Ingress, RuntimeDeployment, RuntimeObservation, SourceBuild,
     StreamPublisher, reconcile_once, reconcile_once_with_source,
 };
-use crate::{IngressRoute, RuntimeLog, SourceBuildOutput};
+use crate::{ControlHandle, DeploymentSubmission, IngressRoute, RuntimeLog, SourceBuildOutput};
 
 struct DeploymentContext {
     database: Database,
     actor_id: String,
+    project_id: String,
     deployment: DeploymentRecord,
     cipher: AgeCipher,
 }
@@ -110,6 +111,7 @@ async fn queued_image_deployment() -> DeploymentContext {
     DeploymentContext {
         database,
         actor_id,
+        project_id: project.id.to_string(),
         deployment,
         cipher,
     }
@@ -200,6 +202,7 @@ async fn queued_unresolved_compose_deployment() -> DeploymentContext {
     DeploymentContext {
         database,
         actor_id,
+        project_id: project.id.to_string(),
         deployment,
         cipher,
     }
@@ -742,4 +745,129 @@ async fn worker_restart_finishes_stopping_deployment_without_starting_runtime() 
     assert_eq!(stopped.state, DeploymentState::Stopped);
     assert_eq!(runtime.start_calls.load(Ordering::Relaxed), 0);
     assert_eq!(runtime.stop_calls.load(Ordering::Relaxed), 1);
+}
+
+#[tokio::test]
+async fn stopping_a_healthy_compose_deployment_releases_service_and_project() {
+    let context = queued_unresolved_compose_deployment().await;
+    let claimed = context
+        .database
+        .deployments()
+        .claim_next()
+        .await
+        .unwrap()
+        .unwrap();
+    let runtime_ref = format!("ignitify-{}-g{}", claimed.service_id, claimed.generation);
+    context
+        .database
+        .deployments()
+        .record_runtime_ref(claimed.id.as_str(), &runtime_ref)
+        .await
+        .unwrap();
+    context
+        .database
+        .deployments()
+        .transition(
+            claimed.id.as_str(),
+            DeploymentState::Running,
+            Some(&runtime_ref),
+            None,
+        )
+        .await
+        .unwrap();
+    context
+        .database
+        .deployments()
+        .transition(
+            claimed.id.as_str(),
+            DeploymentState::Healthy,
+            Some(&runtime_ref),
+            None,
+        )
+        .await
+        .unwrap();
+
+    let identity = age::x25519::Identity::generate().to_string();
+    let (control, _wake) =
+        ControlHandle::new(context.database.deployments(), identity.expose_secret()).unwrap();
+    let stopping = control
+        .submit_stop(
+            DeploymentActor {
+                id: &context.actor_id,
+                is_admin: false,
+            },
+            claimed.service_id.as_str(),
+        )
+        .await
+        .unwrap();
+    let stopping = match stopping {
+        DeploymentSubmission::Accepted(stopping) => stopping,
+        DeploymentSubmission::Existing(_) => panic!("healthy deployment stop was already active"),
+        DeploymentSubmission::Missing => panic!("healthy deployment service was missing"),
+        DeploymentSubmission::Forbidden => panic!("healthy deployment stop was forbidden"),
+        DeploymentSubmission::ActiveConflict => {
+            panic!("healthy deployment stop reported no active deployment")
+        }
+    };
+    assert_eq!(stopping.state, DeploymentState::Stopping);
+
+    let runtime = RecordingRuntime::new();
+    reconcile_once(
+        &context.database.deployments(),
+        &context.database.domains(),
+        &context.cipher,
+        &runtime,
+        &ReadyIngress,
+        &publisher(),
+    )
+    .await
+    .unwrap();
+
+    let stopped = context
+        .database
+        .deployments()
+        .get(
+            DeploymentActor {
+                id: &context.actor_id,
+                is_admin: false,
+            },
+            claimed.id.as_str(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(stopped.state, DeploymentState::Stopped);
+    assert_eq!(runtime.stop_calls.load(Ordering::Relaxed), 1);
+
+    let removed_service = context
+        .database
+        .services()
+        .remove(
+            ServiceActor {
+                id: &context.actor_id,
+                is_admin: false,
+            },
+            claimed.service_id.as_str(),
+            "web",
+        )
+        .await
+        .unwrap();
+    assert!(matches!(
+        removed_service,
+        ServiceMutationOutcome::Removed(_)
+    ));
+    let removed_project = context
+        .database
+        .projects()
+        .remove(
+            ProjectActor {
+                id: &context.actor_id,
+                is_admin: false,
+            },
+            &context.project_id,
+            "Resilience",
+        )
+        .await
+        .unwrap();
+    assert_eq!(removed_project, ProjectRemoveOutcome::Removed);
 }
