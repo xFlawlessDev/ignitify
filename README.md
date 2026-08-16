@@ -61,6 +61,7 @@ requirements and version selection.
 
 - [Capabilities](#capabilities)
 - [At a glance](#at-a-glance)
+- [Footprint benchmark](#footprint-benchmark)
 - [Quick start](#quick-start)
 - [AI assistant](#ai-assistant)
 - [Notification channels](#notification-channels)
@@ -91,6 +92,34 @@ The HTTP API records intent and serves the embedded Vue application. Background
 workers and dedicated adapters carry out external effects, keeping Docker,
 Compose, SSH, Git, DNS, and ingress work out of request handlers. Read the
 [architecture overview](#architecture) for the runtime boundary.
+
+## Footprint Benchmark
+
+The latest controlled idle snapshot used separate Ubuntu 24.04 VPS hosts with
+one vCPU and 1,968 MiB of memory. It collected 12 five-second samples after
+removing the synthetic workload. Ignitify was installed from the
+checksum-verified `v0.2.1` release; Coolify was `v4.3.5` from its official
+installer. The retained Dokploy column is from the validated snapshot before
+that VPS was repurposed for Coolify. [Coolify documents](https://coolify.io/docs/get-started/installation)
+two CPU cores and 2 GiB as its minimum recommended host, so this one-vCPU result
+is a constrained-footprint observation, not a production-sizing recommendation.
+
+| Metric | Ignitify v0.2.1 | Dokploy v0.30.0 (prior snapshot) | Coolify v4.3.5 |
+| --- | ---: | ---: | ---: |
+| Average host CPU | 0.50% | 2.84% | 20.42% |
+| Average host memory used (`MemTotal - MemAvailable`) | 515.0 MiB | 1,404.6 MiB | 895.1 MiB |
+| Average available memory | 1,453.0 MiB | 563.4 MiB | 1,072.9 MiB |
+| Running platform containers | 3 | 3 | 6 |
+| Platform-container memory snapshot | 170.0 MiB | 1,033.8 MiB | 508.4 MiB |
+| Docker image storage after cleanup | 350.8 MB | 3.911 GB | 2.071 GB |
+| Local health endpoint | HTTP 200 | HTTP 200 | HTTP 200 |
+
+This is evidence from one controlled host pair, not a feature-equivalence,
+throughput, public-latency, or reliability claim. The same validation also
+exercised a digest-pinned Nginx Compose workload through Coolify's API: it
+became HTTP-ready in 15.061 seconds, then product cleanup removed the container
+and resource in 7.765 seconds. The Dokploy and Coolify snapshots are separate
+runs on the same normalised host configuration; see the [full benchmark methodology and evidence](docs/operations/benchmark-baseline.md).
 
 ## Quick Start
 

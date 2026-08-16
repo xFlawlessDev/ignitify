@@ -1,7 +1,7 @@
 # Baseline Footprint Benchmark
 
-This page records a reproducible idle-footprint baseline for Ignitify and
-Dokploy. It is evidence from one controlled test, not a universal performance
+This page records reproducible idle-footprint baselines for Ignitify, Dokploy,
+and Coolify. It is evidence from controlled tests, not a universal performance
 claim.
 
 ## Scope
@@ -46,6 +46,129 @@ read proxy (about 10.2 MiB), and the ingress fallback (about 49.2 MiB). The
 Dokploy total comprises the Dokploy application (about 737.2 MiB), PostgreSQL
 (about 62.7 MiB), and Dokploy Traefik (about 17.1 MiB). These are observed
 values on this host pair, not capacity guarantees.
+
+## v0.2.1 Release Validation
+
+On 2026-08-16, the public `v0.2.1` release bundle was installed through its
+checksum-verifying installer on the same normalised Ignitify host. The Dokploy
+host remained on `v0.30.0`. This is a fresh release-validation snapshot, not a
+replacement for the primary baseline above. Both Ubuntu 24.04 hosts had one
+vCPU and 1,968 MiB of memory. Twelve five-second idle samples were collected
+in parallel after the test workload had been removed.
+
+| Metric | Ignitify v0.2.1 | Dokploy v0.30.0 |
+| --- | ---: | ---: |
+| Average host CPU | 0.41% | 2.84% |
+| Average host memory used (`MemTotal - MemAvailable`) | 497.6 MiB | 1,404.6 MiB |
+| Average available memory | 1,470.4 MiB | 563.4 MiB |
+| Running platform containers | 3 | 3 |
+| Platform-container memory snapshot | 170.0 MiB | 1,033.8 MiB |
+| Dedicated control-plane RSS snapshot | 53.0 MiB | N/A (containerised) |
+| Docker image storage after cleanup | 350.8 MB | 3.911 GB |
+| Local health endpoint | HTTP 200 | HTTP 200 |
+
+The Ignitify measurement included one authenticated test operator but no
+user-created project, service, deployment, or managed workload. The Dokploy
+host was likewise left without a benchmark workload. Process and container
+memory should be read as a point-in-time host snapshot, rather than a capacity
+guarantee or a direct comparison of process architectures.
+
+Host memory used is derived from `MemTotal - MemAvailable`, so it includes
+memory that Linux can reclaim for cache and is not a process-resident-memory
+total. The available-memory row remains alongside it to make that distinction
+explicit.
+
+### Lifecycle Regression Evidence
+
+The prior benchmark exposed a healthy Compose deployment whose stop request
+returned `202` without removing the workload. Release `v0.2.1` was validated
+with the same pinned Nginx Compose workload, no public port or domain, and an
+in-container request to `127.0.0.1:80`. The deployment required and received
+the normal production approval transition.
+
+| Evidence | Result |
+| --- | ---: |
+| Project and Compose service creation | HTTP 201 / HTTP 201 |
+| Warm submission to worker-confirmed `healthy` | 2,195 ms |
+| In-container HTTP check | pass |
+| Nginx container memory | 2.363 MiB |
+| Stop response | HTTP 202 |
+| Stop to `stopped` with no labelled workload container | 1,226 ms and 1,244 ms across two healthy runs |
+| Labelled workload containers after stop | 0 on both runs |
+| Service deletion after stop | HTTP 204 on both runs |
+| Project deletion after stop | HTTP 204 on both runs |
+
+The benchmark harness removed the exact cached Nginx image only after both
+product API cleanup paths had succeeded. No project, service, deployment
+workload, labelled container, benchmark temporary file, credential, or token
+was retained in this record.
+
+## Coolify v4.3.5 Validation
+
+On 2026-08-16, the Dokploy host was fully cleaned and Coolify `v4.3.5` was
+installed with Coolify's official installer. The updated comparison used the
+same separate Ubuntu 24.04 hosts with one vCPU and 1,968 MiB of memory. The
+[Coolify installation documentation](https://coolify.io/docs/get-started/installation)
+recommends at least two CPU cores and 2 GiB of memory; this one-vCPU run is
+therefore a constrained-footprint observation, not a production-sizing
+recommendation.
+
+After the lifecycle workload and its exact image had been removed, each host
+provided 12 five-second idle samples. Host CPU is calculated from `vmstat`
+CPU-idle deltas; host memory used is `MemTotal - MemAvailable`; the container
+memory value is one settled `docker stats` snapshot. The platform health probes
+were Ignitify `/health` and Coolify `/api/health`.
+
+| Metric | Ignitify v0.2.1 | Dokploy v0.30.0 (prior snapshot) | Coolify v4.3.5 |
+| --- | ---: | ---: | ---: |
+| Host memory | 1,968 MiB | 1,968 MiB | 1,968 MiB |
+| Average host CPU | 0.50% | 2.84% | 20.42% |
+| Average host memory used (`MemTotal - MemAvailable`) | 515.0 MiB | 1,404.6 MiB | 895.1 MiB |
+| Average available memory | 1,453.0 MiB | 563.4 MiB | 1,072.9 MiB |
+| Running platform containers | 3 | 3 | 6 |
+| Platform-container memory snapshot | 170.0 MiB | 1,033.8 MiB | 508.4 MiB |
+| Docker image storage after cleanup | 350.8 MB | 3.911 GB | 2.071 GB |
+| Local health endpoint | HTTP 200 | HTTP 200 | HTTP 200 |
+
+The Dokploy column preserves the `v0.2.1` release-validation snapshot collected
+before that VPS was cleaned and repurposed for Coolify. It is the same host
+shape and no-workload condition, but not the same timed sample as the Ignitify /
+Coolify columns; use the earlier `v0.2.1` table for its paired Ignitify result.
+
+The settled Coolify containers were the control plane, PostgreSQL, Redis,
+realtime service, Traefik proxy, and sentinel. Both hosts were left with an
+authenticated operator but no benchmark project, service, deployment, labelled
+workload container, temporary API token, or enabled API access. The generated
+Nginx image was also absent after cleanup.
+
+### Lifecycle Evidence
+
+The benchmark created a project and a raw Compose service via the Coolify API.
+The Compose input contained only the exact Nginx digest
+`nginx@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10`;
+it exposed no public port or domain. Readiness was an in-container HTTP request
+to `127.0.0.1:80`. A raw Compose service was used because this Coolify release's
+Docker Image endpoint rejects a digest in its tag validation, despite parsing
+digest image references later in the request path.
+
+| Evidence | Result |
+| --- | ---: |
+| Project and service creation | HTTP 201 / HTTP 201 |
+| Service start request | HTTP 200 |
+| Start to in-container HTTP readiness | 15,061 ms |
+| In-container HTTP check | pass |
+| Nginx container memory | 2.406 MiB |
+| Service deletion request | HTTP 200 |
+| Deletion to no workload container and no service record | 7,765 ms |
+| Service record after cleanup | HTTP 404 |
+| Workload containers after cleanup | 0 |
+| Project deletion | HTTP 200 |
+
+The temporary API token was created only for this API run, deleted immediately
+afterward, and API access was disabled again. SSH host keys were verified before
+each session. This is a workflow-specific observation: it does not measure
+feature equivalence, sustained application throughput, external routing
+latency, or failure recovery under load.
 
 ## Historical Installation Baseline
 
@@ -111,14 +234,15 @@ from submission to worker-confirmed healthy state for Ignitify and from
 submission to a running, internally healthy Nginx container for Dokploy.
 
 The benchmark harness exposed two cleanup limitations that matter to the
-evidence. Ignitify's stop endpoint returned 202 after a healthy deployment but
-did not remove the workload container within the 120-second observation window;
-the subsequent service/project deletion returned 409. The exact labelled test
-container was then removed and the test-only application state reset. Dokploy's
-six timing samples completed, but the harness failed while formatting a memory
-field before API cleanup; its workload remained healthy through the separately
-measured control-plane restart, then the exact Nginx container and test-only
-application data were removed. Neither host retained a benchmark workload.
+historical evidence. Ignitify's stop endpoint returned 202 after a healthy
+deployment but did not remove the workload container within the 120-second
+observation window; the subsequent service/project deletion returned 409. That
+healthy-stop path is regression-tested and passes in the `v0.2.1` release
+validation above. Dokploy's six timing samples completed, but the harness
+failed while formatting a memory field before API cleanup; its workload
+remained healthy through the separately measured control-plane restart, then
+the exact Nginx container and test-only application data were removed. Neither
+host retained a benchmark workload.
 
 SSH host keys were verified before every session. Output was limited to HTTP
 status, terminal deployment state, elapsed time, aggregate storage, and memory.
@@ -185,9 +309,9 @@ result: the host was resized before a stable result could be established.
 
 ## Follow-up Method
 
-A next benchmark should first resolve and regression-test the healthy-service
-stop/cleanup path exposed above. It should then repeat the same workload on
-multiple fresh host pairs and record:
+The `v0.2.1` validation resolved and regression-tested the healthy-service
+stop/cleanup path exposed above. A next benchmark should repeat the same
+workload on multiple fresh host pairs and record:
 
 1. Cold and warm submission-to-healthy samples with median and spread.
 2. Control-plane and workload memory during idle and controlled load.

@@ -1,7 +1,7 @@
 # Benchmark Footprint Baseline
 
-Halaman ini mencatat baseline footprint idle yang dapat diulang untuk Ignitify
-dan Dokploy. Ini adalah bukti dari satu pengujian terkontrol, bukan klaim
+Halaman ini mencatat baseline footprint idle yang dapat diulang untuk Ignitify,
+Dokploy, dan Coolify. Ini adalah bukti dari pengujian terkontrol, bukan klaim
 performa universal.
 
 ## Cakupan
@@ -46,6 +46,128 @@ proxy (sekitar 10,2 MiB), dan ingress fallback (sekitar 49,2 MiB). Total
 Dokploy terdiri dari aplikasi Dokploy (sekitar 737,2 MiB), PostgreSQL (sekitar
 62,7 MiB), dan Traefik Dokploy (sekitar 17,1 MiB). Nilai ini adalah observasi
 pada pasangan host tersebut, bukan jaminan kapasitas.
+
+## Validasi Release v0.2.1
+
+Pada 2026-08-16, bundle release publik `v0.2.1` dipasang melalui installer yang
+memverifikasi checksum pada host Ignitify ternormalisasi yang sama. Host Dokploy
+tetap memakai `v0.30.0`. Ini adalah snapshot validasi release baru, bukan
+pengganti baseline utama di atas. Kedua host Ubuntu 24.04 memiliki satu vCPU dan
+1.968 MiB memori. Dua belas sampel idle lima detik dikumpulkan paralel setelah
+workload test dihapus.
+
+| Metrik | Ignitify v0.2.1 | Dokploy v0.30.0 |
+| --- | ---: | ---: |
+| CPU host rata-rata | 0,41% | 2,84% |
+| Rata-rata memori host terpakai (`MemTotal - MemAvailable`) | 497,6 MiB | 1.404,6 MiB |
+| Memori tersedia rata-rata | 1.470,4 MiB | 563,4 MiB |
+| Container platform berjalan | 3 | 3 |
+| Snapshot memori container platform | 170,0 MiB | 1.033,8 MiB |
+| Snapshot RSS control plane khusus | 53,0 MiB | N/A (berbasis container) |
+| Penyimpanan Docker image setelah cleanup | 350,8 MB | 3,911 GB |
+| Endpoint health lokal | HTTP 200 | HTTP 200 |
+
+Pengukuran Ignitify mencakup satu operator test yang terautentikasi, namun tanpa
+project, service, deployment, maupun workload managed buatan pengguna. Host
+Dokploy juga tidak menyisakan workload benchmark. Memori proses dan container
+harus dibaca sebagai snapshot host pada satu waktu, bukan jaminan kapasitas atau
+perbandingan langsung arsitektur proses.
+
+Memori host terpakai dihitung dari `MemTotal - MemAvailable`, sehingga mencakup
+memori yang dapat direklamasi Linux untuk cache dan bukan total resident memory
+proses. Baris memori tersedia dipertahankan agar perbedaan tersebut eksplisit.
+
+### Bukti Regresi Lifecycle
+
+Benchmark sebelumnya menemukan deployment Compose sehat yang request stop-nya
+mengembalikan `202` tetapi tidak menghapus workload. Release `v0.2.1`
+divalidasi memakai workload Compose Nginx yang dipin sama, tanpa port atau
+domain publik, serta request dari dalam container ke `127.0.0.1:80`.
+Deployment melewati transisi approval production normal.
+
+| Bukti | Hasil |
+| --- | ---: |
+| Pembuatan project dan service Compose | HTTP 201 / HTTP 201 |
+| Submit warm hingga `healthy` yang dikonfirmasi worker | 2.195 ms |
+| Pemeriksaan HTTP dalam container | lulus |
+| Memori container Nginx | 2,363 MiB |
+| Respons stop | HTTP 202 |
+| Stop hingga `stopped` tanpa container workload berlabel | 1.226 ms dan 1.244 ms pada dua run sehat |
+| Container workload berlabel setelah stop | 0 pada kedua run |
+| Penghapusan service setelah stop | HTTP 204 pada kedua run |
+| Penghapusan project setelah stop | HTTP 204 pada kedua run |
+
+Harness benchmark menghapus hanya image Nginx cache yang tepat setelah kedua
+jalur cleanup API produk berhasil. Tidak ada project, service, workload
+deployment, container berlabel, file sementara benchmark, credential, maupun
+token yang disimpan dalam record ini.
+
+## Validasi Coolify v4.3.5
+
+Pada 2026-08-16, host Dokploy dibersihkan sepenuhnya lalu Coolify `v4.3.5`
+dipasang melalui installer resmi Coolify. Perbandingan terbaru memakai host
+Ubuntu 24.04 terpisah yang sama, masing-masing satu vCPU dan 1.968 MiB memori.
+[Dokumentasi instalasi Coolify](https://coolify.io/docs/get-started/installation)
+merekomendasikan minimal dua core CPU dan 2 GiB memori; karena itu run satu-vCPU
+ini adalah observasi footprint terbatas, bukan rekomendasi ukuran produksi.
+
+Setelah workload lifecycle dan image tepatnya dihapus, setiap host memberikan
+12 sampel idle lima detik. CPU host dihitung dari delta CPU-idle `vmstat`;
+memori host terpakai adalah `MemTotal - MemAvailable`; nilai memori container
+adalah satu snapshot `docker stats` ketika platform sudah stabil. Probe health
+platform adalah Ignitify `/health` dan Coolify `/api/health`.
+
+| Metrik | Ignitify v0.2.1 | Dokploy v0.30.0 (snapshot sebelumnya) | Coolify v4.3.5 |
+| --- | ---: | ---: | ---: |
+| Memori host | 1.968 MiB | 1.968 MiB | 1.968 MiB |
+| CPU host rata-rata | 0,50% | 2,84% | 20,42% |
+| Rata-rata memori host terpakai (`MemTotal - MemAvailable`) | 515,0 MiB | 1.404,6 MiB | 895,1 MiB |
+| Memori tersedia rata-rata | 1.453,0 MiB | 563,4 MiB | 1.072,9 MiB |
+| Container platform berjalan | 3 | 3 | 6 |
+| Snapshot memori container platform | 170,0 MiB | 1.033,8 MiB | 508,4 MiB |
+| Penyimpanan Docker image setelah cleanup | 350,8 MB | 3,911 GB | 2,071 GB |
+| Endpoint health lokal | HTTP 200 | HTTP 200 | HTTP 200 |
+
+Kolom Dokploy mempertahankan snapshot validasi release `v0.2.1` yang diambil
+sebelum VPS tersebut dibersihkan dan dipakai ulang untuk Coolify. Bentuk host
+dan kondisi tanpa workload sama, tetapi sampel waktunya tidak sama dengan kolom
+Ignitify / Coolify; gunakan tabel `v0.2.1` sebelumnya untuk hasil Ignitify yang
+berpasangan dengan Dokploy.
+
+Container Coolify yang stabil adalah control plane, PostgreSQL, Redis, layanan
+realtime, proxy Traefik, dan sentinel. Kedua host menyisakan operator yang
+sudah terautentikasi, tetapi tidak ada project benchmark, service, deployment,
+container workload berlabel, token API sementara, maupun akses API aktif.
+Image Nginx yang dibuat juga tidak tersisa setelah cleanup.
+
+### Bukti Lifecycle
+
+Benchmark membuat project dan service Compose raw melalui API Coolify. Input
+Compose hanya memuat digest Nginx yang tepat,
+`nginx@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10`;
+tidak ada port atau domain publik. Readiness diperiksa dengan request HTTP dari
+dalam container ke `127.0.0.1:80`. Service Compose raw dipakai karena endpoint
+Docker Image Coolify pada release ini menolak digest pada validasi tag, walau
+request path kemudian dapat mem-parsing referensi image digest.
+
+| Bukti | Hasil |
+| --- | ---: |
+| Pembuatan project dan service | HTTP 201 / HTTP 201 |
+| Request start service | HTTP 200 |
+| Start hingga HTTP dalam container siap | 15.061 ms |
+| Pemeriksaan HTTP dalam container | lulus |
+| Memori container Nginx | 2,406 MiB |
+| Request penghapusan service | HTTP 200 |
+| Penghapusan hingga tanpa container workload dan record service | 7.765 ms |
+| Record service setelah cleanup | HTTP 404 |
+| Container workload setelah cleanup | 0 |
+| Penghapusan project | HTTP 200 |
+
+Token API sementara dibuat hanya untuk run API ini, kemudian segera dihapus,
+dan akses API dinonaktifkan kembali. Host key SSH diverifikasi sebelum setiap
+sesi. Ini adalah observasi workflow spesifik: pengujian ini tidak mengukur
+kesetaraan fitur, throughput aplikasi berkelanjutan, latensi routing eksternal,
+atau pemulihan kegagalan di bawah beban.
 
 ## Baseline Instalasi Historis
 
@@ -112,14 +234,14 @@ Dokploy menghitung dari submission hingga container Nginx berjalan dan sehat
 secara internal.
 
 Harness benchmark memperlihatkan dua keterbatasan cleanup yang relevan bagi
-evidence. Endpoint stop Ignitify mengembalikan 202 setelah deployment sehat,
-namun tidak menghapus container workload dalam window observasi 120 detik;
-penghapusan service/project berikutnya mengembalikan 409. Container test yang
-berlabel tepat kemudian dihapus dan state aplikasi test-only di-reset. Enam
-sampel timing Dokploy selesai, tetapi harness gagal saat memformat field memori
-sebelum cleanup API; workload tetap sehat saat control plane restart diukur,
-lalu container Nginx yang tepat dan data aplikasi test-only dihapus. Kedua host
-tidak menyisakan workload benchmark.
+evidence historis. Endpoint stop Ignitify mengembalikan 202 setelah deployment
+sehat, namun tidak menghapus container workload dalam window observasi 120
+detik; penghapusan service/project berikutnya mengembalikan 409. Jalur
+healthy-stop tersebut sudah diberi regression test dan lulus pada validasi
+release `v0.2.1` di atas. Enam sampel timing Dokploy selesai, tetapi harness
+gagal saat memformat field memori sebelum cleanup API; workload tetap sehat saat
+control plane restart diukur, lalu container Nginx yang tepat dan data aplikasi
+test-only dihapus. Kedua host tidak menyisakan workload benchmark.
 
 Host key SSH diverifikasi sebelum setiap sesi. Output dibatasi pada status HTTP,
 state deployment terminal, waktu, storage agregat, dan memori. Credential,
@@ -187,9 +309,9 @@ host sudah di-resize sebelum hasil stabil dapat ditetapkan.
 
 ## Metode Lanjutan
 
-Benchmark berikutnya harus lebih dahulu menyelesaikan dan memberi regression
-test pada jalur stop/cleanup service sehat yang terlihat di atas. Setelah itu,
-ulangi workload sama pada beberapa pasangan host baru dan catat:
+Validasi `v0.2.1` sudah menyelesaikan dan memberi regression test pada jalur
+stop/cleanup service sehat yang terlihat di atas. Benchmark berikutnya perlu
+mengulangi workload sama pada beberapa pasangan host baru dan mencatat:
 
 1. Sampel cold dan warm submission hingga sehat dengan median serta sebaran.
 2. Memori control plane dan workload saat idle serta di bawah beban terkontrol.

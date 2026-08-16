@@ -7,7 +7,7 @@ Ignitify adalah control plane self-hosted untuk menjalankan aplikasi, layanan Co
 - [Memulai secara lokal](/id/guide/getting-started) untuk menyiapkan backend dan dashboard.
 - [Arsitektur](/id/concepts/architecture) untuk memahami batas setiap crate dan aliran data.
 - [Siklus deployment](/id/concepts/deployment-lifecycle) untuk memahami service, environment, domain, dan worker.
-- [Benchmark footprint baseline](/id/operations/benchmark-baseline) untuk perbandingan idle terkontrol dengan Dokploy.
+- [Benchmark footprint baseline](/id/operations/benchmark-baseline) untuk perbandingan idle terkontrol dengan Dokploy dan Coolify.
 - [Referensi API](/id/reference/api) untuk seluruh route HTTP yang terdaftar.
 - [Ignitify Templates](https://github.com/xFlawlessDev/ignitify-templates) untuk daftar template dan kontribusi template publik.
 
