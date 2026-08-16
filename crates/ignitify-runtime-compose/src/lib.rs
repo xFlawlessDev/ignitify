@@ -18,7 +18,9 @@ mod render;
 pub use error::Error;
 pub use policy::validate_submission_yaml;
 use policy::{ensure_exposed_service, preflight_yaml, validate_canonical};
-use render::{canonical_volume_names, render_override};
+use render::{
+    GENERATION_LABEL, MANAGED_LABEL, SERVICE_LABEL, canonical_volume_names, render_override,
+};
 
 type Result<T> = std::result::Result<T, Error>;
 
@@ -227,6 +229,65 @@ impl ComposeRuntime {
             .map_err(Error::Io)
     }
 
+    async fn owned_container_ids(&self, service_id: &str, generation: i64) -> Result<Vec<String>> {
+        let output = self
+            .command([
+                "ps".to_owned(),
+                "--all".to_owned(),
+                "--quiet".to_owned(),
+                "--filter".to_owned(),
+                format!("label={MANAGED_LABEL}=true"),
+                "--filter".to_owned(),
+                format!("label={SERVICE_LABEL}={service_id}"),
+                "--filter".to_owned(),
+                format!("label={GENERATION_LABEL}={generation}"),
+            ])
+            .output()
+            .await
+            .map_err(Error::Io)?;
+        if !output.status.success() {
+            return Err(Error::CommandFailed(
+                "could not list Ignitify-owned Compose containers".to_owned(),
+            ));
+        }
+        String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+            .map(|id| {
+                if (12..=64).contains(&id.len()) && id.bytes().all(|byte| byte.is_ascii_hexdigit())
+                {
+                    Ok(id.to_owned())
+                } else {
+                    Err(Error::CommandFailed(
+                        "Docker returned an invalid container identifier".to_owned(),
+                    ))
+                }
+            })
+            .collect()
+    }
+
+    async fn remove_owned_containers(&self, service_id: &str, generation: i64) -> Result<()> {
+        let ids = self.owned_container_ids(service_id, generation).await?;
+        if ids.is_empty() {
+            return Ok(());
+        }
+        let mut args = vec![
+            "container".to_owned(),
+            "rm".to_owned(),
+            "--force".to_owned(),
+        ];
+        args.extend(ids);
+        let output = self.command(args).output().await.map_err(Error::Io)?;
+        if output.status.success() {
+            Ok(())
+        } else {
+            Err(Error::CommandFailed(
+                "could not remove Ignitify-owned Compose containers".to_owned(),
+            ))
+        }
+    }
+
     async fn write_override(
         &self,
         stage: &Path,
@@ -394,21 +455,22 @@ impl ImageRuntime for ComposeRuntime {
         let Some(stage) = self.stage_from_runtime_ref(runtime_ref, service_id, generation) else {
             return Ok(false);
         };
-        if fs::metadata(&stage).await.is_err() {
-            return Ok(true);
+        if fs::metadata(&stage).await.is_ok() {
+            // A malformed or missing stage must not prevent cleanup of the exact
+            // Ignitify-owned containers below. Compose output can contain service
+            // configuration, so it is deliberately not surfaced here.
+            let _ = self
+                .run_compose(
+                    &stage,
+                    runtime_ref,
+                    true,
+                    ["down".to_owned(), "--remove-orphans".to_owned()],
+                )
+                .await;
         }
-        let output = self
-            .run_compose(
-                &stage,
-                runtime_ref,
-                true,
-                ["down".to_owned(), "--remove-orphans".to_owned()],
-            )
+        self.remove_owned_containers(service_id, generation)
             .await
             .map_err(control_error)?;
-        if !output.status.success() {
-            return Err(ControlError::Runtime);
-        }
         let _ = fs::remove_dir_all(stage).await;
         Ok(true)
     }

@@ -74,7 +74,13 @@ impl DeploymentsRepository {
             tx.commit().await?;
             return Ok(CancelDeploymentOutcome::Missing);
         };
-        if current.state.is_terminal() || current.state == DeploymentState::Stopping {
+        if matches!(
+            current.state,
+            DeploymentState::Failed
+                | DeploymentState::Stopped
+                | DeploymentState::Superseded
+                | DeploymentState::Stopping
+        ) {
             tx.commit().await?;
             return Ok(CancelDeploymentOutcome::Existing(current));
         }
