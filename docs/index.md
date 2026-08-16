@@ -7,7 +7,7 @@ Ignitify is a self-hosted control plane for running applications, Compose servic
 - [Getting started locally](/guide/getting-started) to set up the backend and dashboard.
 - [Architecture](/concepts/architecture) to understand each crate boundary and the data flow.
 - [Deployment lifecycle](/concepts/deployment-lifecycle) to understand services, environments, domains, and workers.
-- [Baseline footprint benchmark](/operations/benchmark-baseline) for a controlled idle comparison with Dokploy.
+- [Baseline footprint benchmark](/operations/benchmark-baseline) for controlled idle comparisons with Dokploy and Coolify.
 - [API reference](/reference/api) for every registered HTTP route.
 - [Ignitify Templates](https://github.com/xFlawlessDev/ignitify-templates) for the public template catalog and contribution workflow.
 
