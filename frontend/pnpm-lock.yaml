@@ -247,8 +247,8 @@ importers:
         specifier: ^6.0.0
         version: 6.0.0
       ai:
-        specifier: ^7.0.58
-        version: 7.0.58(zod@3.25.76)
+        specifier: ^7.0.65
+        version: 7.0.65(zod@3.25.76)
       ansi-to-vue3:
         specifier: ^0.1.2
         version: 0.1.2(vue@3.5.41(typescript@5.6.3))
@@ -343,14 +343,14 @@ importers:
 
 packages:
 
-  '@ai-sdk/gateway@4.0.46':
-    resolution: {integrity: sha512-LIAO6kAG8fpXQb9L0iwPk1FIbXftvqnyC56v5NEAzeWTeL8fUsy/Hx86VPBTWEDFdwbVprjWifJOAqS6AOj3mA==}
+  '@ai-sdk/gateway@4.0.52':
+    resolution: {integrity: sha512-SXUM8jzzuTUJRq+EOgPd5to6DSx0EKslVn+IVZHbUEX6k/3vCPNrvjckbK26HnNxHU/STxm+zTSJteqrO+7Z0w==}
     engines: {node: '>=22'}
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
 
-  '@ai-sdk/provider-utils@5.0.25':
-    resolution: {integrity: sha512-xscPPHCSjCHWrdhai25sbHCJeKNLW/3D1uSpUZa4cEtTKXA8OnPQ3+Rfu1SmM5Ea/Mf8Dfn3cllw9zeMzo/zFA==}
+  '@ai-sdk/provider-utils@5.0.27':
+    resolution: {integrity: sha512-EzAn4pdgG5g0xXtH6lE2zyNmfjDQIDjATkfqzuidEI35g++hh4+07vnjzkT/RmGmIClPZiRj/Q2GMPV2V7mkHw==}
     engines: {node: '>=22'}
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
@@ -1801,8 +1801,8 @@ packages:
   '@yuku-toolchain/types@0.5.43':
     resolution: {integrity: sha512-kSpvPntnXw5+lYjO71ffBEnQ5ycQ74KGIYknh0TS4xeyCuBkOqxyJumxZkMhLBBUCLjDAbx2+Icnr3Zh4ftjpQ==}
 
-  ai@7.0.58:
-    resolution: {integrity: sha512-GfgO90CQQ0yYuoxJAUOeQ6tviyYw1BUIDygSZ1q3Ce6kSc93tYmB5eltKY/NxC0YOouAax7JvDqVnYxvIAr04Q==}
+  ai@7.0.65:
+    resolution: {integrity: sha512-Uzom971mOHETL9tbeCWDEgbAA/Banj0KnR2obNEWPEUlGnAv2NJjFIxrUZ6F0XxHFDgGVVpnz86BB2CPOZZ83g==}
     engines: {node: '>=22'}
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
@@ -2174,8 +2174,8 @@ packages:
   estree-walker@3.0.3:
     resolution: {integrity: sha512-7RUKfXgSMMkzt6ZuXmqapOurLGPPfgj6l9uRZ7lRGolvk0y2yocc35LdcxKC5PQZdn2DMqioAQ2NoWcrTKmm6g==}
 
-  eventsource-parser@3.1.0:
-    resolution: {integrity: sha512-kJezFj9YFAMLeORyi7aCLxLbD5/qWMQnoMVlVPyHIll7lgRJCc3JVln9Vgl9nwQi0YkMnhdGTMNn7CkRRAptMg==}
+  eventsource-parser@3.1.1:
+    resolution: {integrity: sha512-EKN1vKAMcZ8MlYMpaNuxN6R9yakzH6uajHcHVTqWJzvu5pWw9DyhbP35HH8MVBQ+dZjAfDxk+A8NiR9KWaXiyQ==}
     engines: {node: '>=18.0.0'}
 
   expect-type@1.4.0:
@@ -3226,19 +3226,19 @@ packages:
 
 snapshots:
 
-  '@ai-sdk/gateway@4.0.46(zod@3.25.76)':
+  '@ai-sdk/gateway@4.0.52(zod@3.25.76)':
     dependencies:
       '@ai-sdk/provider': 4.0.7
-      '@ai-sdk/provider-utils': 5.0.25(zod@3.25.76)
+      '@ai-sdk/provider-utils': 5.0.27(zod@3.25.76)
       '@vercel/oidc': 3.2.0
       zod: 3.25.76
 
-  '@ai-sdk/provider-utils@5.0.25(zod@3.25.76)':
+  '@ai-sdk/provider-utils@5.0.27(zod@3.25.76)':
     dependencies:
       '@ai-sdk/provider': 4.0.7
       '@standard-schema/spec': 1.1.0
       '@workflow/serde': 4.1.0
-      eventsource-parser: 3.1.0
+      eventsource-parser: 3.1.1
       undici: 7.29.0
       zod: 3.25.76
 
@@ -4427,11 +4427,11 @@ snapshots:
 
   '@yuku-toolchain/types@0.5.43': {}
 
-  ai@7.0.58(zod@3.25.76):
+  ai@7.0.65(zod@3.25.76):
     dependencies:
-      '@ai-sdk/gateway': 4.0.46(zod@3.25.76)
+      '@ai-sdk/gateway': 4.0.52(zod@3.25.76)
       '@ai-sdk/provider': 4.0.7
-      '@ai-sdk/provider-utils': 5.0.25(zod@3.25.76)
+      '@ai-sdk/provider-utils': 5.0.27(zod@3.25.76)
       zod: 3.25.76
 
   alien-signals@3.2.1: {}
@@ -4812,7 +4812,7 @@ snapshots:
     dependencies:
       '@types/estree': 1.0.9
 
-  eventsource-parser@3.1.0: {}
+  eventsource-parser@3.1.1: {}
 
   expect-type@1.4.0: {}
 
