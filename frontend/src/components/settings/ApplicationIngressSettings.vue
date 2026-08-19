@@ -193,7 +193,8 @@ function updateCustomCertificate(value: string | number) {
             Published application setup
           </h3>
           <p class="mt-1 text-xs leading-5 text-muted-foreground">
-            Replace the example hostnames and tunnel ID with values for your own environment.
+            Use the configured hostnames and replace the tunnel ID with a value from your own
+            environment.
           </p>
         </div>
         <ol class="grid gap-3 text-xs leading-5 text-muted-foreground">
@@ -201,7 +202,7 @@ function updateCustomCertificate(value: string | number) {
             <span class="font-mono text-foreground">01</span>
             <p>
               In Cloudflare DNS, create a proxied CNAME record:
-              <code class="font-mono text-foreground">*.apps.example.com</code>
+              <code class="font-mono text-foreground">{{ serviceWildcard }}</code>
               to
               <code class="break-all font-mono text-foreground"
                 >&lt;tunnel-id&gt;.cfargotunnel.com</code
@@ -212,7 +213,7 @@ function updateCustomCertificate(value: string | number) {
             <span class="font-mono text-foreground">02</span>
             <p>
               In the Tunnel, add a published application route from
-              <code class="font-mono text-foreground">*.apps.example.com</code>
+              <code class="font-mono text-foreground">{{ serviceWildcard }}</code>
               to
               <code class="font-mono text-foreground">http://127.0.0.1:80</code>.
             </p>
@@ -242,12 +243,13 @@ function updateCustomCertificate(value: string | number) {
             <span class="font-mono text-foreground">05</span>
             <p>
               {{ t("ingressSetup.cloudflareExternalConfiguration") }}
-              <code class="font-mono text-foreground">IGNITIFY_REMOTE_MODE=true</code>,
-              <code class="font-mono text-foreground">IGNITIFY_TRUST_PROXY_HEADERS=true</code>, and
-              an HTTPS
+              <code class="font-mono text-foreground">IGNITIFY_REMOTE_MODE=true</code> and an HTTPS
               <code class="break-all font-mono text-foreground"
                 >IGNITIFY_TRUSTED_ORIGINS={{ controlPlaneOrigin }}</code
-              >, {{ t("ingressSetup.cloudflareRestart") }}
+              >.
+              {{ t("ingressSetup.cloudflareProxyHeaders") }}
+              <code class="font-mono text-foreground">IGNITIFY_SECURE_COOKIES=true</code>,
+              {{ t("ingressSetup.cloudflareRestart") }}
             </p>
           </li>
           <li class="grid grid-cols-[1.5rem_minmax(0,1fr)] gap-2">

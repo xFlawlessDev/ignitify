@@ -154,6 +154,7 @@ export default {
     },
     event: {
       deploymentQueued: "Deployment diantrikan",
+      deploymentRollbackRequested: "Rollback deployment diminta",
       deploymentPreparing: "Deployment disiapkan",
       deploymentRunning: "Deployment berjalan",
       deploymentHealthy: "Deployment sehat",
@@ -447,8 +448,10 @@ export default {
     cloudflareControlPlaneDnsPrefix: "Buat record CNAME terproksi lain untuk",
     cloudflareControlPlaneRoutePrefix: "Di Tunnel, tambahkan published application route dari",
     cloudflareExternalProxySuffix: "setup proxy eksternal, bukan route Traefik terkelola.",
-    cloudflareExternalConfiguration: "Sebelum mengekspos console, konfigurasi",
+    cloudflareExternalConfiguration:
+      "Karena tunnel langsung ini melewati route control-plane Traefik terkelola, konfigurasi",
     cloudflareRestart: "lalu restart Ignitify.",
+    cloudflareProxyHeaders: "Mode remote otomatis mempercayai header proxy; pertahankan",
     cloudflareTls:
       "Cloudflare mengakhiri TLS publik. Jangan konfigurasi hostname ini juga sebagai domain admin terkelola. Nonaktifkan HTTPS default Ignitify dan sertifikat otomatis kecuali Traefik dapat dijangkau langsung untuk validasi ACME.",
   },

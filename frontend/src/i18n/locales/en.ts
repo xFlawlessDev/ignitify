@@ -155,6 +155,7 @@ export default {
     },
     event: {
       deploymentQueued: "Deployment queued",
+      deploymentRollbackRequested: "Deployment rollback requested",
       deploymentPreparing: "Deployment preparing",
       deploymentRunning: "Deployment running",
       deploymentHealthy: "Deployment healthy",
@@ -445,8 +446,10 @@ export default {
     cloudflareControlPlaneDnsPrefix: "Create another proxied CNAME record for",
     cloudflareControlPlaneRoutePrefix: "In the Tunnel, add a published application route from",
     cloudflareExternalProxySuffix: "external-proxy setup, not the managed Traefik route.",
-    cloudflareExternalConfiguration: "Before exposing the console, configure",
+    cloudflareExternalConfiguration:
+      "Because this direct tunnel bypasses the managed Traefik control-plane route, configure",
     cloudflareRestart: "then restart Ignitify.",
+    cloudflareProxyHeaders: "Remote mode enables trusted proxy headers automatically; keep",
     cloudflareTls:
       "Cloudflare terminates public TLS. Do not also configure this hostname as the managed admin domain. Disable Ignitify default HTTPS and automatic certificates unless Traefik is directly reachable for ACME validation.",
   },

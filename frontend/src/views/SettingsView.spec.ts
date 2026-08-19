@@ -286,6 +286,28 @@ describe("SettingsView", () => {
     expect(payload?.control_plane_domain).toBe("console.apps.example.com");
   });
 
+  it("shows the current Cloudflare Tunnel environment requirements", async () => {
+    mocks.getInfrastructure.mockResolvedValue({
+      success: true,
+      data: {
+        ...initialSettings,
+        control_plane_domain: "admin.example.com",
+        application_domain_suffix: "apps.example.com",
+        dns_record_type: "cname",
+        dns_record_target: "tunnel-id.cfargotunnel.com",
+      },
+    });
+
+    const { host } = await mountSettings();
+    await selectSection(host, "Ingress & TLS");
+
+    expect(host.textContent).toContain("*.apps.example.com");
+    expect(host.textContent).toContain("IGNITIFY_REMOTE_MODE=true");
+    expect(host.textContent).toContain("IGNITIFY_TRUSTED_ORIGINS=https://admin.example.com");
+    expect(host.textContent).toContain("IGNITIFY_SECURE_COOKIES=true");
+    expect(host.textContent).not.toContain("IGNITIFY_TRUST_PROXY_HEADERS=true");
+  });
+
   it("persists a custom unmatched-hostname page", async () => {
     const { host } = await mountSettings();
     await selectSection(host, "Ingress & TLS");
