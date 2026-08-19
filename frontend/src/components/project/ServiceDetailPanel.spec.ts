@@ -118,6 +118,65 @@ describe("ServiceDetailPanel", () => {
     app.unmount();
   });
 
+  it("offers rollback for a superseded revision behind the active deployment", async () => {
+    const component = (await import("./ServiceDetailPanel.vue")).default;
+    const onRollback = vi.fn();
+    const host = document.createElement("div");
+    document.body.append(host);
+    const app = createApp(component, {
+      service: { ...service, desired_state: "running" as const },
+      deployments: [
+        {
+          id: "deployment-current",
+          service_id: "service-1",
+          generation: 3,
+          status: "healthy" as const,
+          failure_reason: null,
+          created_at: "2026-08-02T00:00:00Z",
+          started_at: "2026-08-02T00:00:01Z",
+          finished_at: null,
+        },
+        {
+          id: "deployment-superseded",
+          service_id: "service-1",
+          generation: 2,
+          status: "superseded" as const,
+          failure_reason: null,
+          created_at: "2026-08-01T00:00:00Z",
+          started_at: "2026-08-01T00:00:01Z",
+          finished_at: "2026-08-02T00:00:02Z",
+        },
+      ],
+      logs: [],
+      connected: true,
+      streamError: null,
+      submitting: false,
+      canManage: true,
+      selectedDeploymentId: null,
+      onDeploy: vi.fn(),
+      onStop: vi.fn(),
+      onRollback,
+      onEdit: vi.fn(),
+      onSelectDeployment: vi.fn(),
+    });
+    app.use(i18n);
+    app.mount(host);
+    await nextTick();
+
+    const deploymentsButton = [...host.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("Deployments"),
+    ) as HTMLButtonElement;
+    deploymentsButton.click();
+    await nextTick();
+    const rollbackButton = [...host.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("Rollback"),
+    ) as HTMLButtonElement;
+    rollbackButton.click();
+
+    expect(onRollback.mock.calls).toEqual([["deployment-superseded"]]);
+    app.unmount();
+  });
+
   it("shows stop for an active deployment even when desired state is stopped", async () => {
     const component = (await import("./ServiceDetailPanel.vue")).default;
     const onStop = vi.fn();

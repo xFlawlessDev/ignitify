@@ -64,6 +64,7 @@ pub(super) fn deployment_from_row(row: DeploymentRow) -> Result<DeploymentRecord
         service_id: parse_service_id(row.service_id)?,
         generation: row.generation,
         idempotency_key: row.idempotency_key,
+        rollback_of_deployment_id: row.rollback_of_deployment_id,
         requested_by_user_id: row.requested_by_user_id,
         spec: row
             .runtime_spec_json
@@ -149,6 +150,7 @@ pub(super) struct DeploymentRow {
     pub(super) service_id: String,
     pub(super) generation: i64,
     pub(super) idempotency_key: String,
+    pub(super) rollback_of_deployment_id: Option<String>,
     pub(super) requested_by_user_id: String,
     pub(super) spec_json: String,
     pub(super) runtime_spec_json: Option<String>,
@@ -180,6 +182,7 @@ pub(super) struct DeploymentWithProjectRow {
     pub(super) service_id: String,
     pub(super) generation: i64,
     pub(super) idempotency_key: String,
+    pub(super) rollback_of_deployment_id: Option<String>,
     pub(super) requested_by_user_id: String,
     pub(super) spec_json: String,
     pub(super) runtime_spec_json: Option<String>,
@@ -213,6 +216,7 @@ impl From<DeploymentWithProjectRow> for DeploymentRow {
             service_id: row.service_id,
             generation: row.generation,
             idempotency_key: row.idempotency_key,
+            rollback_of_deployment_id: row.rollback_of_deployment_id,
             requested_by_user_id: row.requested_by_user_id,
             spec_json: row.spec_json,
             runtime_spec_json: row.runtime_spec_json,

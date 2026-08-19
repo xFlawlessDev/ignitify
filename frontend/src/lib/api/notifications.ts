@@ -5,6 +5,7 @@ export type NotificationChannelKind = "telegram" | "discord" | "smtp" | "resend"
 
 export type NotificationEventKind =
   | "deployment.queued"
+  | "deployment.rollback_requested"
   | "deployment.preparing"
   | "deployment.running"
   | "deployment.healthy"

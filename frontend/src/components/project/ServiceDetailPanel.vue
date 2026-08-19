@@ -88,7 +88,12 @@ const lastVisibleDeployment = computed(() =>
 );
 const latestDeployment = computed(() => serviceDeployments.value[0] ?? null);
 const rollbackTarget = computed(
-  () => serviceDeployments.value.find((deployment) => deployment.status === "healthy") ?? null,
+  () =>
+    serviceDeployments.value.find(
+      (deployment) =>
+        deployment.id !== serviceDeployments.value[0]?.id &&
+        ["healthy", "superseded", "stopped"].includes(deployment.status),
+    ) ?? null,
 );
 const needsConfiguration = computed(() => props.service.source_config?.setup_required === true);
 const canStop = computed(
@@ -472,7 +477,9 @@ function goToNextDeploymentPage() {
           </Button>
           <Button
             v-if="
-              canManage && deployment.status === 'healthy' && deployment.id !== latestDeployment?.id
+              canManage &&
+              ['healthy', 'superseded', 'stopped'].includes(deployment.status) &&
+              deployment.id !== latestDeployment?.id
             "
             size="sm"
             variant="outline"

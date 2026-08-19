@@ -1968,7 +1968,41 @@ async fn service_repository_persists_source_configuration_separately_from_runtim
     let crate::CreateDeploymentOutcome::Created(rollback) = rollback else {
         panic!("rollback must be created");
     };
+    assert_eq!(
+        rollback.rollback_of_deployment_id.as_deref(),
+        Some(stored.id.as_str())
+    );
     assert_eq!(rollback.source_revision, stored.source_revision);
+    assert_eq!(rollback.local_image_id, stored.local_image_id);
+    assert_eq!(rollback.spec, stored.spec);
+    let rollback_events = database
+        .deployments()
+        .events(rollback.id.as_str())
+        .await
+        .unwrap();
+    assert!(
+        rollback_events
+            .iter()
+            .any(|event| event.kind == "deployment.rollback_requested")
+    );
+    let activity = database
+        .activity()
+        .list_for_project(
+            ActivityActor {
+                id: &actor_id,
+                is_admin: false,
+            },
+            project.id.as_str(),
+            None,
+            None,
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(activity.iter().any(|entry| {
+        entry.action == "deployment.rollback"
+            && entry.resource_id.as_deref() == Some(rollback.id.as_str())
+    }));
 }
 
 #[tokio::test]

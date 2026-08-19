@@ -8,6 +8,7 @@ import {
   ShieldCheck,
   Square,
 } from "@lucide/vue";
+import { computed } from "vue";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -57,6 +58,18 @@ const statusLabels: Record<DeploymentState, string> = {
   stopping: "Stopping",
   superseded: "Superseded",
 };
+
+const latestDeploymentIds = computed(() => {
+  const ids = new Set<string>();
+  const services = new Set<string>();
+  for (const deployment of props.deployments) {
+    if (!services.has(deployment.service_id)) {
+      services.add(deployment.service_id);
+      ids.add(deployment.id);
+    }
+  }
+  return ids;
+});
 
 function statusClass(status: DeploymentState) {
   if (status === "failed") return "text-destructive";
@@ -254,7 +267,8 @@ function formatTime(value: string) {
             v-if="
               deployment.status === 'healthy' ||
               deployment.status === 'running' ||
-              deployment.status === 'stopped'
+              deployment.status === 'stopped' ||
+              deployment.status === 'superseded'
             "
             class="flex items-center gap-1"
           >
@@ -290,7 +304,14 @@ function formatTime(value: string) {
               </TooltipTrigger>
               <TooltipContent>Stop service</TooltipContent>
             </Tooltip>
-            <Tooltip v-if="deployment.status === 'healthy' || deployment.status === 'stopped'">
+            <Tooltip
+              v-if="
+                !latestDeploymentIds.has(deployment.id) &&
+                (deployment.status === 'healthy' ||
+                  deployment.status === 'stopped' ||
+                  deployment.status === 'superseded')
+              "
+            >
               <TooltipTrigger as-child>
                 <Button
                   class="app-action-icon"

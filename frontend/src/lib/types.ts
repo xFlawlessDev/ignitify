@@ -270,6 +270,7 @@ export interface DeploymentSummary {
   correlation_id: string;
   service_id: string;
   generation: number;
+  rollback_of_deployment_id?: string | null;
   status: DeploymentState;
   failure_reason: string | null;
   attempt_count: number;

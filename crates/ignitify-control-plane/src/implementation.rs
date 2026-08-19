@@ -321,63 +321,74 @@ where
         publisher.clone(),
         deployment.id.as_str(),
     );
-    source_logs.system("Source build started").await?;
-    let (runtime_deployment, source_revision) = match source_build
-        .build(&deployment, &source_logs)
-        .await
-    {
-        Ok(Some(output)) => {
-            source_logs.system("Source build completed").await?;
-            if deployments.cancel_requested(deployment.id.as_str()).await? {
-                return Ok(());
-            }
-            let source_revision = output.source_revision;
-            let local_image_id = output.local_image_id;
-            let runtime_spec = output.runtime_spec;
-            deployments
-                .record_source_resolution(
-                    deployment.id.as_str(),
-                    &source_revision,
-                    local_image_id.as_deref(),
-                    runtime_spec.as_ref(),
-                )
-                .await?;
-            let mut runtime_deployment = RuntimeDeployment::from(&deployment);
-            runtime_deployment.local_image_id = local_image_id;
-            if let Some(spec) = runtime_spec {
-                runtime_deployment.spec = spec;
-            }
-            (runtime_deployment, Some(source_revision))
-        }
-        Ok(None) => (
+    let reuse_rollback_artifact = rollback_artifact_available(&deployment);
+    if reuse_rollback_artifact {
+        source_logs
+            .system("Reusing the stored rollback artifact")
+            .await?;
+    } else {
+        source_logs.system("Source build started").await?;
+    }
+    let (runtime_deployment, source_revision) = if reuse_rollback_artifact {
+        (
             RuntimeDeployment::from(&deployment),
             deployment.source_revision.clone(),
-        ),
-        Err(error) => {
-            tracing::warn!(deployment_id = %deployment.id, error = %error, "deployment source build failed");
-            if deployments.cancel_requested(deployment.id.as_str()).await? {
+        )
+    } else {
+        match source_build.build(&deployment, &source_logs).await {
+            Ok(Some(output)) => {
+                source_logs.system("Source build completed").await?;
+                if deployments.cancel_requested(deployment.id.as_str()).await? {
+                    return Ok(());
+                }
+                let source_revision = output.source_revision;
+                let local_image_id = output.local_image_id;
+                let runtime_spec = output.runtime_spec;
+                deployments
+                    .record_source_resolution(
+                        deployment.id.as_str(),
+                        &source_revision,
+                        local_image_id.as_deref(),
+                        runtime_spec.as_ref(),
+                    )
+                    .await?;
+                let mut runtime_deployment = RuntimeDeployment::from(&deployment);
+                runtime_deployment.local_image_id = local_image_id;
+                if let Some(spec) = runtime_spec {
+                    runtime_deployment.spec = spec;
+                }
+                (runtime_deployment, Some(source_revision))
+            }
+            Ok(None) => (
+                RuntimeDeployment::from(&deployment),
+                deployment.source_revision.clone(),
+            ),
+            Err(error) => {
+                tracing::warn!(deployment_id = %deployment.id, error = %error, "deployment source build failed");
+                if deployments.cancel_requested(deployment.id.as_str()).await? {
+                    return Ok(());
+                }
+                let failure_reason = match error {
+                    Error::SourceBuild(reason) => format!("source build failed: {reason}"),
+                    Error::Policy(reason) => format!("source build policy rejected: {reason}"),
+                    error => format!("source build failed: {error}"),
+                };
+                let _ = source_logs
+                    .system(format!("Source build failed: {failure_reason}"))
+                    .await;
+                deployments
+                    .transition(
+                        deployment.id.as_str(),
+                        DeploymentState::Failed,
+                        None,
+                        Some(&failure_reason),
+                    )
+                    .await?;
+                publisher
+                    .publish_events(deployments, deployment.id.as_str())
+                    .await;
                 return Ok(());
             }
-            let failure_reason = match error {
-                Error::SourceBuild(reason) => format!("source build failed: {reason}"),
-                Error::Policy(reason) => format!("source build policy rejected: {reason}"),
-                error => format!("source build failed: {error}"),
-            };
-            let _ = source_logs
-                .system(format!("Source build failed: {failure_reason}"))
-                .await;
-            deployments
-                .transition(
-                    deployment.id.as_str(),
-                    DeploymentState::Failed,
-                    None,
-                    Some(&failure_reason),
-                )
-                .await?;
-            publisher
-                .publish_events(deployments, deployment.id.as_str())
-                .await;
-            return Ok(());
         }
     };
     if deployments.cancel_requested(deployment.id.as_str()).await? {
@@ -505,6 +516,20 @@ where
         cleanup_prior_deployments(deployments, runtime, &deployment, publisher).await?;
     }
     Ok(())
+}
+
+fn rollback_artifact_available(deployment: &DeploymentRecord) -> bool {
+    deployment.rollback_of_deployment_id.is_some()
+        && deployment
+            .source_config
+            .as_ref()
+            .is_some_and(|config| match config.source.as_str() {
+                "application" => {
+                    deployment.local_image_id.is_some() && deployment.source_revision.is_some()
+                }
+                "compose" => config.provider_id.is_some() && deployment.source_revision.is_some(),
+                _ => false,
+            })
 }
 
 async fn persist_logs<R>(

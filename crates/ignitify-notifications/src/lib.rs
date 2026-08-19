@@ -483,6 +483,7 @@ fn is_private_ip(address: IpAddr) -> bool {
 
 fn deployment_title(kind: &str) -> &'static str {
     match kind {
+        "deployment.rollback_requested" => "Deployment rollback requested",
         "deployment.healthy" => "Deployment healthy",
         "deployment.failed" => "Deployment failed",
         "deployment.stopped" => "Deployment stopped",
@@ -520,6 +521,10 @@ mod tests {
     #[test]
     fn deployment_notification_content_is_bounded_and_non_sensitive() {
         assert_eq!(deployment_title("deployment.healthy"), "Deployment healthy");
+        assert_eq!(
+            deployment_title("deployment.rollback_requested"),
+            "Deployment rollback requested"
+        );
         assert_eq!(
             deployment_body("deploy-123", "deployment.failed"),
             "Ignitify deployment deploy-123 emitted deployment.failed."
