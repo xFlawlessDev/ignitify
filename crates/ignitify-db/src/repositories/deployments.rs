@@ -65,12 +65,20 @@ pub struct NewDeployment {
 }
 
 #[derive(Debug, Clone)]
+pub(crate) struct RollbackArtifact {
+    pub(crate) source_deployment_id: String,
+    pub(crate) local_image_id: Option<String>,
+    pub(crate) runtime_spec: Option<ServiceSpec>,
+}
+
+#[derive(Debug, Clone)]
 pub struct DeploymentRecord {
     pub id: DeploymentId,
     pub correlation_id: String,
     pub service_id: ServiceId,
     pub generation: i64,
     pub idempotency_key: String,
+    pub rollback_of_deployment_id: Option<String>,
     pub requested_by_user_id: String,
     pub spec: ServiceSpec,
     pub source_config: Option<ServiceSourceConfig>,
@@ -214,7 +222,7 @@ async fn fetch_by_service_key(
     idempotency_key: &str,
 ) -> Result<Option<DeploymentRecord>> {
     let row = sqlx::query_as::<_, DeploymentRow>(
-        "SELECT id, correlation_id, service_id, generation, idempotency_key, requested_by_user_id, spec_json, runtime_spec_json,
+        "SELECT id, correlation_id, service_id, generation, idempotency_key, rollback_of_deployment_id, requested_by_user_id, spec_json, runtime_spec_json,
                 source_config_json, deployment_destination_id, source_revision, local_image_id, supply_chain_report_json,
                 approval_status, approval_requested_at, approved_by_user_id, approved_at, variables_ciphertext, runtime_ref,
                 status, failure_reason, attempt_count, retry_after, cancel_requested_at,
@@ -233,7 +241,7 @@ async fn fetch_deployment(
     deployment_id: &str,
 ) -> Result<Option<DeploymentRecord>> {
     let row = sqlx::query_as::<_, DeploymentRow>(
-        "SELECT id, correlation_id, service_id, generation, idempotency_key, requested_by_user_id, spec_json, runtime_spec_json,
+        "SELECT id, correlation_id, service_id, generation, idempotency_key, rollback_of_deployment_id, requested_by_user_id, spec_json, runtime_spec_json,
                 source_config_json, deployment_destination_id, source_revision, local_image_id, supply_chain_report_json,
                 approval_status, approval_requested_at, approved_by_user_id, approved_at, variables_ciphertext, runtime_ref,
                 status, failure_reason, attempt_count, retry_after, cancel_requested_at,

@@ -9,12 +9,13 @@ use ignitify_db::{
     ProjectActor, ProjectRemoveOutcome, ServiceActor, ServiceMutationOutcome,
 };
 use ignitify_domain::{
-    DeploymentState, ProjectInput, ServiceInput, SupplyChainCheckStatus, SupplyChainEnforcement,
+    ApplicationBuilder, DeploymentState, ProjectInput, ServiceInput, ServiceSourceConfig,
+    SupplyChainCheckStatus, SupplyChainEnforcement,
 };
 
 use super::{
     AgeCipher, Error, ImageRuntime, Ingress, RuntimeDeployment, RuntimeObservation, SourceBuild,
-    StreamPublisher, reconcile_once, reconcile_once_with_source,
+    StreamPublisher, process_claimed_deployment, reconcile_once, reconcile_once_with_source,
 };
 use crate::{ControlHandle, DeploymentSubmission, IngressRoute, RuntimeLog, SourceBuildOutput};
 
@@ -335,6 +336,18 @@ struct CancellingSourceBuild {
     actor_id: String,
 }
 
+struct UnexpectedSourceBuild;
+
+impl SourceBuild for UnexpectedSourceBuild {
+    async fn build(
+        &self,
+        _deployment: &DeploymentRecord,
+        _logs: &super::DeploymentLogSink,
+    ) -> super::Result<Option<SourceBuildOutput>> {
+        panic!("stored rollback artifact should bypass source build");
+    }
+}
+
 struct ResolvingSourceBuild;
 
 impl SourceBuild for ResolvingSourceBuild {
@@ -368,6 +381,63 @@ impl SourceBuild for CancellingSourceBuild {
             .await?;
         Ok(None)
     }
+}
+
+#[tokio::test]
+async fn rollback_reuses_stored_source_artifact_without_rebuilding() {
+    let context = queued_image_deployment().await;
+    let claimed = context
+        .database
+        .deployments()
+        .claim_next()
+        .await
+        .unwrap()
+        .unwrap();
+    let mut rollback = claimed.clone();
+    rollback.rollback_of_deployment_id = Some("source-deployment".to_owned());
+    rollback.source_revision = Some("a".repeat(40));
+    rollback.local_image_id = Some(format!("sha256:{}", "b".repeat(64)));
+    rollback.source_config = Some(ServiceSourceConfig {
+        source: "application".to_owned(),
+        template: None,
+        setup_required: Some(false),
+        provider_id: Some("provider-1".to_owned()),
+        repository: Some("acme/site".to_owned()),
+        branch: Some("main".to_owned()),
+        builder: Some(ApplicationBuilder::Dockerfile),
+        dockerfile_path: Some("Dockerfile".to_owned()),
+        build_command: None,
+        output_directory: None,
+        auto_deploy: false,
+    });
+
+    process_claimed_deployment(
+        &context.database.deployments(),
+        &context.database.domains(),
+        &context.cipher,
+        &RecordingRuntime::new(),
+        &ReadyIngress,
+        &UnexpectedSourceBuild,
+        &publisher(),
+        rollback,
+    )
+    .await
+    .unwrap();
+
+    let stored = context
+        .database
+        .deployments()
+        .get(
+            DeploymentActor {
+                id: &context.actor_id,
+                is_admin: false,
+            },
+            context.deployment.id.as_str(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(stored.state, DeploymentState::Healthy);
 }
 
 #[tokio::test]

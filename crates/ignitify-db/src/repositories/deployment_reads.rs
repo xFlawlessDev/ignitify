@@ -7,9 +7,9 @@ use uuid::Uuid;
 use super::{
     AuthorizedDeploymentService, CreateDeploymentOutcome, DeploymentActor, DeploymentApproval,
     DeploymentRecord, DeploymentRow, DeploymentWithProjectRow, DeploymentsRepository,
-    NewDeployment, ProjectVariableRow, ServiceRow, VariableRow, decode_source_config, decode_spec,
-    deployment_from_row, fetch_by_service_key, fetch_deployment, history_limit, insert_audit,
-    insert_event, next_generation, parse_service_id,
+    NewDeployment, ProjectVariableRow, RollbackArtifact, ServiceRow, VariableRow,
+    decode_source_config, decode_spec, deployment_from_row, fetch_by_service_key, fetch_deployment,
+    history_limit, insert_audit, insert_event, next_generation, parse_service_id,
 };
 use crate::Result;
 
@@ -79,6 +79,17 @@ impl DeploymentsRepository {
         service_id: &str,
         deployment: NewDeployment,
     ) -> Result<CreateDeploymentOutcome> {
+        self.create_with_rollback(actor, service_id, deployment, None)
+            .await
+    }
+
+    pub(super) async fn create_with_rollback(
+        &self,
+        actor: DeploymentActor<'_>,
+        service_id: &str,
+        deployment: NewDeployment,
+        rollback: Option<RollbackArtifact>,
+    ) -> Result<CreateDeploymentOutcome> {
         let Some(service) = self.service_for_deployment(actor, service_id).await? else {
             return Ok(CreateDeploymentOutcome::Missing);
         };
@@ -126,13 +137,25 @@ impl DeploymentsRepository {
             .map(serde_json::to_string)
             .transpose()
             .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
+        let rollback_of_deployment_id = rollback
+            .as_ref()
+            .map(|artifact| artifact.source_deployment_id.as_str());
+        let local_image_id = rollback
+            .as_ref()
+            .and_then(|artifact| artifact.local_image_id.as_deref());
+        let runtime_spec_json = rollback
+            .as_ref()
+            .and_then(|artifact| artifact.runtime_spec.as_ref())
+            .map(serde_json::to_string)
+            .transpose()
+            .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
         let inserted = sqlx::query(
             "INSERT INTO deployments (
-                id, correlation_id, service_id, generation, idempotency_key, requested_by_user_id, spec_json,
-                source_config_json, deployment_destination_id, source_revision, supply_chain_report_json,
+                id, correlation_id, service_id, generation, idempotency_key, rollback_of_deployment_id, requested_by_user_id, spec_json,
+                source_config_json, deployment_destination_id, source_revision, local_image_id, runtime_spec_json, supply_chain_report_json,
                 approval_status, approval_requested_at, approved_by_user_id, approved_at,
                 variables_ciphertext, status, created_at
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?)
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', ?)
              ON CONFLICT(service_id, idempotency_key) DO NOTHING
              ON CONFLICT(service_id) WHERE status IN ('queued', 'preparing', 'running') DO NOTHING",
         )
@@ -141,11 +164,14 @@ impl DeploymentsRepository {
         .bind(service.id.as_str())
         .bind(generation)
         .bind(&deployment.idempotency_key)
+        .bind(rollback_of_deployment_id)
         .bind(&deployment.requested_by_user_id)
         .bind(spec_json)
         .bind(source_config_json)
         .bind(&deployment.deployment_destination_id)
         .bind(source_revision)
+        .bind(local_image_id)
+        .bind(runtime_spec_json)
         .bind(supply_chain_report_json)
         .bind(approval.status.as_str())
         .bind(&approval.requested_at)
@@ -188,10 +214,24 @@ impl DeploymentsRepository {
         } else {
             insert_event(&mut tx, &id, "deployment.queued", json!({}), &now).await?;
         }
+        if let Some(artifact) = rollback.as_ref() {
+            insert_event(
+                &mut tx,
+                &id,
+                "deployment.rollback_requested",
+                json!({ "source_deployment_id": artifact.source_deployment_id }),
+                &now,
+            )
+            .await?;
+        }
         insert_audit(
             &mut tx,
             &deployment.requested_by_user_id,
-            "deployment.create",
+            if rollback.is_some() {
+                "deployment.rollback"
+            } else {
+                "deployment.create"
+            },
             &id,
             &correlation_id,
             &now,
@@ -210,7 +250,7 @@ impl DeploymentsRepository {
         deployment_id: &str,
     ) -> Result<Option<DeploymentRecord>> {
         let row = sqlx::query_as::<_, DeploymentWithProjectRow>(
-            "SELECT d.id, d.correlation_id, d.service_id, d.generation, d.idempotency_key, d.requested_by_user_id,
+            "SELECT d.id, d.correlation_id, d.service_id, d.generation, d.idempotency_key, d.rollback_of_deployment_id, d.requested_by_user_id,
                     d.spec_json, d.runtime_spec_json, d.source_config_json, d.deployment_destination_id, d.source_revision, d.local_image_id, d.supply_chain_report_json,
                     d.approval_status, d.approval_requested_at, d.approved_by_user_id, d.approved_at,
                     d.variables_ciphertext, d.runtime_ref, d.status, d.failure_reason,
@@ -248,7 +288,7 @@ impl DeploymentsRepository {
             return Ok(None);
         }
         let rows = sqlx::query_as::<_, DeploymentRow>(
-            "SELECT id, correlation_id, service_id, generation, idempotency_key, requested_by_user_id, spec_json, runtime_spec_json,
+            "SELECT id, correlation_id, service_id, generation, idempotency_key, rollback_of_deployment_id, requested_by_user_id, spec_json, runtime_spec_json,
                     source_config_json, deployment_destination_id, source_revision, local_image_id, supply_chain_report_json,
                     approval_status, approval_requested_at, approved_by_user_id, approved_at, variables_ciphertext, runtime_ref,
                     status, failure_reason, attempt_count, retry_after, cancel_requested_at,
@@ -280,7 +320,7 @@ impl DeploymentsRepository {
             return Ok(None);
         }
         let rows = sqlx::query_as::<_, DeploymentRow>(
-            "SELECT d.id, d.correlation_id, d.service_id, d.generation, d.idempotency_key, d.requested_by_user_id,
+            "SELECT d.id, d.correlation_id, d.service_id, d.generation, d.idempotency_key, d.rollback_of_deployment_id, d.requested_by_user_id,
                     d.spec_json, d.runtime_spec_json, d.source_config_json, d.deployment_destination_id, d.source_revision, d.local_image_id, d.supply_chain_report_json,
                     d.approval_status, d.approval_requested_at, d.approved_by_user_id, d.approved_at,
                     d.variables_ciphertext, d.runtime_ref, d.status, d.failure_reason,
@@ -317,7 +357,7 @@ impl DeploymentsRepository {
             return Ok(None);
         }
         let row = sqlx::query_as::<_, DeploymentRow>(
-            "SELECT id, correlation_id, service_id, generation, idempotency_key, requested_by_user_id, spec_json, runtime_spec_json,
+            "SELECT id, correlation_id, service_id, generation, idempotency_key, rollback_of_deployment_id, requested_by_user_id, spec_json, runtime_spec_json,
                     source_config_json, deployment_destination_id, source_revision, local_image_id, supply_chain_report_json,
                     approval_status, approval_requested_at, approved_by_user_id, approved_at, variables_ciphertext, runtime_ref,
                     status, failure_reason, attempt_count, retry_after, cancel_requested_at,

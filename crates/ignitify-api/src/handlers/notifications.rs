@@ -25,6 +25,7 @@ const MAX_CHANNEL_NAME_LENGTH: usize = 100;
 const MAX_SECRET_LENGTH: usize = 4 * 1024;
 const NOTIFICATION_EVENTS: &[&str] = &[
     "deployment.queued",
+    "deployment.rollback_requested",
     "deployment.preparing",
     "deployment.running",
     "deployment.healthy",
@@ -711,6 +712,7 @@ mod tests {
             "backup.failed".to_owned(),
             "remote_agent.offline".to_owned(),
             "deployment.healthy".to_owned(),
+            "deployment.rollback_requested".to_owned(),
             "backup.failed".to_owned(),
         ])
         .unwrap();
@@ -719,6 +721,7 @@ mod tests {
             [
                 "backup.failed",
                 "deployment.healthy",
+                "deployment.rollback_requested",
                 "remote_agent.offline"
             ]
         );

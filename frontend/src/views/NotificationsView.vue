@@ -75,6 +75,10 @@ const kinds: { value: NotificationChannelKind; labelKey: string; icon: Component
 
 const events: { value: NotificationEventKind; labelKey: string }[] = [
   { value: "deployment.queued", labelKey: "notifications.event.deploymentQueued" },
+  {
+    value: "deployment.rollback_requested",
+    labelKey: "notifications.event.deploymentRollbackRequested",
+  },
   { value: "deployment.preparing", labelKey: "notifications.event.deploymentPreparing" },
   { value: "deployment.running", labelKey: "notifications.event.deploymentRunning" },
   { value: "deployment.healthy", labelKey: "notifications.event.deploymentHealthy" },

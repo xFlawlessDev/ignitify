@@ -5,8 +5,8 @@ use serde_json::json;
 use super::{
     CancelDeploymentOutcome, CreateDeploymentOutcome, DatabaseError, DeploymentActor,
     DeploymentApprovalOutcome, DeploymentRecord, DeploymentRow, DeploymentState,
-    DeploymentsRepository, NewDeployment, ProjectMemberRole, Result, deployment_from_row,
-    fetch_deployment, insert_audit, insert_event,
+    DeploymentsRepository, NewDeployment, ProjectMemberRole, Result, RollbackArtifact,
+    deployment_from_row, fetch_deployment, insert_audit, insert_event,
 };
 
 impl DeploymentsRepository {
@@ -320,7 +320,7 @@ impl DeploymentsRepository {
         deployment_id: &str,
     ) -> Result<Vec<DeploymentRecord>> {
         let rows = sqlx::query_as::<_, DeploymentRow>(
-            "SELECT id, correlation_id, service_id, generation, idempotency_key, requested_by_user_id, spec_json, runtime_spec_json,
+            "SELECT id, correlation_id, service_id, generation, idempotency_key, rollback_of_deployment_id, requested_by_user_id, spec_json, runtime_spec_json,
                     source_config_json, deployment_destination_id, source_revision, local_image_id, supply_chain_report_json,
                     approval_status, approval_requested_at, approved_by_user_id, approved_at, variables_ciphertext, runtime_ref,
                     status, failure_reason, attempt_count, retry_after, cancel_requested_at,
@@ -423,7 +423,7 @@ impl DeploymentsRepository {
 
     pub async fn routable(&self) -> Result<Vec<DeploymentRecord>> {
         let rows = sqlx::query_as::<_, DeploymentRow>(
-            "SELECT id, correlation_id, service_id, generation, idempotency_key, requested_by_user_id, spec_json, runtime_spec_json,
+            "SELECT id, correlation_id, service_id, generation, idempotency_key, rollback_of_deployment_id, requested_by_user_id, spec_json, runtime_spec_json,
                     source_config_json, deployment_destination_id, source_revision, local_image_id, supply_chain_report_json,
                     approval_status, approval_requested_at, approved_by_user_id, approved_at, variables_ciphertext, runtime_ref,
                     status, failure_reason, attempt_count, retry_after, cancel_requested_at,
@@ -437,7 +437,7 @@ impl DeploymentsRepository {
 
     pub async fn nonterminal(&self) -> Result<Vec<DeploymentRecord>> {
         let rows = sqlx::query_as::<_, DeploymentRow>(
-            "SELECT id, correlation_id, service_id, generation, idempotency_key, requested_by_user_id, spec_json, runtime_spec_json,
+            "SELECT id, correlation_id, service_id, generation, idempotency_key, rollback_of_deployment_id, requested_by_user_id, spec_json, runtime_spec_json,
                     source_config_json, deployment_destination_id, source_revision, local_image_id, supply_chain_report_json,
                     approval_status, approval_requested_at, approved_by_user_id, approved_at, variables_ciphertext, runtime_ref,
                     status, failure_reason, attempt_count, retry_after, cancel_requested_at,
@@ -469,7 +469,25 @@ impl DeploymentsRepository {
         if !actor.is_admin && !service.role.can_manage_services() {
             return Ok(CreateDeploymentOutcome::Forbidden);
         }
-        self.create(
+        let artifact_available =
+            source
+                .source_config
+                .as_ref()
+                .is_some_and(|config| match config.source.as_str() {
+                    "application" => {
+                        source.local_image_id.is_some() && source.source_revision.is_some()
+                    }
+                    "compose" => config.provider_id.is_some() && source.source_revision.is_some(),
+                    _ => false,
+                });
+        let rollback_artifact = RollbackArtifact {
+            source_deployment_id: source.id.to_string(),
+            local_image_id: artifact_available
+                .then(|| source.local_image_id.clone())
+                .flatten(),
+            runtime_spec: artifact_available.then(|| source.spec.clone()),
+        };
+        self.create_with_rollback(
             actor,
             source.service_id.as_str(),
             NewDeployment {
@@ -482,6 +500,7 @@ impl DeploymentsRepository {
                 supply_chain_report: source.supply_chain_report,
                 variables_ciphertext: source.variables_ciphertext,
             },
+            Some(rollback_artifact),
         )
         .await
     }
