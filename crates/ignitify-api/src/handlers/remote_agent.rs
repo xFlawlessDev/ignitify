@@ -249,7 +249,18 @@ fn validate_heartbeat(request: &RemoteServerAgentHeartbeatRequest) -> Result<(),
 }
 
 fn hash_token(token: &str) -> String {
-    format!("{:x}", Sha256::digest(token.as_bytes()))
+    let digest = Sha256::digest(token.as_bytes());
+    hex_encode(digest.as_ref())
+}
+
+fn hex_encode(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut output = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        output.push(HEX[(byte >> 4) as usize] as char);
+        output.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+    output
 }
 
 fn bearer_token(headers: &HeaderMap) -> Option<&str> {

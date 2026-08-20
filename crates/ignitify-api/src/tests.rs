@@ -11,7 +11,7 @@ use axum::{
     http::{Request, StatusCode},
 };
 use futures_util::StreamExt;
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use http_body_util::BodyExt;
 use ignitify_auth::AuthConfig;
 use ignitify_control_plane::{
@@ -27,6 +27,16 @@ use sha2::{Digest, Sha256};
 use tower::ServiceExt;
 
 use crate::{DomainPolicy, router, state::AppState};
+
+fn hex_encode(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut output = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        output.push(HEX[(byte >> 4) as usize] as char);
+        output.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+    output
+}
 
 async fn state() -> AppState {
     let database = ignitify_db::Database::connect(&DatabaseConfig {
@@ -843,7 +853,10 @@ async fn verified_github_push_webhook_queues_one_pinned_deployment() {
 
     let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes()).unwrap();
     mac.update(body);
-    let signature = format!("sha256:{:x}", mac.finalize().into_bytes());
+    let signature = format!(
+        "sha256:{}",
+        hex_encode(mac.finalize().into_bytes().as_ref())
+    );
     let mut valid = Request::builder()
         .method("POST")
         .uri(format!("/api/v1/webhooks/services/{service_id}"))
@@ -865,7 +878,10 @@ async fn verified_github_push_webhook_queues_one_pinned_deployment() {
         .header("x-hub-signature-256", {
             let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes()).unwrap();
             mac.update(body);
-            format!("sha256:{:x}", mac.finalize().into_bytes())
+            format!(
+                "sha256:{}",
+                hex_encode(mac.finalize().into_bytes().as_ref())
+            )
         })
         .header("x-github-delivery", "delivery-1")
         .body(Body::from(body.as_slice().to_vec()))
@@ -930,7 +946,8 @@ async fn remote_agent_heartbeat_authenticates_and_persists_metrics() {
         .await
         .unwrap();
     let token = "agent-test-token";
-    let hash = format!("{:x}", Sha256::digest(token.as_bytes()));
+    let digest = Sha256::digest(token.as_bytes());
+    let hash = hex_encode(digest.as_ref());
     state
         .database
         .remote_server_agents()

@@ -5,7 +5,7 @@ use std::{
 };
 
 use chrono::{DateTime, Utc};
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use reqwest::{
     Client, StatusCode,
     header::{CONTENT_LENGTH, CONTENT_TYPE},
