@@ -1868,7 +1868,7 @@ name = "ignitify-auth"
 version = "0.2.2"
 dependencies = [
  "argon2",
- "base64 0.22.1",
+ "base64 0.23.1",
  "chrono",
  "ignitify-db",
  "jsonwebtoken",
@@ -2059,7 +2059,7 @@ dependencies = [
 name = "ignitify-runtime-remote"
 version = "0.2.2"
 dependencies = [
- "base64 0.22.1",
+ "base64 0.23.1",
  "ignitify-control-plane",
  "ignitify-db",
  "ignitify-domain",
@@ -2078,7 +2078,7 @@ dependencies = [
 name = "ignitify-source-git"
 version = "0.2.2"
 dependencies = [
- "base64 0.22.1",
+ "base64 0.23.1",
  "chrono",
  "ignitify-control-plane",
  "ignitify-db",

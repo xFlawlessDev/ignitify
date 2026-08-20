@@ -12,7 +12,7 @@ age = { version = "0.11", features = ["armor"] }
 argon2 = { version = "0.5", features = ["std"] }
 axum = { version = "0.8", features = ["json", "multipart", "ws"] }
 dotenvy = "0.15"
-base64 = "0.22"
+base64 = "0.23"
 bollard = "0.18"
 chrono = { version = "0.4", features = ["clock", "serde"] }
 futures-util = "0.3"
