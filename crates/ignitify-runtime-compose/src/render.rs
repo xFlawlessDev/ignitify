@@ -72,13 +72,24 @@ pub(crate) fn canonical_volume_names(
         .map(|name| {
             let mut digest = Sha256::new();
             digest.update(name.as_bytes());
-            let digest = format!("{:x}", digest.finalize());
+            let digest = digest.finalize();
+            let digest = hex_encode(digest.as_ref());
             (
                 name.clone(),
                 format!("ignitify-{}-{}", deployment.service_id, &digest[..24]),
             )
         })
         .collect()
+}
+
+fn hex_encode(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut output = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        output.push(HEX[(byte >> 4) as usize] as char);
+        output.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+    output
 }
 
 fn yaml_quote(value: &str) -> String {

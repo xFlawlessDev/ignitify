@@ -450,7 +450,18 @@ fn generate_token() -> String {
 fn hash_token(value: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(value.as_bytes());
-    format!("{:x}", hasher.finalize())
+    let digest = hasher.finalize();
+    hex_encode(digest.as_ref())
+}
+
+fn hex_encode(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut output = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        output.push(HEX[(byte >> 4) as usize] as char);
+        output.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+    output
 }
 
 fn authenticated_user_with_session(

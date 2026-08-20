@@ -3,7 +3,7 @@ use axum::{
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
 };
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use ignitify_control_plane::DeploymentSubmission;
 use ignitify_db::{DeploymentActor, ProviderKind};
 use serde::Deserialize;
@@ -131,7 +131,7 @@ fn signature_matches(secret: &[u8], body: &[u8], signature: &str) -> WebhookVeri
     let Some(provided) = decode_hex(signature) else {
         return WebhookVerification::Invalid;
     };
-    let Ok(mut mac) = <HmacSha256 as Mac>::new_from_slice(secret) else {
+    let Ok(mut mac) = HmacSha256::new_from_slice(secret) else {
         return WebhookVerification::Invalid;
     };
     mac.update(body);
@@ -247,7 +247,7 @@ mod tests {
         webhook_idempotency_key,
     };
     use axum::http::{HeaderMap, HeaderValue};
-    use hmac::{Hmac, Mac};
+    use hmac::{Hmac, KeyInit, Mac};
     use ignitify_db::ProviderKind;
     use sha2::Sha256;
 
