@@ -157,6 +157,9 @@ installed_fedora_conflicts() {
 install_apt_prerequisites() {
   local distribution="$1"
   local codename
+  local legacy_source="/etc/apt/sources.list.d/docker.list"
+  local legacy_source_pattern
+  local legacy_source_allowed_pattern
 
   require_command apt-get
   require_command dpkg
@@ -168,6 +171,17 @@ install_apt_prerequisites() {
   chmod a+r /etc/apt/keyrings/docker.asc
   codename="${UBUNTU_CODENAME:-${VERSION_CODENAME:-}}"
   [[ -n "$codename" ]] || die "could not determine the $distribution release codename"
+
+  # Older Docker setup instructions use docker.list. Remove only that known
+  # official Docker source so it does not duplicate the canonical deb822 file.
+  legacy_source_pattern="^[[:space:]]*deb([[:space:]]|\\[)[^#]*download[.]docker[.]com/linux/${distribution}([[:space:]/]|$)"
+  legacy_source_allowed_pattern="^[[:space:]]*(#|$|deb([[:space:]]|\\[)[^#]*download[.]docker[.]com/linux/${distribution}([[:space:]/]|$))"
+  if [[ -f "$legacy_source" ]] \
+    && grep -Eqs "$legacy_source_pattern" "$legacy_source" \
+    && ! grep -E -v -q "$legacy_source_allowed_pattern" "$legacy_source"; then
+    rm -f -- "$legacy_source"
+  fi
+
   cat > /etc/apt/sources.list.d/docker.sources <<EOF
 Types: deb
 URIs: https://download.docker.com/linux/$distribution
@@ -177,7 +191,9 @@ Architectures: $(dpkg --print-architecture)
 Signed-By: /etc/apt/keyrings/docker.asc
 EOF
   apt-get update
-  apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+  # A host may already have official Docker packages held with apt-mark hold.
+  # These are the exact packages this installer manages, so allow their update.
+  apt-get install -y --allow-change-held-packages docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 }
 
 install_fedora_prerequisites() {
