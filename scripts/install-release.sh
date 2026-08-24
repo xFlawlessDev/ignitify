@@ -164,13 +164,6 @@ install_apt_prerequisites() {
   require_command apt-get
   require_command dpkg
   installed_debian_conflicts
-  apt-get update
-  apt-get install -y ca-certificates curl git gnupg openssh-client
-  install -m 0755 -d /etc/apt/keyrings
-  curl -fsSL "https://download.docker.com/linux/$distribution/gpg" -o /etc/apt/keyrings/docker.asc
-  chmod a+r /etc/apt/keyrings/docker.asc
-  codename="${UBUNTU_CODENAME:-${VERSION_CODENAME:-}}"
-  [[ -n "$codename" ]] || die "could not determine the $distribution release codename"
 
   # Older Docker setup instructions use docker.list. Remove only that known
   # official Docker source so it does not duplicate the canonical deb822 file.
@@ -181,6 +174,14 @@ install_apt_prerequisites() {
     && ! grep -E -v -q "$legacy_source_allowed_pattern" "$legacy_source"; then
     rm -f -- "$legacy_source"
   fi
+
+  apt-get update
+  apt-get install -y ca-certificates curl git gnupg openssh-client
+  install -m 0755 -d /etc/apt/keyrings
+  curl -fsSL "https://download.docker.com/linux/$distribution/gpg" -o /etc/apt/keyrings/docker.asc
+  chmod a+r /etc/apt/keyrings/docker.asc
+  codename="${UBUNTU_CODENAME:-${VERSION_CODENAME:-}}"
+  [[ -n "$codename" ]] || die "could not determine the $distribution release codename"
 
   cat > /etc/apt/sources.list.d/docker.sources <<EOF
 Types: deb
