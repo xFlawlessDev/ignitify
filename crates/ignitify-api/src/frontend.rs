@@ -1,3 +1,6 @@
+use base64::{Engine as _, engine::general_purpose::STANDARD_NO_PAD};
+use rand::{RngCore, rngs::OsRng};
+
 use axum::{
     body::Body,
     http::{
@@ -16,6 +19,8 @@ mod build_config {
 }
 
 const INDEX_DOCUMENT: &str = "index.html";
+const CSP_NONCE_MARKER: &str = "__IGNITIFY_CSP_NONCE__";
+pub(crate) const CSP_NONCE_HEADER: &str = "x-ignitify-csp-nonce";
 
 pub(crate) fn template_catalog_url() -> &'static str {
     build_config::TEMPLATE_CATALOG_URL
@@ -67,8 +72,15 @@ fn embedded_file_response(path: &str, method: &Method) -> Option<Response> {
     let (_, contents) = assets::EMBEDDED_FRONTEND
         .iter()
         .find(|(asset_path, _)| *asset_path == path)?;
+    let nonce = (path == INDEX_DOCUMENT).then(csp_nonce);
     let body = if *method == Method::HEAD {
         Body::empty()
+    } else if let Some(nonce) = nonce.as_deref() {
+        Body::from(
+            std::str::from_utf8(contents)
+                .ok()?
+                .replace(CSP_NONCE_MARKER, nonce),
+        )
     } else {
         Body::from(*contents)
     };
@@ -80,7 +92,19 @@ fn embedded_file_response(path: &str, method: &Method) -> Option<Response> {
         HeaderName::from_static("x-content-type-options"),
         HeaderValue::from_static("nosniff"),
     );
+    if let Some(nonce) = nonce {
+        headers.insert(
+            HeaderName::from_static(CSP_NONCE_HEADER),
+            HeaderValue::from_str(&nonce).ok()?,
+        );
+    }
     Some(response)
+}
+
+fn csp_nonce() -> String {
+    let mut bytes = [0_u8; 32];
+    OsRng.fill_bytes(&mut bytes);
+    STANDARD_NO_PAD.encode(bytes)
 }
 
 fn empty_response(status: StatusCode) -> Response {
@@ -132,8 +156,9 @@ fn content_type(path: &str) -> &'static str {
 #[cfg(test)]
 mod tests {
     use axum::http::{Method, StatusCode, Uri, header};
+    use http_body_util::BodyExt;
 
-    use super::serve;
+    use super::{CSP_NONCE_HEADER, CSP_NONCE_MARKER, serve};
 
     #[tokio::test]
     async fn serves_the_embedded_spa_for_root_and_deep_links() {
@@ -151,6 +176,22 @@ mod tests {
                 Some(&header::HeaderValue::from_static("no-cache"))
             );
         }
+    }
+
+    #[tokio::test]
+    async fn embeds_a_csp_nonce_in_the_index_document() {
+        let response = serve(Method::GET, Uri::from_static("/")).await;
+        let nonce = response
+            .headers()
+            .get(CSP_NONCE_HEADER)
+            .and_then(|value| value.to_str().ok())
+            .unwrap()
+            .to_owned();
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let document = String::from_utf8(body.to_vec()).unwrap();
+
+        assert!(document.contains(&format!("name=\"ignitify-csp-nonce\" content=\"{nonce}\"")));
+        assert!(!document.contains(CSP_NONCE_MARKER));
     }
 
     #[tokio::test]

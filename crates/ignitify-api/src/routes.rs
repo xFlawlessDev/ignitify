@@ -297,12 +297,15 @@ pub(crate) fn router(state: AppState) -> Router {
 
 async fn security_headers(mut response: Response) -> Response {
     let headers = response.headers_mut();
+    let nonce = headers
+        .remove(frontend::CSP_NONCE_HEADER)
+        .and_then(|value| value.to_str().ok().map(str::to_owned));
     if !headers.contains_key("cache-control") {
         headers.insert("cache-control", HeaderValue::from_static("no-store"));
     }
     headers.insert(
         "content-security-policy",
-        content_security_policy(frontend::template_catalog_url()),
+        content_security_policy(frontend::template_catalog_url(), nonce.as_deref()),
     );
     headers.insert(
         "cross-origin-opener-policy",
@@ -321,12 +324,19 @@ async fn security_headers(mut response: Response) -> Response {
     response
 }
 
-fn content_security_policy(template_catalog_url: &str) -> HeaderValue {
-    const DEFAULT_POLICY: &str = "default-src 'self'; style-src 'self'; style-src-attr 'unsafe-inline'; img-src 'self' data:; connect-src 'self' wss:; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; object-src 'none'";
+fn content_security_policy(template_catalog_url: &str, nonce: Option<&str>) -> HeaderValue {
+    const GITHUB_API_ORIGIN: &str = "https://api.github.com";
+    const DEFAULT_POLICY: &str = "default-src 'self'; style-src 'self'; style-src-attr 'unsafe-inline'; img-src 'self' data:; connect-src 'self' wss: https://api.github.com; base-uri 'self'; frame-ancestors 'none'; form-action 'self' https://github.com; object-src 'none'";
 
-    let policy = template_catalog_connect_origin(template_catalog_url)
-        .map(|origin| format!("default-src 'self'; style-src 'self'; style-src-attr 'unsafe-inline'; img-src 'self' data: {origin}; connect-src 'self' wss: {origin}; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; object-src 'none'"))
-        .unwrap_or_else(|| DEFAULT_POLICY.to_owned());
+    let catalog_origin = template_catalog_connect_origin(template_catalog_url)
+        .map(|origin| format!(" {origin}"))
+        .unwrap_or_default();
+    let style_source = nonce
+        .map(|nonce| format!("style-src 'self' 'nonce-{nonce}'"))
+        .unwrap_or_else(|| "style-src 'self'".to_owned());
+    let policy = format!(
+        "default-src 'self'; {style_source}; style-src-attr 'unsafe-inline'; img-src 'self' data:{catalog_origin}; connect-src 'self' wss: {GITHUB_API_ORIGIN}{catalog_origin}; base-uri 'self'; frame-ancestors 'none'; form-action 'self' https://github.com; object-src 'none'"
+    );
     policy
         .parse()
         .unwrap_or_else(|_| HeaderValue::from_static(DEFAULT_POLICY))
@@ -382,8 +392,36 @@ mod tests {
         let origin =
             template_catalog_connect_origin(crate::frontend::template_catalog_url()).unwrap();
         assert!(policy.contains("style-src-attr 'unsafe-inline'"));
-        assert!(policy.contains(&format!("connect-src 'self' wss: {origin}")));
+        assert!(policy.contains("style-src 'self';"));
+        assert!(policy.contains("form-action 'self' https://github.com"));
+        assert!(policy.contains("connect-src 'self' wss: https://api.github.com"));
+        assert!(policy.contains(&format!(
+            "connect-src 'self' wss: https://api.github.com {origin}"
+        )));
         assert!(policy.contains(&format!("img-src 'self' data: {origin}")));
+    }
+
+    #[tokio::test]
+    async fn security_headers_apply_and_remove_frontend_csp_nonce() {
+        let mut response = Response::new(Body::empty());
+        response.headers_mut().insert(
+            crate::frontend::CSP_NONCE_HEADER,
+            HeaderValue::from_static("nonce-for-test"),
+        );
+
+        let response = security_headers(response).await;
+        let policy = response
+            .headers()
+            .get("content-security-policy")
+            .and_then(|value| value.to_str().ok())
+            .unwrap();
+
+        assert!(policy.contains("style-src 'self' 'nonce-nonce-for-test'"));
+        assert!(
+            !response
+                .headers()
+                .contains_key(crate::frontend::CSP_NONCE_HEADER)
+        );
     }
 
     #[test]
@@ -401,9 +439,11 @@ mod tests {
 
     #[test]
     fn content_security_policy_allows_the_configured_catalog_origin() {
-        let header = content_security_policy("https://templates.example.com/api/templates");
+        let header = content_security_policy("https://templates.example.com/api/templates", None);
         let policy = header.to_str().unwrap();
-        assert!(policy.contains("connect-src 'self' wss: https://templates.example.com"));
+        assert!(policy.contains(
+            "connect-src 'self' wss: https://api.github.com https://templates.example.com"
+        ));
         assert!(policy.contains("img-src 'self' data: https://templates.example.com"));
     }
 }

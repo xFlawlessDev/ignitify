@@ -24,6 +24,7 @@ fn build_frontend() -> Result<(), Box<dyn Error>> {
         frontend_dir.join("pnpm-lock.yaml"),
         frontend_dir.join("vite.config.ts"),
         frontend_dir.join("src"),
+        dist_dir.clone(),
     ] {
         println!("cargo:rerun-if-changed={}", path.display());
     }
