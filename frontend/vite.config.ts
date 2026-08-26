@@ -17,7 +17,12 @@ export default defineConfig({
   },
   plugins: [vue(), tailwindcss()],
   resolve: {
-    alias: { "@": path.resolve(__dirname, "./src") },
+    alias: {
+      "@": path.resolve(__dirname, "./src"),
+      // Compile Sonner from source so its SFC styles are emitted in the app CSS
+      // instead of injected into the document at runtime.
+      "vue-sonner": path.resolve(__dirname, "./node_modules/vue-sonner/src/packages/index.ts"),
+    },
   },
   server: {
     port: 6565,
