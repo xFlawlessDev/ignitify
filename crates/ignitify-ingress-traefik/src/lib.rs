@@ -4,7 +4,10 @@ use std::{
     io::Write,
     path::{Path, PathBuf},
     process::Stdio,
-    sync::{Arc, RwLock},
+    sync::{
+        Arc, RwLock,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 
 use ignitify_control_plane::{
@@ -37,6 +40,7 @@ pub struct TraefikIngress {
     operator: OperatorConfig,
     routing_policy: Arc<RwLock<RoutingPolicy>>,
     operator_email: Arc<RwLock<Option<String>>>,
+    operator_started: Arc<AtomicBool>,
     server_settings: Option<ServerSettingsSource>,
 }
 
@@ -85,6 +89,7 @@ impl TraefikIngress {
             operator: OperatorConfig::from_environment(),
             routing_policy: Arc::new(RwLock::new(RoutingPolicy::default())),
             operator_email: Arc::new(RwLock::new(None)),
+            operator_started: Arc::new(AtomicBool::new(false)),
             server_settings: None,
         }
     }
@@ -99,6 +104,7 @@ impl TraefikIngress {
             operator: OperatorConfig::from_environment(),
             routing_policy: Arc::new(RwLock::new(RoutingPolicy::default())),
             operator_email: Arc::new(RwLock::new(None)),
+            operator_started: Arc::new(AtomicBool::new(false)),
             server_settings: Some(ServerSettingsSource {
                 database,
                 cipher,
@@ -123,7 +129,10 @@ impl TraefikIngress {
 
     pub async fn ensure_started(&self) -> bool {
         let desired_email = self.desired_acme_email().await;
-        if self.ready().await && self.operator_email_matches(&desired_email) {
+        if self.operator_started.load(Ordering::Acquire)
+            && self.ready().await
+            && self.operator_email_matches(&desired_email)
+        {
             return true;
         }
         if !self.operator.auto_start {
@@ -134,6 +143,7 @@ impl TraefikIngress {
             return false;
         }
         self.set_operator_email(desired_email);
+        self.operator_started.store(true, Ordering::Release);
         self.ready().await
     }
 
@@ -145,6 +155,9 @@ impl TraefikIngress {
         write_fallback_page(&source.fallback_page_path, &settings)
             .map_err(|_| ControlError::Runtime)?;
         self.reconcile_operator_email(&settings.acme_email).await?;
+        if !self.ensure_started().await {
+            return Err(ControlError::Runtime);
+        }
         let policy = RoutingPolicy::from_settings(&settings);
         let mut current = self
             .routing_policy
@@ -190,6 +203,7 @@ impl TraefikIngress {
                 .start(desired.as_deref())
                 .await
                 .map_err(|_| ControlError::Runtime)?;
+            self.operator_started.store(true, Ordering::Release);
         }
         self.set_operator_email(desired);
         Ok(())
