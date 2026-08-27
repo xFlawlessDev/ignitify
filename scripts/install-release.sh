@@ -248,6 +248,7 @@ ensure_service_account() {
 
 install_ingress_assets() {
   local target="$PREFIX/infra/traefik"
+  local traefik_data_dir="$DATA_DIR/traefik"
   local dynamic_dir="$DATA_DIR/traefik/dynamic"
   local fallback_dir="$DATA_DIR/traefik/fallback"
   local fallback_page="$fallback_dir/404.html"
@@ -277,8 +278,13 @@ install_ingress_assets() {
   install -o root -g root -m 0644 "$INGRESS_SOURCE/socket-proxy/Dockerfile" "$target/socket-proxy/Dockerfile"
   install -o root -g root -m 0755 "$INGRESS_SOURCE/socket-proxy/entrypoint.sh" "$target/socket-proxy/entrypoint.sh"
 
-  install -d -o "$SERVICE_USER" -g "$SERVICE_GROUP" -m 0700 "$dynamic_dir/certs"
-  install -d -o "$SERVICE_USER" -g "$SERVICE_GROUP" -m 0755 "$fallback_dir"
+  # Reapply ownership and modes on every install. `install -d` only applies
+  # attributes while creating a directory, so an upgrade must repair paths
+  # left behind by an older or manual installation.
+  install -d "$traefik_data_dir" "$dynamic_dir" "$dynamic_dir/certs" "$fallback_dir"
+  chown "$SERVICE_USER:$SERVICE_GROUP" "$traefik_data_dir" "$dynamic_dir" "$dynamic_dir/certs" "$fallback_dir"
+  chmod 0700 "$traefik_data_dir" "$dynamic_dir" "$dynamic_dir/certs"
+  chmod 0755 "$fallback_dir"
   install -o "$SERVICE_USER" -g "$SERVICE_GROUP" -m 0644 "$INGRESS_SOURCE/dynamic/fallback.yml" "$dynamic_dir/fallback.yml"
   install -o "$SERVICE_USER" -g "$SERVICE_GROUP" -m 0644 "$INGRESS_SOURCE/dynamic/middlewares.yml" "$dynamic_dir/middlewares.yml"
   if [[ -e "$fallback_page" && ! -f "$fallback_page" ]]; then
