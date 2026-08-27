@@ -252,6 +252,8 @@ install_ingress_assets() {
   local dynamic_dir="$DATA_DIR/traefik/dynamic"
   local fallback_dir="$DATA_DIR/traefik/fallback"
   local fallback_page="$fallback_dir/404.html"
+  local compose_env="$target/.env"
+  local temporary_env
   local required
 
   for required in \
@@ -277,6 +279,24 @@ install_ingress_assets() {
   install -o root -g root -m 0644 "$INGRESS_SOURCE/fallback/ignitify-mark.svg" "$target/fallback/ignitify-mark.svg"
   install -o root -g root -m 0644 "$INGRESS_SOURCE/socket-proxy/Dockerfile" "$target/socket-proxy/Dockerfile"
   install -o root -g root -m 0755 "$INGRESS_SOURCE/socket-proxy/entrypoint.sh" "$target/socket-proxy/entrypoint.sh"
+
+  # Compose reads .env beside compose.yaml when operators start the stack
+  # manually. Keep its bind mounts aligned with the service environment while
+  # preserving optional operator settings such as the ACME email.
+  if [[ -e "$compose_env" && ! -f "$compose_env" ]]; then
+    die "Traefik Compose environment is not a regular file: $compose_env"
+  fi
+  temporary_env="$(mktemp)"
+  trap 'rm -f "$temporary_env"' RETURN
+  if [[ -f "$compose_env" ]]; then
+    awk '!/^[[:space:]]*(IGNITIFY_TRAEFIK_DYNAMIC_DIR|IGNITIFY_TRAEFIK_FALLBACK_PAGE_FILE)=/' \
+      "$compose_env" > "$temporary_env"
+  fi
+  printf '\nIGNITIFY_TRAEFIK_DYNAMIC_DIR=%s\nIGNITIFY_TRAEFIK_FALLBACK_PAGE_FILE=%s\n' \
+    "$dynamic_dir" "$fallback_page" >> "$temporary_env"
+  install -o root -g root -m 0644 "$temporary_env" "$compose_env"
+  rm -f "$temporary_env"
+  trap - RETURN
 
   # Reapply ownership and modes on every install. `install -d` only applies
   # attributes while creating a directory, so an upgrade must repair paths
