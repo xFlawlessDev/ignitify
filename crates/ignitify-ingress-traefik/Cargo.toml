@@ -3,6 +3,7 @@ name = "ignitify-ingress-traefik"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+rust-version.workspace = true
 
 [dependencies]
 ignitify-control-plane = { path = "../ignitify-control-plane" }

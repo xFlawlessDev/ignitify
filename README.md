@@ -402,8 +402,8 @@ credentials into browser tooling.
 
 ### Prerequisites
 
-- Rust toolchain with edition 2024 support;
-- Node.js with pnpm `11.18.0`;
+- Rust toolchain `1.95` or newer;
+- Node.js `22.12` or newer with pnpm `11.18.0`;
 - Docker, Git, and OpenSSH for runtime paths that exercise them.
 
 Build the frontend before Rust builds that compile `ignitify-api`; the backend
