@@ -289,10 +289,10 @@ install_ingress_assets() {
   temporary_env="$(mktemp)"
   trap 'rm -f "$temporary_env"' RETURN
   if [[ -f "$compose_env" ]]; then
-    awk '!/^[[:space:]]*(IGNITIFY_TRAEFIK_DYNAMIC_DIR|IGNITIFY_TRAEFIK_FALLBACK_PAGE_FILE)=/' \
+    awk '!/^[[:space:]]*(IGNITIFY_TRAEFIK_DYNAMIC_DIR|IGNITIFY_TRAEFIK_FALLBACK_PAGE_FILE|IGNITIFY_TRAEFIK_USER)=/' \
       "$compose_env" > "$temporary_env"
   fi
-  printf '\nIGNITIFY_TRAEFIK_DYNAMIC_DIR=%s\nIGNITIFY_TRAEFIK_FALLBACK_PAGE_FILE=%s\n' \
+  printf '\nIGNITIFY_TRAEFIK_DYNAMIC_DIR=%s\nIGNITIFY_TRAEFIK_FALLBACK_PAGE_FILE=%s\nIGNITIFY_TRAEFIK_USER=0:0\n' \
     "$dynamic_dir" "$fallback_page" >> "$temporary_env"
   install -o root -g root -m 0644 "$temporary_env" "$compose_env"
   rm -f "$temporary_env"
@@ -347,6 +347,7 @@ IGNITIFY_DATABASE_URL=sqlite:$DATA_DIR/ignitify.db
 IGNITIFY_COMPOSE_ROOT=$DATA_DIR/compose
 IGNITIFY_SOURCE_BUILD_ROOT=$DATA_DIR/builds
 IGNITIFY_TRAEFIK_DYNAMIC_DIR=$DATA_DIR/traefik/dynamic
+IGNITIFY_TRAEFIK_USER=0:0
 IGNITIFY_AUTO_START_INGRESS=$ingress_auto_start
 IGNITIFY_ALLOW_LOCAL_BUILDS=$local_builds
 # Configure a TLS reverse proxy, trusted HTTPS origins, ACME email, and domains before remote access.
@@ -362,14 +363,38 @@ EOF
 ensure_ingress_runtime_config() {
   [[ "$INSTALL_INGRESS_ASSETS" -eq 1 ]] || return 0
 
-  if awk '/^[[:space:]]*IGNITIFY_TRAEFIK_FALLBACK_PAGE_FILE=/{found=1} END {exit !found}' "$CONFIG_FILE"; then
-    return 0
+  local changed=0
+  if ! awk '/^[[:space:]]*IGNITIFY_TRAEFIK_FALLBACK_PAGE_FILE=/{found=1} END {exit !found}' "$CONFIG_FILE"; then
+    printf '\nIGNITIFY_TRAEFIK_FALLBACK_PAGE_FILE=%s\n' "$DATA_DIR/traefik/fallback/404.html" >> "$CONFIG_FILE"
+    changed=1
   fi
 
-  printf '\nIGNITIFY_TRAEFIK_FALLBACK_PAGE_FILE=%s\n' "$DATA_DIR/traefik/fallback/404.html" >> "$CONFIG_FILE"
-  chown root:root "$CONFIG_FILE"
-  chmod 0600 "$CONFIG_FILE"
-  info "configured runtime Traefik fallback page"
+  if awk '/^[[:space:]]*IGNITIFY_TRAEFIK_USER=/{found=1} END {exit !found}' "$CONFIG_FILE"; then
+    local temporary_config
+    temporary_config="$(mktemp)"
+    trap 'rm -f "$temporary_config"' RETURN
+    awk '
+      /^[[:space:]]*IGNITIFY_TRAEFIK_USER=/ {
+        if (!replaced) print "IGNITIFY_TRAEFIK_USER=0:0"
+        replaced = 1
+        next
+      }
+      { print }
+    ' "$CONFIG_FILE" > "$temporary_config"
+    install -o root -g root -m 0600 "$temporary_config" "$CONFIG_FILE"
+    rm -f "$temporary_config"
+    trap - RETURN
+    changed=1
+  else
+    printf '\nIGNITIFY_TRAEFIK_USER=0:0\n' >> "$CONFIG_FILE"
+    changed=1
+  fi
+
+  if [[ "$changed" -eq 1 ]]; then
+    chown root:root "$CONFIG_FILE"
+    chmod 0600 "$CONFIG_FILE"
+    info "configured runtime Traefik paths"
+  fi
 }
 
 write_launcher() {
