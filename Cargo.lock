@@ -1869,7 +1869,7 @@ dependencies = [
 
 [[package]]
 name = "ignitify-api"
-version = "0.2.10"
+version = "0.2.11"
 dependencies = [
  "age",
  "argon2",
@@ -1906,7 +1906,7 @@ dependencies = [
 
 [[package]]
 name = "ignitify-auth"
-version = "0.2.10"
+version = "0.2.11"
 dependencies = [
  "argon2",
  "base64 0.23.1",
@@ -1923,7 +1923,7 @@ dependencies = [
 
 [[package]]
 name = "ignitify-backup-s3"
-version = "0.2.10"
+version = "0.2.11"
 dependencies = [
  "chrono",
  "hmac 0.13.0",
@@ -1941,7 +1941,7 @@ dependencies = [
 
 [[package]]
 name = "ignitify-control-plane"
-version = "0.2.10"
+version = "0.2.11"
 dependencies = [
  "age",
  "chrono",
@@ -1958,7 +1958,7 @@ dependencies = [
 
 [[package]]
 name = "ignitify-core"
-version = "0.2.10"
+version = "0.2.11"
 dependencies = [
  "age",
  "axum",
@@ -1990,7 +1990,7 @@ dependencies = [
 
 [[package]]
 name = "ignitify-db"
-version = "0.2.10"
+version = "0.2.11"
 dependencies = [
  "chrono",
  "ignitify-domain",
@@ -2004,7 +2004,7 @@ dependencies = [
 
 [[package]]
 name = "ignitify-dns"
-version = "0.2.10"
+version = "0.2.11"
 dependencies = [
  "hickory-resolver",
  "ignitify-control-plane",
@@ -2016,7 +2016,7 @@ dependencies = [
 
 [[package]]
 name = "ignitify-domain"
-version = "0.2.10"
+version = "0.2.11"
 dependencies = [
  "serde",
  "thiserror 2.0.20",
@@ -2024,7 +2024,7 @@ dependencies = [
 
 [[package]]
 name = "ignitify-ingress-traefik"
-version = "0.2.10"
+version = "0.2.11"
 dependencies = [
  "ignitify-control-plane",
  "ignitify-db",
@@ -2038,7 +2038,7 @@ dependencies = [
 
 [[package]]
 name = "ignitify-monitoring"
-version = "0.2.10"
+version = "0.2.11"
 dependencies = [
  "chrono",
  "ignitify-db",
@@ -2050,7 +2050,7 @@ dependencies = [
 
 [[package]]
 name = "ignitify-notifications"
-version = "0.2.10"
+version = "0.2.11"
 dependencies = [
  "chrono",
  "ignitify-control-plane",
@@ -2070,7 +2070,7 @@ dependencies = [
 
 [[package]]
 name = "ignitify-runtime-compose"
-version = "0.2.10"
+version = "0.2.11"
 dependencies = [
  "ignitify-control-plane",
  "ignitify-domain",
@@ -2085,7 +2085,7 @@ dependencies = [
 
 [[package]]
 name = "ignitify-runtime-docker"
-version = "0.2.10"
+version = "0.2.11"
 dependencies = [
  "bollard",
  "futures-util",
@@ -2098,7 +2098,7 @@ dependencies = [
 
 [[package]]
 name = "ignitify-runtime-remote"
-version = "0.2.10"
+version = "0.2.11"
 dependencies = [
  "base64 0.23.1",
  "ignitify-control-plane",
@@ -2117,7 +2117,7 @@ dependencies = [
 
 [[package]]
 name = "ignitify-source-git"
-version = "0.2.10"
+version = "0.2.11"
 dependencies = [
  "base64 0.23.1",
  "chrono",
@@ -2138,7 +2138,7 @@ dependencies = [
 
 [[package]]
 name = "ignitify-terminal"
-version = "0.2.10"
+version = "0.2.11"
 dependencies = [
  "portable-pty",
  "thiserror 2.0.20",
