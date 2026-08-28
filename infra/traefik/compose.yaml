@@ -33,10 +33,10 @@ services:
 
   traefik:
     image: traefik:v3.6.21@sha256:850b1b3484519b12353d9679ec3246e63a42df2cc640bf8e6fa50267d589f5a0
-    # Traefik needs root to traverse the service-owned 0700 dynamic directory
-    # and to initialize the ACME file in entrypoint.sh. The container remains
-    # read-only, drops all capabilities except binding ports, and disallows
-    # privilege escalation.
+    # Traefik needs root plus DAC_READ_SEARCH to traverse the service-owned
+    # 0700 dynamic directory and read managed certificate files. The container
+    # remains read-only, drops every other capability, and disallows privilege
+    # escalation.
     user: "${IGNITIFY_TRAEFIK_USER:-0:0}"
     labels:
       com.ignitify.ingress: traefik
@@ -67,6 +67,7 @@ services:
     cap_drop:
       - ALL
     cap_add:
+      - DAC_READ_SEARCH
       - NET_BIND_SERVICE
     networks:
       - internal
