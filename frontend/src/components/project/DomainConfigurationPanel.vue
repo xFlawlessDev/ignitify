@@ -17,18 +17,23 @@ const props = defineProps<{
   services: ServiceSummary[];
   serverDomain: string;
   serviceId: string;
+  targetPort: string;
   domainError: string;
+  targetPortError: string;
   showServiceSelector?: boolean;
 }>();
 
 const emit = defineEmits<{
   "update:serverDomain": [value: string];
   "update:serviceId": [value: string];
+  "update:targetPort": [value: string];
   create: [];
 }>();
 
 const routableServices = computed(() => props.services.filter((service) => service.internal_port));
-const canSubmit = computed(() => Boolean(props.serviceId) && !props.domainError);
+const canSubmit = computed(
+  () => Boolean(props.serviceId) && !props.domainError && !props.targetPortError,
+);
 </script>
 
 <template>
@@ -113,6 +118,33 @@ const canSubmit = computed(() => Boolean(props.serviceId) && !props.domainError)
       <p v-else class="border-t border-border pt-5 text-[11px] leading-4 text-muted-foreground">
         This route targets the current service.
       </p>
+
+      <div class="grid gap-2 border-t border-border pt-5">
+        <Label for="domain-target-port" class="text-xs font-medium">Target application port</Label>
+        <Input
+          id="domain-target-port"
+          class="font-mono"
+          :model-value="props.targetPort"
+          type="number"
+          min="1"
+          max="65535"
+          inputmode="numeric"
+          :aria-invalid="Boolean(props.targetPortError)"
+          aria-describedby="domain-target-port-help domain-target-port-error"
+          @update:model-value="emit('update:targetPort', String($event))"
+        />
+        <p id="domain-target-port-help" class="text-[11px] leading-4 text-muted-foreground">
+          Defaults to the service application port. Multiple domains can use this same port, or
+          point to different ports in one service.
+        </p>
+        <p
+          v-if="props.targetPortError"
+          id="domain-target-port-error"
+          class="text-[11px] text-destructive"
+        >
+          {{ props.targetPortError }}
+        </p>
+      </div>
 
       <div class="flex items-center justify-between gap-4 border-t border-border pt-4">
         <p class="text-[11px] leading-4 text-muted-foreground">

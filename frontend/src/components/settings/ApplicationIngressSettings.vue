@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { Globe2, LockKeyhole, ShieldCheck } from "@lucide/vue";
+import { Globe2, LockKeyhole, Plus, ShieldCheck, Trash2 } from "@lucide/vue";
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Button } from "@/components/ui/button";
 import {
   Select,
   SelectContent,
@@ -17,7 +18,7 @@ import type { CertificateProvider, CustomCertificateSummary } from "./types";
 interface Props {
   publicOrigin: string;
   controlPlaneDomain: string;
-  applicationDomainSuffix: string;
+  applicationDomainSuffixes: string[];
   httpsEnabled: boolean;
   automaticallyProvisionSsl: boolean;
   acmeEmail: string;
@@ -48,9 +49,11 @@ function configuredPublicOrigin(value: string): URL | null {
   }
 }
 
-const serviceWildcard = computed(() => {
-  const suffix = props.applicationDomainSuffix.trim().toLowerCase();
-  return `*.${suffix || "apps.example.com"}`;
+const serviceWildcards = computed(() => {
+  const suffixes = props.applicationDomainSuffixes
+    .map((suffix) => suffix.trim().toLowerCase())
+    .filter(Boolean);
+  return (suffixes.length ? suffixes : ["apps.example.com"]).map((suffix) => `*.${suffix}`);
 });
 const dnsTarget = computed(() => props.dnsRecordTarget.trim() || "<public-vps-ip>");
 const currentPublicOrigin = computed(() => configuredPublicOrigin(props.publicOrigin));
@@ -68,7 +71,7 @@ const isCloudflareTunnel = computed(
     props.dnsRecordTarget.toLowerCase().endsWith(".cfargotunnel.com"),
 );
 const emit = defineEmits<{
-  (event: "update:applicationDomainSuffix", value: string): void;
+  (event: "update:applicationDomainSuffixes", value: string[]): void;
   (event: "update:httpsEnabled", value: boolean): void;
   (event: "update:automaticallyProvisionSsl", value: boolean): void;
   (event: "update:acmeEmail", value: string): void;
@@ -77,6 +80,23 @@ const emit = defineEmits<{
   (event: "update:certificateProvider", value: CertificateProvider): void;
   (event: "update:customCertificateId", value: string | null): void;
 }>();
+
+function updateApplicationDomainSuffix(index: number, value: string | number) {
+  const suffixes = [...props.applicationDomainSuffixes];
+  suffixes[index] = String(value);
+  emit("update:applicationDomainSuffixes", suffixes);
+}
+
+function addApplicationDomainSuffix() {
+  emit("update:applicationDomainSuffixes", [...props.applicationDomainSuffixes, ""]);
+}
+
+function removeApplicationDomainSuffix(index: number) {
+  const suffixes = props.applicationDomainSuffixes.filter(
+    (_, suffixIndex) => suffixIndex !== index,
+  );
+  emit("update:applicationDomainSuffixes", suffixes.length ? suffixes : [""]);
+}
 
 function updateProvider(value: string | number) {
   const provider = String(value);
@@ -108,25 +128,56 @@ function updateCustomCertificate(value: string | number) {
     </header>
 
     <div class="grid gap-5 px-5 py-5">
-      <div class="grid gap-2">
-        <Label for="application-domain-suffix" class="text-xs font-medium"
-          >Managed domain suffix</Label
-        >
-        <Input
-          id="application-domain-suffix"
-          :model-value="props.applicationDomainSuffix"
-          class="rounded-[3px] font-mono text-sm"
-          placeholder="apps.example.com"
-          autocomplete="off"
-          spellcheck="false"
-          :aria-invalid="Boolean(props.domainError)"
-          aria-describedby="application-domain-suffix-help application-domain-suffix-error"
-          @update:model-value="emit('update:applicationDomainSuffix', String($event))"
-        />
+      <div class="grid gap-3">
+        <div class="flex items-center justify-between gap-3">
+          <Label class="text-xs font-medium">{{
+            t("applicationIngress.managedDomainSuffixes")
+          }}</Label>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            class="h-8 rounded-[3px] text-xs"
+            @click="addApplicationDomainSuffix"
+          >
+            <Plus class="size-3.5" :stroke-width="1.5" />
+            {{ t("applicationIngress.addSuffix") }}
+          </Button>
+        </div>
+        <div class="grid gap-2">
+          <div
+            v-for="(suffix, index) in props.applicationDomainSuffixes"
+            :key="`application-domain-suffix-${index}`"
+            class="flex items-center gap-2"
+          >
+            <Input
+              :id="index === 0 ? 'application-domain-suffix' : `application-domain-suffix-${index}`"
+              :model-value="suffix"
+              class="rounded-[3px] font-mono text-sm"
+              :placeholder="t('applicationIngress.suffixPlaceholder')"
+              autocomplete="off"
+              spellcheck="false"
+              :aria-invalid="Boolean(props.domainError)"
+              aria-describedby="application-domain-suffix-help application-domain-suffix-error"
+              @update:model-value="updateApplicationDomainSuffix(index, $event)"
+            />
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              class="size-8 shrink-0 rounded-[3px] text-muted-foreground hover:text-destructive"
+              :aria-label="t('applicationIngress.removeSuffix', { index: index + 1 })"
+              :title="t('applicationIngress.removeSuffix', { index: index + 1 })"
+              @click="removeApplicationDomainSuffix(index)"
+            >
+              <Trash2 class="size-4" :stroke-width="1.5" />
+            </Button>
+          </div>
+        </div>
         <p id="application-domain-suffix-help" class="text-[11px] leading-4 text-muted-foreground">
-          Used for generated platform hostnames, for example
-          <code class="font-mono text-foreground">api.apps.example.com</code>. Custom domains may
-          use any hostname allowed by the operator policy.
+          {{ t("applicationIngress.suffixHelpPrefix") }}
+          <code class="font-mono text-foreground">api.apps.example.com</code>.
+          {{ t("applicationIngress.suffixHelpSuffix") }}
         </p>
         <p
           v-if="props.domainError"
@@ -202,7 +253,10 @@ function updateCustomCertificate(value: string | number) {
             <span class="font-mono text-foreground">01</span>
             <p>
               In Cloudflare DNS, create a proxied CNAME record:
-              <code class="font-mono text-foreground">{{ serviceWildcard }}</code>
+              <template v-for="(wildcard, index) in serviceWildcards" :key="wildcard">
+                <span v-if="index > 0">, </span>
+                <code class="font-mono text-foreground">{{ wildcard }}</code>
+              </template>
               to
               <code class="break-all font-mono text-foreground"
                 >&lt;tunnel-id&gt;.cfargotunnel.com</code
@@ -213,7 +267,10 @@ function updateCustomCertificate(value: string | number) {
             <span class="font-mono text-foreground">02</span>
             <p>
               In the Tunnel, add a published application route from
-              <code class="font-mono text-foreground">{{ serviceWildcard }}</code>
+              <template v-for="(wildcard, index) in serviceWildcards" :key="wildcard">
+                <span v-if="index > 0">, </span>
+                <code class="font-mono text-foreground">{{ wildcard }}</code>
+              </template>
               to
               <code class="font-mono text-foreground">http://127.0.0.1:80</code>.
             </p>
@@ -280,7 +337,10 @@ function updateCustomCertificate(value: string | number) {
             <span class="font-mono text-foreground">01</span>
             <p>
               {{ t("ingressSetup.applicationDnsPrefix") }}
-              <code class="break-all font-mono text-foreground">{{ serviceWildcard }}</code>
+              <template v-for="(wildcard, index) in serviceWildcards" :key="wildcard">
+                <span v-if="index > 0">, </span>
+                <code class="break-all font-mono text-foreground">{{ wildcard }}</code>
+              </template>
               {{ t("ingressSetup.to") }}
               <code class="break-all font-mono text-foreground">{{ dnsTarget }}</code
               >.

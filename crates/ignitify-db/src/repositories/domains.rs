@@ -19,6 +19,7 @@ pub struct DomainRecord {
     pub id: DomainId,
     pub service_id: ServiceId,
     pub hostname: DomainName,
+    pub target_port: u32,
     pub status: DomainStatus,
     pub last_error: Option<String>,
     pub dns_record: Option<DnsRecord>,
@@ -64,7 +65,7 @@ impl DomainsRepository {
             return Ok(None);
         }
         let rows = sqlx::query_as::<_, DomainRow>(
-            "SELECT id, service_id, hostname, status, last_error,
+            "SELECT id, service_id, hostname, target_port, status, last_error,
                     dns_record_type, dns_record_target, dns_status, dns_error, dns_checked_at,
                     created_at, updated_at
              FROM domains WHERE service_id = ? ORDER BY created_at",
@@ -83,8 +84,14 @@ impl DomainsRepository {
         actor: DomainActor<'_>,
         service_id: &str,
         hostname: DomainName,
+        target_port: u32,
         dns_record: DnsRecord,
     ) -> Result<DomainMutationOutcome> {
+        if !(1..=65_535).contains(&target_port) {
+            return Err(DatabaseError::InvalidDomainTargetPort(i64::from(
+                target_port,
+            )));
+        }
         let Some(role) = self.service_role(actor, service_id).await? else {
             return Ok(DomainMutationOutcome::Missing);
         };
@@ -96,12 +103,13 @@ impl DomainsRepository {
         let mut tx = self.pool.begin().await?;
         let result = sqlx::query(
             "INSERT INTO domains
-             (id, service_id, hostname, status, dns_record_type, dns_record_target, dns_status, created_at, updated_at)
-             VALUES (?, ?, ?, 'pending', ?, ?, 'not_checked', ?, ?)",
+             (id, service_id, hostname, target_port, status, dns_record_type, dns_record_target, dns_status, created_at, updated_at)
+             VALUES (?, ?, ?, ?, 'pending', ?, ?, 'not_checked', ?, ?)",
         )
         .bind(&id)
         .bind(service_id)
         .bind(hostname.as_str())
+        .bind(target_port)
         .bind(dns_record.record_type().as_str())
         .bind(dns_record.target().to_string())
         .bind(&now)
@@ -164,7 +172,7 @@ impl DomainsRepository {
 
     pub async fn active_for_service(&self, service_id: &str) -> Result<Vec<DomainRecord>> {
         let rows = sqlx::query_as::<_, DomainRow>(
-            "SELECT id, service_id, hostname, status, last_error,
+            "SELECT id, service_id, hostname, target_port, status, last_error,
                     dns_record_type, dns_record_target, dns_status, dns_error, dns_checked_at,
                     created_at, updated_at
              FROM domains WHERE service_id = ? ORDER BY created_at",
@@ -177,7 +185,7 @@ impl DomainsRepository {
 
     pub async fn all(&self) -> Result<Vec<DomainRecord>> {
         let rows = sqlx::query_as::<_, DomainRow>(
-            "SELECT id, service_id, hostname, status, last_error,
+            "SELECT id, service_id, hostname, target_port, status, last_error,
                     dns_record_type, dns_record_target, dns_status, dns_error, dns_checked_at,
                     created_at, updated_at
              FROM domains ORDER BY created_at",
@@ -257,7 +265,7 @@ impl DomainsRepository {
 
     pub async fn pending_dns_verifications(&self) -> Result<Vec<DomainRecord>> {
         let rows = sqlx::query_as::<_, DomainRow>(
-            "SELECT id, service_id, hostname, status, last_error,
+            "SELECT id, service_id, hostname, target_port, status, last_error,
                     dns_record_type, dns_record_target, dns_status, dns_error, dns_checked_at,
                     created_at, updated_at
              FROM domains
@@ -298,7 +306,7 @@ impl DomainsRepository {
         domain_id: &str,
     ) -> Result<Option<(DomainRecord, ProjectMemberRole)>> {
         let row = sqlx::query_as::<_, DomainWithProjectRow>(
-            "SELECT d.id, d.service_id, d.hostname, d.status, d.last_error,
+            "SELECT d.id, d.service_id, d.hostname, d.target_port, d.status, d.last_error,
                     d.dns_record_type, d.dns_record_target, d.dns_status, d.dns_error, d.dns_checked_at,
                     d.created_at, d.updated_at,
                     e.project_id
@@ -370,7 +378,7 @@ async fn fetch_domain(
     domain_id: &str,
 ) -> Result<Option<DomainRecord>> {
     let row = sqlx::query_as::<_, DomainRow>(
-        "SELECT id, service_id, hostname, status, last_error,
+        "SELECT id, service_id, hostname, target_port, status, last_error,
                 dns_record_type, dns_record_target, dns_status, dns_error, dns_checked_at,
                 created_at, updated_at
          FROM domains WHERE id = ?",
@@ -403,6 +411,10 @@ async fn insert_audit(
 }
 
 fn domain_from_row(row: DomainRow) -> Result<DomainRecord> {
+    let target_port = u32::try_from(row.target_port)
+        .ok()
+        .filter(|port| (1..=65_535).contains(port))
+        .ok_or(DatabaseError::InvalidDomainTargetPort(row.target_port))?;
     let dns_status = row
         .dns_status
         .as_str()
@@ -429,6 +441,7 @@ fn domain_from_row(row: DomainRow) -> Result<DomainRecord> {
             .map_err(|_| sqlx::Error::Protocol("stored service id is invalid".into()))?,
         hostname: DomainName::new(row.hostname)
             .map_err(|_| sqlx::Error::Protocol("stored domain name is invalid".into()))?,
+        target_port,
         status: row
             .status
             .as_str()
@@ -449,6 +462,7 @@ struct DomainRow {
     id: String,
     service_id: String,
     hostname: String,
+    target_port: i64,
     status: String,
     last_error: Option<String>,
     dns_record_type: String,
@@ -465,6 +479,7 @@ struct DomainWithProjectRow {
     id: String,
     service_id: String,
     hostname: String,
+    target_port: i64,
     status: String,
     last_error: Option<String>,
     dns_record_type: String,
@@ -483,6 +498,7 @@ impl From<DomainWithProjectRow> for DomainRow {
             id: row.id,
             service_id: row.service_id,
             hostname: row.hostname,
+            target_port: row.target_port,
             status: row.status,
             last_error: row.last_error,
             dns_record_type: row.dns_record_type,

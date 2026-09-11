@@ -80,7 +80,7 @@ function syncScroll(event: Event) {
       :aria-label="props.ariaLabel"
       :placeholder="props.placeholder"
       :required="props.required"
-      class="absolute inset-0 h-80 w-full resize-none overflow-auto bg-transparent p-4 pl-14 font-mono text-xs leading-6 whitespace-pre text-transparent caret-sky-300 outline-none placeholder:text-[#667085] selection:bg-sky-300/20"
+      class="absolute inset-0 h-full min-h-0 w-full resize-none overflow-auto rounded-none border-0 bg-transparent p-4 pl-14 font-mono text-xs leading-6 whitespace-pre text-transparent caret-sky-300 outline-none placeholder:text-[#667085] selection:bg-sky-300/20 md:text-xs"
       style="color: transparent; -webkit-text-fill-color: transparent"
       wrap="off"
       spellcheck="false"

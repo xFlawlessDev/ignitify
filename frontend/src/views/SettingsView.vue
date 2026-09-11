@@ -42,7 +42,7 @@ import type {
 
 interface SettingsDraft {
   controlPlaneDomain: string;
-  applicationDomainSuffix: string;
+  applicationDomainSuffixes: string[];
   httpsEnabled: boolean;
   automaticallyProvisionSsl: boolean;
   acmeEmail: string;
@@ -60,7 +60,7 @@ type SettingsSection = "overview" | "ingress" | "delivery" | "backup";
 
 const defaults: SettingsDraft = {
   controlPlaneDomain: "",
-  applicationDomainSuffix: "",
+  applicationDomainSuffixes: [""],
   httpsEnabled: false,
   automaticallyProvisionSsl: false,
   acmeEmail: "",
@@ -103,7 +103,10 @@ function toDraft(settings: InfrastructureSettingsResponse): SettingsDraft {
 
   return {
     controlPlaneDomain: settings.control_plane_domain,
-    applicationDomainSuffix: settings.application_domain_suffix,
+    applicationDomainSuffixes:
+      settings.application_domain_suffixes?.length > 0
+        ? [...settings.application_domain_suffixes]
+        : [settings.application_domain_suffix ?? ""],
     httpsEnabled: settings.https_enabled,
     automaticallyProvisionSsl:
       settings.https_enabled &&
@@ -132,14 +135,25 @@ const requestError = shallowRef("");
 const { t } = useI18n();
 
 const domainError = computed(() => {
-  const value = draft.applicationDomainSuffix.trim();
-  if (!value) return "Application domain suffix is required.";
+  const suffixes = draft.applicationDomainSuffixes.map((suffix) => suffix.trim().toLowerCase());
+  if (suffixes.length === 0 || suffixes.some((suffix) => !suffix)) {
+    return t("applicationIngress.validation.required");
+  }
+  if (suffixes.length > 32) {
+    return t("applicationIngress.validation.max");
+  }
+  if (new Set(suffixes).size !== suffixes.length) {
+    return t("applicationIngress.validation.unique");
+  }
   if (
-    value.length > 253 ||
-    value.includes("..") ||
-    !/^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/i.test(value)
+    suffixes.some(
+      (value) =>
+        value.length > 253 ||
+        value.includes("..") ||
+        !/^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/i.test(value),
+    )
   ) {
-    return "Use a valid hostname without a protocol or path.";
+    return t("applicationIngress.validation.invalid");
   }
   return "";
 });
@@ -401,7 +415,10 @@ async function saveSettings() {
   requestError.value = "";
   const result = await apiUpdateInfrastructureSettings({
     control_plane_domain: draft.controlPlaneDomain.trim(),
-    application_domain_suffix: draft.applicationDomainSuffix.trim(),
+    application_domain_suffix: draft.applicationDomainSuffixes[0]?.trim() ?? "",
+    application_domain_suffixes: draft.applicationDomainSuffixes
+      .map((suffix) => suffix.trim())
+      .filter(Boolean),
     https_enabled: draft.httpsEnabled,
     automatically_provision_ssl: draft.automaticallyProvisionSsl,
     acme_email: draft.acmeEmail.trim(),
@@ -546,7 +563,7 @@ onMounted(loadSettings);
           <ApplicationIngressSettings
             :public-origin="applicationEnvironment?.public_origin ?? ''"
             :control-plane-domain="draft.controlPlaneDomain"
-            :application-domain-suffix="draft.applicationDomainSuffix"
+            :application-domain-suffixes="draft.applicationDomainSuffixes"
             :https-enabled="draft.httpsEnabled"
             :automatically-provision-ssl="draft.automaticallyProvisionSsl"
             :acme-email="draft.acmeEmail"
@@ -559,8 +576,8 @@ onMounted(loadSettings);
             :email-error="isDirty ? emailError : ''"
             :dns-error="isDirty ? dnsError : ''"
             :tls-error="isDirty ? tlsError : ''"
-            @update:application-domain-suffix="
-              draft.applicationDomainSuffix = $event;
+            @update:application-domain-suffixes="
+              draft.applicationDomainSuffixes = $event;
               markDirty();
             "
             @update:https-enabled="updateHttpsEnabled"
