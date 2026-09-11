@@ -46,6 +46,7 @@ const initialSettings = {
   },
   control_plane_domain: "",
   application_domain_suffix: "",
+  application_domain_suffixes: [""],
   https_enabled: true,
   automatically_provision_ssl: true,
   acme_email: "ops@example.com",
@@ -257,6 +258,38 @@ describe("SettingsView", () => {
 
     expect(host.textContent).toContain("Use a valid hostname without a protocol or path.");
     expect(save.disabled).toBe(true);
+  });
+
+  it("persists multiple managed domain suffixes", async () => {
+    const { host } = await mountSettings();
+    await selectSection(host, "Ingress & TLS");
+    const firstDomain = host.querySelector("#application-domain-suffix") as HTMLInputElement;
+    firstDomain.value = "apps.example.com";
+    firstDomain.dispatchEvent(new Event("input", { bubbles: true }));
+    const addSuffix = [...host.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("Add suffix"),
+    ) as HTMLButtonElement;
+    addSuffix.click();
+    await nextTick();
+    const secondDomain = host.querySelector("#application-domain-suffix-1") as HTMLInputElement;
+    secondDomain.value = "services.example.net";
+    secondDomain.dispatchEvent(new Event("input", { bubbles: true }));
+    await nextTick();
+
+    const save = [...host.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("Save changes"),
+    ) as HTMLButtonElement;
+    expect(save.disabled).toBe(false);
+    save.click();
+    await settle();
+
+    const payload = mocks.updateInfrastructure.mock.calls[0]?.[0] as
+      | Record<string, unknown>
+      | undefined;
+    expect(payload?.application_domain_suffixes).toEqual([
+      "apps.example.com",
+      "services.example.net",
+    ]);
   });
 
   it("configures a separate HTTPS control-plane domain", async () => {

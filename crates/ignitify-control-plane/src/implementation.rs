@@ -577,9 +577,6 @@ where
     R: ImageRuntime,
     I: Ingress,
 {
-    let Some(port) = runtime_deployment.spec.internal_port() else {
-        return Ok(());
-    };
     let domain_records = domains
         .active_for_service(deployment.service_id.as_str())
         .await?;
@@ -601,7 +598,12 @@ where
     }
     let mut routes = Vec::with_capacity(domain_records.len());
     for domain in &domain_records {
-        routes.push(ingress.route(&deployment.service_id, &domain.id, &domain.hostname, port)?);
+        routes.push(ingress.route(
+            &deployment.service_id,
+            &domain.id,
+            &domain.hostname,
+            domain.target_port,
+        )?);
     }
     let environment = decrypt_deployment_environment(cipher, &deployment.variables_ciphertext)?;
     let Some(runtime_ref) = deployment.runtime_ref.as_deref() else {

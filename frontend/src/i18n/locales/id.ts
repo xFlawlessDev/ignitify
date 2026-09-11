@@ -429,6 +429,22 @@ export default {
     requiresHttps: "Aktifkan HTTPS sebelum mengekspos control plane.",
     requiresCertificate: "Aktifkan sertifikat otomatis atau pilih sertifikat kustom.",
   },
+  applicationIngress: {
+    managedDomainSuffixes: "Suffix domain terkelola",
+    addSuffix: "Tambah suffix",
+    removeSuffix: "Hapus suffix {index}",
+    suffixPlaceholder: "apps.example.com",
+    suffixHelpPrefix:
+      "Setiap suffix membuat namespace wildcard untuk hostname platform yang dibuat, misalnya",
+    suffixHelpSuffix:
+      "Tambahkan satu suffix untuk setiap keluarga domain. Domain kustom ditetapkan ke service di panel Domains.",
+    validation: {
+      required: "Setidaknya satu suffix domain aplikasi wajib diisi.",
+      max: "Gunakan maksimal 32 suffix domain aplikasi.",
+      unique: "Setiap suffix domain aplikasi harus unik.",
+      invalid: "Gunakan hostname valid tanpa protokol atau path.",
+    },
+  },
   ingressSetup: {
     publicVps: "VPS publik",
     title: "Pengaturan ingress langsung",

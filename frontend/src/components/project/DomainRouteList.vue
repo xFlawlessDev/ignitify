@@ -18,10 +18,6 @@ function serviceName(id: string) {
   return props.services.find((service) => service.id === id)?.name ?? "Unknown service";
 }
 
-function servicePort(id: string) {
-  return props.services.find((service) => service.id === id)?.internal_port ?? "-";
-}
-
 function domainUrl(hostname: string) {
   return `https://${hostname}`;
 }
@@ -101,7 +97,7 @@ function formatCheckedAt(value: string | null) {
             class="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground"
           >
             <span>{{ serviceName(domain.service_id) }}</span>
-            <span class="font-mono">port {{ servicePort(domain.service_id) }}</span>
+            <span class="font-mono">port {{ domain.target_port }}</span>
             <span
               class="font-medium"
               :class="

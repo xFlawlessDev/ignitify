@@ -1,6 +1,6 @@
 {
   "name": "ignitify-frontend",
-  "version": "0.2.11",
+  "version": "0.2.12",
   "private": true,
   "type": "module",
   "scripts": {
@@ -40,6 +40,7 @@
     "pinia": "^4.0.3",
     "qrcode": "^1.5.4",
     "reka-ui": "^2.10.3",
+    "shiki": "^4.4.3",
     "tailwind-merge": "^3.5.0",
     "tailwindcss": "^4.2.2",
     "vee-validate": "^4.15.1",

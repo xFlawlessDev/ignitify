@@ -203,6 +203,7 @@ export interface DomainSummary {
   id: string;
   service_id: string;
   hostname: string;
+  target_port: number;
   status: "pending" | "active" | "failed";
   last_error: string | null;
   dns_record_type: "a" | "cname" | null;

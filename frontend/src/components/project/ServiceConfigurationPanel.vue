@@ -674,10 +674,11 @@ const {
 
     <section class="grid gap-5 border-t border-border pt-5 sm:grid-cols-2">
       <div class="grid gap-2">
-        <Label for="service-config-port">Internal port</Label>
+        <Label for="service-config-port">Default application port</Label>
         <Input id="service-config-port" v-model="internalPort" type="number" min="1" max="65535" />
         <p class="text-[11px] leading-4 text-muted-foreground">
-          The private port exposed to the control plane.
+          New domain routes use this port by default. You can target another application port per
+          domain in the Domains tab.
         </p>
       </div>
       <div class="grid gap-2">

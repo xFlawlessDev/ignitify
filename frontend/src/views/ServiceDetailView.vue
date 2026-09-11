@@ -564,7 +564,10 @@ onUnmounted(() => {
           :fixed-service-id="service.id"
           :loading="domains.loading.value"
           :services="[service]"
-          @create="(domainServiceId, hostname) => domains.create(domainServiceId, hostname)"
+          @create="
+            (domainServiceId, hostname, targetPort) =>
+              domains.create(domainServiceId, hostname, targetPort)
+          "
           @remove="(domain: DomainSummary) => domains.remove(domain)"
           @retry="domains.load([service.id])"
           @verify="(domain: DomainSummary) => domains.verify(domain)"

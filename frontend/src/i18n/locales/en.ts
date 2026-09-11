@@ -427,6 +427,22 @@ export default {
     requiresHttps: "Enable HTTPS before exposing the control plane.",
     requiresCertificate: "Enable automatic certificates or select a custom certificate.",
   },
+  applicationIngress: {
+    managedDomainSuffixes: "Managed domain suffixes",
+    addSuffix: "Add suffix",
+    removeSuffix: "Remove suffix {index}",
+    suffixPlaceholder: "apps.example.com",
+    suffixHelpPrefix:
+      "Each suffix creates a wildcard namespace for generated platform hostnames, for example",
+    suffixHelpSuffix:
+      "Add one suffix per domain family. Custom domains are assigned to a service in its Domains panel.",
+    validation: {
+      required: "At least one application domain suffix is required.",
+      max: "Use no more than 32 application domain suffixes.",
+      unique: "Each application domain suffix must be unique.",
+      invalid: "Use a valid hostname without a protocol or path.",
+    },
+  },
   ingressSetup: {
     publicVps: "Public VPS",
     title: "Direct ingress setup",

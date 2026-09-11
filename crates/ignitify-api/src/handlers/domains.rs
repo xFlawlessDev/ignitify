@@ -18,6 +18,7 @@ use crate::{
 #[serde(deny_unknown_fields)]
 pub(crate) struct CreateDomainRequest {
     hostname: String,
+    target_port: Option<u32>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -31,6 +32,7 @@ pub(crate) struct DomainResponse {
     id: String,
     service_id: String,
     hostname: String,
+    target_port: u32,
     status: String,
     last_error: Option<String>,
     dns_record_type: Option<String>,
@@ -48,6 +50,7 @@ impl From<DomainRecord> for DomainResponse {
             id: domain.id.to_string(),
             service_id: domain.service_id.to_string(),
             hostname: domain.hostname.to_string(),
+            target_port: domain.target_port,
             status: domain.status.as_str().to_owned(),
             last_error: domain.last_error,
             dns_record_type: domain
@@ -93,7 +96,7 @@ pub(crate) async fn create(
 ) -> Result<(axum::http::StatusCode, Json<DomainResponse>), ApiError> {
     let actor = require_actor(&state, &headers).await?;
     require_same_origin_request(&state, &headers)?;
-    let hostname = DomainName::new(input.hostname)?;
+    let hostname = DomainName::new(input.hostname.trim().to_ascii_lowercase())?;
     if state.domain_policy.restricts_to_operator_suffixes()
         && !state.domain_policy.allows(&hostname)
     {
@@ -112,10 +115,15 @@ pub(crate) async fn create(
         )
         .await?
         .ok_or(ApiError::NotFound)?;
-    let has_port = service.spec.internal_port().is_some();
-    if !has_port {
+    let Some(default_port) = service.spec.internal_port() else {
         return Err(ApiError::BadRequest(
             "service needs internal port before adding domain",
+        ));
+    };
+    let target_port = input.target_port.unwrap_or(default_port);
+    if !(1..=65_535).contains(&target_port) {
+        return Err(ApiError::BadRequest(
+            "target port must be between 1 and 65535",
         ));
     }
     let settings = state.database.server_settings().get().await?;
@@ -138,7 +146,13 @@ pub(crate) async fn create(
     let outcome = state
         .database
         .domains()
-        .create(domain_actor(&actor), &service_id, hostname, dns_record)
+        .create(
+            domain_actor(&actor),
+            &service_id,
+            hostname,
+            target_port,
+            dns_record,
+        )
         .await?;
     let record = match outcome {
         DomainMutationOutcome::Created(record) => record,

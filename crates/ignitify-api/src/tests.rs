@@ -1145,7 +1145,7 @@ async fn infrastructure_settings_require_admin_and_persist_validated_updates() {
             "PATCH",
             "/api/v1/settings/infrastructure",
             Some(&token),
-            r#"{"application_domain_suffix":"Apps.Example.com","https_enabled":true,"automatically_provision_ssl":true,"acme_email":"ops@apps.example.com","dns_record_type":"a","dns_record_target":"203.0.113.10","fallback_page_heading":"This application is unavailable","fallback_page_message":"Check the address and try again.","certificate_provider":"lets-encrypt","custom_certificate_id":null,"concurrent_builds":4}"#,
+            r#"{"application_domain_suffix":"Apps.Example.com","application_domain_suffixes":["Apps.Example.com","Services.Example.net"],"https_enabled":true,"automatically_provision_ssl":true,"acme_email":"ops@apps.example.com","dns_record_type":"a","dns_record_target":"203.0.113.10","fallback_page_heading":"This application is unavailable","fallback_page_message":"Check the address and try again.","certificate_provider":"lets-encrypt","custom_certificate_id":null,"concurrent_builds":4}"#,
         ))
         .await
         .unwrap();
@@ -1153,6 +1153,10 @@ async fn infrastructure_settings_require_admin_and_persist_validated_updates() {
     let body = updated.into_body().collect().await.unwrap().to_bytes();
     let settings: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(settings["application_domain_suffix"], "apps.example.com");
+    assert_eq!(
+        settings["application_domain_suffixes"],
+        serde_json::json!(["apps.example.com", "services.example.net"])
+    );
     assert_eq!(settings["acme_email"], "ops@apps.example.com");
     assert_eq!(settings["dns_record_type"], "a");
     assert_eq!(settings["dns_record_target"], "203.0.113.10");
@@ -1924,6 +1928,7 @@ async fn domain_routes_require_service_port_and_exact_confirmation() {
         .update(ServerSettingsUpdate {
             control_plane_domain: "console.apps.example.com".to_owned(),
             application_domain_suffix: "apps.example.com".to_owned(),
+            application_domain_suffixes: vec!["apps.example.com".to_owned()],
             https_enabled: true,
             automatically_provision_ssl: true,
             acme_email: "ops@apps.example.com".to_owned(),
@@ -2001,7 +2006,7 @@ async fn domain_routes_require_service_port_and_exact_confirmation() {
                 service["id"].as_str().unwrap()
             ),
             Some(&token),
-            r#"{"hostname":"console.apps.example.com"}"#,
+            r#"{"hostname":"console.apps.example.com","target_port":8080}"#,
         ))
         .await
         .unwrap();
@@ -2015,7 +2020,7 @@ async fn domain_routes_require_service_port_and_exact_confirmation() {
                 service["id"].as_str().unwrap()
             ),
             Some(&token),
-            r#"{"hostname":"app.apps.example.com"}"#,
+            r#"{"hostname":"app.apps.example.com","target_port":9001}"#,
         ))
         .await
         .unwrap();
@@ -2025,6 +2030,21 @@ async fn domain_routes_require_service_port_and_exact_confirmation() {
     assert_eq!(domain["dns_record_type"], "a");
     assert_eq!(domain["dns_record_target"], "203.0.113.10");
     assert_eq!(domain["dns_status"], "not_checked");
+    assert_eq!(domain["target_port"], 9001);
+    let duplicate = app
+        .clone()
+        .oneshot(request(
+            "POST",
+            &format!(
+                "/api/v1/services/{}/domains",
+                service["id"].as_str().unwrap()
+            ),
+            Some(&token),
+            r#"{"hostname":"APP.APPS.EXAMPLE.COM","target_port":9001}"#,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(duplicate.status(), StatusCode::CONFLICT);
     let reserved = app
         .clone()
         .oneshot(request(

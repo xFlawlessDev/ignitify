@@ -35,9 +35,13 @@ export function useDomains() {
     error.value = null;
   }
 
-  async function create(serviceId: string, hostname: string): Promise<DomainSummary | null> {
+  async function create(
+    serviceId: string,
+    hostname: string,
+    targetPort: number,
+  ): Promise<DomainSummary | null> {
     error.value = null;
-    const result = await apiCreateDomain(serviceId, hostname);
+    const result = await apiCreateDomain(serviceId, hostname, targetPort);
     if (!result.success) {
       error.value = result.error ?? "Could not add domain";
       return null;

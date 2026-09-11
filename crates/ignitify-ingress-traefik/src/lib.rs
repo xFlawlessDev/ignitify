@@ -892,6 +892,7 @@ mod tests {
         ignitify_db::ServerSettingsRecord {
             control_plane_domain: String::new(),
             application_domain_suffix: "apps.example.com".to_owned(),
+            application_domain_suffixes: vec!["apps.example.com".to_owned()],
             https_enabled: true,
             automatically_provision_ssl: true,
             acme_email: "ops@example.com".to_owned(),

@@ -8,3 +8,4 @@
 /infra/traefik/dynamic/certificates.yml
 /infra/traefik/dynamic/certs/
 .env
+.commandcode

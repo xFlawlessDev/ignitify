@@ -24,7 +24,10 @@ const MAX_CERTIFICATE_BYTES: usize = 2 * 1024 * 1024;
 pub(crate) struct InfrastructureSettingsRequest {
     #[serde(default)]
     control_plane_domain: String,
-    application_domain_suffix: String,
+    #[serde(default)]
+    application_domain_suffix: Option<String>,
+    #[serde(default)]
+    application_domain_suffixes: Option<Vec<String>>,
     https_enabled: bool,
     automatically_provision_ssl: bool,
     acme_email: String,
@@ -51,6 +54,7 @@ pub(crate) struct InfrastructureSettingsResponse {
     application: ApplicationEnvironmentResponse,
     control_plane_domain: String,
     application_domain_suffix: String,
+    application_domain_suffixes: Vec<String>,
     https_enabled: bool,
     automatically_provision_ssl: bool,
     acme_email: String,
@@ -228,6 +232,7 @@ pub(crate) async fn remove_certificate(
         repository
             .update(ServerSettingsUpdate {
                 application_domain_suffix: current.application_domain_suffix,
+                application_domain_suffixes: current.application_domain_suffixes,
                 https_enabled: current.https_enabled,
                 automatically_provision_ssl: current.automatically_provision_ssl,
                 acme_email: current.acme_email,
@@ -299,6 +304,7 @@ fn settings_response(
         application,
         control_plane_domain: settings.control_plane_domain,
         application_domain_suffix: settings.application_domain_suffix,
+        application_domain_suffixes: settings.application_domain_suffixes,
         https_enabled: settings.https_enabled,
         automatically_provision_ssl: settings.automatically_provision_ssl,
         acme_email: settings.acme_email,
@@ -319,20 +325,47 @@ async fn validate_request(
     state: &AppState,
     request: InfrastructureSettingsRequest,
 ) -> Result<ServerSettingsUpdate, ApiError> {
-    let application_domain_suffix = request
-        .application_domain_suffix
-        .trim()
-        .to_ascii_lowercase();
-    if application_domain_suffix.is_empty() {
+    let requested_suffixes = request
+        .application_domain_suffixes
+        .filter(|suffixes| !suffixes.is_empty())
+        .or_else(|| request.application_domain_suffix.map(|suffix| vec![suffix]));
+    let requested_suffixes = requested_suffixes.ok_or(ApiError::BadRequest(
+        "at least one application domain suffix is required",
+    ))?;
+    if requested_suffixes.len() > 32 {
         return Err(ApiError::BadRequest(
-            "application domain suffix is required",
+            "no more than 32 application domain suffixes are allowed",
         ));
     }
-    DomainName::new(&application_domain_suffix).map_err(|_| {
-        ApiError::BadRequest(
-            "application domain suffix must be a valid hostname without a protocol or path",
-        )
-    })?;
+    let mut application_domain_suffixes = Vec::with_capacity(requested_suffixes.len());
+    for suffix in requested_suffixes {
+        let suffix = suffix.trim().to_ascii_lowercase();
+        if suffix.is_empty() {
+            return Err(ApiError::BadRequest(
+                "application domain suffixes cannot be empty",
+            ));
+        }
+        DomainName::new(&suffix).map_err(|_| {
+            ApiError::BadRequest(
+                "application domain suffixes must be valid hostnames without a protocol or path",
+            )
+        })?;
+        if application_domain_suffixes
+            .iter()
+            .any(|value| value == &suffix)
+        {
+            return Err(ApiError::BadRequest(
+                "application domain suffixes must be unique",
+            ));
+        }
+        application_domain_suffixes.push(suffix);
+    }
+    if application_domain_suffixes.is_empty() {
+        return Err(ApiError::BadRequest(
+            "at least one application domain suffix is required",
+        ));
+    }
+    let application_domain_suffix = application_domain_suffixes[0].clone();
     let control_plane_domain = request.control_plane_domain.trim().to_ascii_lowercase();
     let control_plane_hostname = if control_plane_domain.is_empty() {
         None
@@ -438,6 +471,7 @@ async fn validate_request(
     Ok(ServerSettingsUpdate {
         control_plane_domain,
         application_domain_suffix,
+        application_domain_suffixes,
         https_enabled: request.https_enabled,
         automatically_provision_ssl: request.https_enabled && request.automatically_provision_ssl,
         acme_email,

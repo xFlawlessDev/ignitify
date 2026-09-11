@@ -36,6 +36,7 @@ describe("ServiceDomainsPanel", () => {
           id: "domain-1",
           service_id: service.id,
           hostname: "app.example.com",
+          target_port: 3000,
           status: "active" as const,
           last_error: null,
           dns_record_type: "a" as const,
@@ -62,6 +63,7 @@ describe("ServiceDomainsPanel", () => {
     expect(host.textContent).toContain("A 203.0.113.10");
     expect(host.textContent).toContain("Verify DNS");
     expect(host.textContent).toContain("Open link");
+    expect(host.textContent).toContain("port 3000");
     expect(host.textContent).toContain("This route targets the current service.");
     expect(host.querySelector("#domain-service")).toBeNull();
 
@@ -70,12 +72,17 @@ describe("ServiceDomainsPanel", () => {
     domainInput.dispatchEvent(new Event("input", { bubbles: true }));
     await nextTick();
 
+    const targetPortInput = host.querySelector("#domain-target-port") as HTMLInputElement;
+    targetPortInput.value = "9001";
+    targetPortInput.dispatchEvent(new Event("input", { bubbles: true }));
+    await nextTick();
+
     (host.querySelector("form") as HTMLFormElement).dispatchEvent(
       new Event("submit", { bubbles: true, cancelable: true }),
     );
     await nextTick();
 
-    expect(onCreate.mock.calls[0]).toEqual(["service-1", "api.example.com"]);
+    expect(onCreate.mock.calls[0]).toEqual(["service-1", "api.example.com", 9001]);
     (host.querySelector('button[title="Verify DNS"]') as HTMLButtonElement).click();
     await nextTick();
     const verified = onVerify.mock.calls[0]?.[0] as { id: string };

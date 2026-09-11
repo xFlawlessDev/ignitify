@@ -141,6 +141,24 @@ impl Ingress for FakeIngress {
     }
 }
 
+struct RecordingIngress(Arc<Mutex<Vec<(String, u32)>>>);
+
+impl Ingress for RecordingIngress {
+    fn route(
+        &self,
+        _service_id: &ignitify_domain::ServiceId,
+        _domain_id: &ignitify_domain::DomainId,
+        hostname: &ignitify_domain::DomainName,
+        port: u32,
+    ) -> super::Result<IngressRoute> {
+        self.0.lock().unwrap().push((hostname.to_string(), port));
+        Ok(IngressRoute {
+            labels: std::collections::BTreeMap::new(),
+            network: "none".to_owned(),
+        })
+    }
+}
+
 struct SyncingIngress(Arc<AtomicBool>);
 
 impl Ingress for SyncingIngress {
@@ -267,6 +285,7 @@ async fn worker_completes_requested_dns_verification() {
             actor,
             service.id.as_str(),
             DomainName::new("app.example.com").unwrap(),
+            8080,
             DnsRecord::new(DnsRecordType::A, "203.0.113.10").unwrap(),
         )
         .await
@@ -431,6 +450,22 @@ async fn worker_restart_scan_recovers_preparing_deployment_without_restarting_ru
             },
             service.id.as_str(),
             DomainName::new("app.example.com").unwrap(),
+            8080,
+            ignitify_domain::DnsRecord::new(ignitify_domain::DnsRecordType::A, "203.0.113.10")
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    database
+        .domains()
+        .create(
+            ignitify_db::DomainActor {
+                id: &actor_id,
+                is_admin: false,
+            },
+            service.id.as_str(),
+            DomainName::new("console.example.com").unwrap(),
+            9001,
             ignitify_domain::DnsRecord::new(ignitify_domain::DnsRecordType::A, "203.0.113.10")
                 .unwrap(),
         )
@@ -508,13 +543,15 @@ async fn worker_restart_scan_recovers_preparing_deployment_without_restarting_ru
         ])),
         routes_fail: false,
     };
+    let routed_ports = Arc::new(Mutex::new(Vec::new()));
+    let ingress = RecordingIngress(routed_ports.clone());
     let (publisher, _) = tokio::sync::broadcast::channel(16);
     reconcile_once(
         &database.deployments(),
         &database.domains(),
         &cipher,
         &runtime,
-        &FakeIngress,
+        &ingress,
         &super::StreamPublisher::new(publisher),
     )
     .await
@@ -554,6 +591,13 @@ async fn worker_restart_scan_recovers_preparing_deployment_without_restarting_ru
         [Some(
             "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".to_owned()
         )]
+    );
+    assert_eq!(
+        routed_ports.lock().unwrap().as_slice(),
+        [
+            ("app.example.com".to_owned(), 8080),
+            ("console.example.com".to_owned(), 9001)
+        ]
     );
 }
 
@@ -609,6 +653,7 @@ async fn reconcile_marks_domains_failed_when_route_application_fails() {
             },
             service.id.as_str(),
             DomainName::new("app.example.com").unwrap(),
+            8080,
             ignitify_domain::DnsRecord::new(ignitify_domain::DnsRecordType::A, "203.0.113.10")
                 .unwrap(),
         )

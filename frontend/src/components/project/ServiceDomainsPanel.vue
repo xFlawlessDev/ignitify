@@ -17,13 +17,14 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  create: [serviceId: string, hostname: string];
+  create: [serviceId: string, hostname: string, targetPort: number];
   remove: [domain: DomainSummary];
   retry: [];
   verify: [domain: DomainSummary];
 }>();
 
 const hostname = shallowRef("");
+const targetPort = shallowRef("");
 const confirmHostname = shallowRef("");
 const serviceId = shallowRef("");
 const confirmation = shallowRef<DomainSummary | null>(null);
@@ -44,6 +45,16 @@ const domainError = computed(() => {
   }
   return "";
 });
+const targetPortError = computed(() => {
+  const value = targetPort.value.trim();
+  if (!value) return "Target application port is required.";
+  if (!/^[0-9]+$/.test(value)) return "Target application port must be a whole number.";
+  const port = Number(value);
+  if (!Number.isSafeInteger(port) || port < 1 || port > 65535) {
+    return "Target application port must be between 1 and 65535.";
+  }
+  return "";
+});
 
 watch(
   [routableServices, () => props.fixedServiceId],
@@ -61,9 +72,18 @@ watch(
   { immediate: true },
 );
 
+watch(
+  serviceId,
+  (selectedServiceId) => {
+    const selectedService = props.services.find((service) => service.id === selectedServiceId);
+    targetPort.value = selectedService?.internal_port?.toString() ?? "";
+  },
+  { immediate: true },
+);
+
 function submit() {
-  if (!serviceId.value || domainError.value) return;
-  emit("create", serviceId.value, hostname.value.trim());
+  if (!serviceId.value || domainError.value || targetPortError.value) return;
+  emit("create", serviceId.value, hostname.value.trim(), Number(targetPort.value));
   hostname.value = "";
 }
 
@@ -87,10 +107,13 @@ function removeConfirmed() {
       :services="services"
       :server-domain="hostname"
       :service-id="serviceId"
+      :target-port="targetPort"
       :domain-error="domainError"
+      :target-port-error="targetPortError"
       :show-service-selector="!fixedServiceId"
       @update:server-domain="hostname = $event"
       @update:service-id="serviceId = $event"
+      @update:target-port="targetPort = $event"
       @create="submit"
     />
 

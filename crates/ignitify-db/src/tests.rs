@@ -563,6 +563,10 @@ async fn server_settings_and_encrypted_certificate_records_are_durable() {
         .update(ServerSettingsUpdate {
             control_plane_domain: "console.example.com".to_owned(),
             application_domain_suffix: "apps.example.com".to_owned(),
+            application_domain_suffixes: vec![
+                "apps.example.com".to_owned(),
+                "services.example.net".to_owned(),
+            ],
             https_enabled: true,
             automatically_provision_ssl: true,
             acme_email: "ops@apps.example.com".to_owned(),
@@ -578,6 +582,10 @@ async fn server_settings_and_encrypted_certificate_records_are_durable() {
         .unwrap();
     assert_eq!(updated.control_plane_domain, "console.example.com");
     assert_eq!(updated.application_domain_suffix, "apps.example.com");
+    assert_eq!(
+        updated.application_domain_suffixes,
+        ["apps.example.com", "services.example.net"]
+    );
     assert_eq!(updated.acme_email, "ops@apps.example.com");
     assert_eq!(updated.fallback_page_heading, "This app is unavailable");
     assert_eq!(updated.concurrent_builds, 4);
@@ -2135,6 +2143,7 @@ async fn domain_repository_enforces_hostname_uniqueness_role_and_confirmation() 
             owner,
             service.id.as_str(),
             DomainName::new("app.example.com").unwrap(),
+            8080,
             DnsRecord::new(DnsRecordType::A, "203.0.113.10").unwrap(),
         )
         .await
@@ -2142,6 +2151,7 @@ async fn domain_repository_enforces_hostname_uniqueness_role_and_confirmation() 
     let crate::DomainMutationOutcome::Created(domain) = created else {
         panic!("domain must be created");
     };
+    assert_eq!(domain.target_port, 8080);
     let activity = database
         .activity()
         .list_for_project(
@@ -2196,11 +2206,51 @@ async fn domain_repository_enforces_hostname_uniqueness_role_and_confirmation() 
             owner,
             service.id.as_str(),
             DomainName::new("app.example.com").unwrap(),
+            8080,
             DnsRecord::new(DnsRecordType::A, "203.0.113.10").unwrap(),
         )
         .await;
     assert!(matches!(
         duplicate,
+        Err(crate::DatabaseError::DomainNameConflict)
+    ));
+    let second_service = database
+        .services()
+        .create(
+            ServiceActor {
+                id: &owner_id,
+                is_admin: false,
+            },
+            project.id.as_str(),
+            ServiceInput::image(
+                "worker",
+                "nginx@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                Some(8080),
+                None,
+                vec![],
+            )
+            .unwrap()
+            .configuration,
+            vec![],
+            None,
+        )
+        .await
+        .unwrap();
+    let ServiceMutationOutcome::Created(second_service) = second_service else {
+        panic!("second service must be created");
+    };
+    let cross_service_duplicate = database
+        .domains()
+        .create(
+            owner,
+            second_service.id.as_str(),
+            DomainName::new("app.example.com").unwrap(),
+            8080,
+            DnsRecord::new(DnsRecordType::A, "203.0.113.10").unwrap(),
+        )
+        .await;
+    assert!(matches!(
+        cross_service_duplicate,
         Err(crate::DatabaseError::DomainNameConflict)
     ));
     let viewer = crate::DomainActor {
@@ -2405,6 +2455,7 @@ async fn service_removal_requires_confirmation_and_cascades_stopped_records() {
             },
             service.id.as_str(),
             DomainName::new("web.example.com").unwrap(),
+            8080,
             DnsRecord::new(DnsRecordType::Cname, "edge.example.com").unwrap(),
         )
         .await

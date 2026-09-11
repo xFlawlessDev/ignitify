@@ -44,6 +44,10 @@ pub enum DatabaseError {
     DomainConfirmationMismatch,
     #[error("invalid stored domain status: {0}")]
     InvalidDomainStatus(String),
+    #[error("invalid stored domain target port: {0}")]
+    InvalidDomainTargetPort(i64),
+    #[error("invalid stored application domain suffixes: {0}")]
+    InvalidApplicationDomainSuffixes(String),
     #[error("invalid stored DNS record type: {0}")]
     InvalidDnsRecordType(String),
     #[error("invalid stored DNS record target: {0}")]

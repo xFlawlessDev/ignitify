@@ -9,10 +9,11 @@ export function apiListDomains(serviceId: string): Promise<ApiResult<DomainSumma
 export function apiCreateDomain(
   serviceId: string,
   hostname: string,
+  targetPort: number,
 ): Promise<ApiResult<DomainSummary>> {
   return apiFetch<DomainSummary>(`/services/${encodeURIComponent(serviceId)}/domains`, {
     method: "POST",
-    body: JSON.stringify({ hostname }),
+    body: JSON.stringify({ hostname, target_port: targetPort }),
   });
 }
 

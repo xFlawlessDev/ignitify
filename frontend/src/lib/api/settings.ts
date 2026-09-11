@@ -29,6 +29,7 @@ export interface InfrastructureSettingsResponse {
   application: ApplicationEnvironmentStatus;
   control_plane_domain: string;
   application_domain_suffix: string;
+  application_domain_suffixes?: string[];
   https_enabled: boolean;
   automatically_provision_ssl: boolean;
   acme_email: string;
@@ -47,6 +48,7 @@ export interface InfrastructureSettingsResponse {
 export interface InfrastructureSettingsInput {
   control_plane_domain: string;
   application_domain_suffix: string;
+  application_domain_suffixes: string[];
   https_enabled: boolean;
   automatically_provision_ssl: boolean;
   acme_email: string;
