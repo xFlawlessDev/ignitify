@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { CSSProperties, HTMLAttributes } from "vue";
+import type { CSSProperties, Component, HTMLAttributes } from "vue";
 import { cn } from "@/lib/utils";
 import { motion } from "motion-v";
 import { computed, useSlots } from "vue";
@@ -51,8 +51,10 @@ const componentStyle = computed((): CSSProperties => ({
     "var(--bg), linear-gradient(var(--color-muted-foreground), var(--color-muted-foreground))",
 }));
 
+const motionElements = motion as unknown as Record<string, Component>;
+
 const MotionComponent = computed(() => {
-  return motion[props.as as keyof typeof motion] || motion.p;
+  return motionElements[props.as] || motion.p;
 });
 </script>
 
